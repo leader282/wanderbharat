@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { generateItinerarySchema } from "@/lib/api/validation";
+import { getCurrentUser } from "@/lib/auth/session";
+import { getAdminAuth } from "@/lib/firebase/admin";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import {
   loadEngineContextForPlan,
@@ -18,6 +20,12 @@ interface GenerateRouteDependencies {
   loadEngineContextForPlan?: typeof loadEngineContextForPlan;
   generateItinerary: typeof generateItinerary;
   saveItinerary: typeof saveItinerary;
+  /**
+   * Resolve the authenticated user (if any) for this request. Defaults
+   * to checking the session cookie, then the `Authorization: Bearer
+   * <idToken>` header. Tests can stub this without going through Firebase.
+   */
+  resolveUserId?: (request: Request) => Promise<string | null>;
 }
 
 const defaultDependencies: GenerateRouteDependencies = {
@@ -25,6 +33,7 @@ const defaultDependencies: GenerateRouteDependencies = {
   loadEngineContextForPlan,
   generateItinerary,
   saveItinerary,
+  resolveUserId: defaultResolveUserId,
 };
 
 /**
@@ -32,9 +41,11 @@ const defaultDependencies: GenerateRouteDependencies = {
  *
  * Thin wrapper around the engine:
  *   1. validate input
- *   2. load graph scoped to the *plan* (regions + start + days + modes)
- *   3. run engine
- *   4. persist + return
+ *   2. attach the verified user_id (cookie or bearer token), ignoring
+ *      any client-supplied user_id so callers can't impersonate
+ *   3. load graph scoped to the *plan* (regions + start + days + modes)
+ *   4. run engine
+ *   5. persist + return
  */
 export async function handleGenerateItinerary(
   request: Request,
@@ -62,7 +73,16 @@ export async function handleGenerateItinerary(
     );
   }
 
-  const input = parsed.data;
+  const resolveUserId = deps.resolveUserId ?? defaultResolveUserId;
+  let authedUserId: string | null = null;
+  try {
+    authedUserId = await resolveUserId(request);
+  } catch {
+    authedUserId = null;
+  }
+
+  // Always trust the verified id over anything the client sent.
+  const input = { ...parsed.data, user_id: authedUserId ?? undefined };
 
   let ctx;
   try {
@@ -114,4 +134,25 @@ export async function handleGenerateItinerary(
 
 export async function POST(request: Request) {
   return handleGenerateItinerary(request);
+}
+
+/**
+ * Default user-id resolver. Tries the verified session cookie first
+ * (fast, already trusted), then falls back to a bearer ID token in
+ * `Authorization`. Returns `null` for anonymous requests.
+ */
+async function defaultResolveUserId(request: Request): Promise<string | null> {
+  const fromCookie = await getCurrentUser();
+  if (fromCookie) return fromCookie.uid;
+
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return null;
+
+  try {
+    const decoded = await getAdminAuth().verifyIdToken(match[1].trim(), true);
+    return decoded.uid;
+  } catch {
+    return null;
+  }
 }

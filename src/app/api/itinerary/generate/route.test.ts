@@ -60,6 +60,7 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
     saveItinerary: async (itinerary) => {
       savedId = itinerary.id;
     },
+    resolveUserId: async () => null,
   });
 
   assert.equal(response.status, 201);
@@ -87,10 +88,39 @@ test("handleGenerateItinerary returns 422 without persisting failed plans", asyn
     saveItinerary: async () => {
       saveCalls += 1;
     },
+    resolveUserId: async () => null,
   });
 
   assert.equal(response.status, 422);
   const payload = (await response.json()) as { reason: string };
   assert.equal(payload.reason, "no_feasible_route");
   assert.equal(saveCalls, 0);
+});
+
+test("handleGenerateItinerary attaches the verified user_id to the itinerary input", async () => {
+  let observedUserId: string | undefined;
+  let savedUserId: string | null | undefined;
+
+  const response = await handleGenerateItinerary(
+    makeRequest({ ...validBody, user_id: "client_lied" }),
+    {
+      loadEngineContextForRegion: async () => ({ nodes: [], edges: [] }),
+      generateItinerary: async (input) => {
+        observedUserId = input.user_id;
+        return {
+          ok: true as const,
+          itinerary: { ...makeItinerary(), user_id: input.user_id ?? null },
+        };
+      },
+      saveItinerary: async (itinerary) => {
+        savedUserId = itinerary.user_id;
+      },
+      resolveUserId: async () => "uid_authed",
+    },
+  );
+
+  assert.equal(response.status, 201);
+  // Client-supplied user_id is overridden with the verified one.
+  assert.equal(observedUserId, "uid_authed");
+  assert.equal(savedUserId, "uid_authed");
 });
