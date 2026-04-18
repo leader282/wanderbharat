@@ -23,6 +23,7 @@ export const generateItinerarySchema = z.object({
     }),
     interests: z.array(z.string()).optional(),
     transport_modes: z.array(z.enum(TRANSPORT_MODES)).optional(),
+    prioritize_city_coverage: z.boolean().optional(),
   }),
 });
 

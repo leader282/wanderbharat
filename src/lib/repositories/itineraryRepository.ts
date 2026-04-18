@@ -20,6 +20,12 @@ export async function getItinerary(id: string): Promise<Itinerary | null> {
   return snap.exists ? (snap.data() as Itinerary) : null;
 }
 
+export async function deleteItinerary(id: string): Promise<void> {
+  await withFirestoreDiagnostics("deleteItinerary", async () => {
+    await db().collection(COLLECTIONS.itineraries).doc(id).delete();
+  });
+}
+
 export async function listItinerariesForUser(
   userId: string,
   limit = 50,

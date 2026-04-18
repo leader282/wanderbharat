@@ -9,7 +9,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 export const metadata: Metadata = {
   title: "wanderbharat — thoughtfully planned trips across India",
   description:
-    "Tell us how long you have, how you like to travel, and your budget. We'll build a day-by-day itinerary that actually fits.",
+    "Tell us how long you have and how you like to travel. We'll build a day-by-day itinerary that actually fits, then recommend a budget that feels justified.",
 };
 
 export default async function RootLayout({

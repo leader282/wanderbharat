@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphNode,
   Itinerary,
+  ItineraryBudgetLineItem,
   ItineraryActivity,
   ItineraryDay,
   PreferenceTag,
@@ -16,10 +17,7 @@ import {
   type EngineTuning,
   type EngineTuningOverride,
 } from "@/lib/config/engineTuning";
-import {
-  defaultPerKmCost,
-  maxDailyHoursFor,
-} from "@/lib/config/transportMode";
+import { defaultPerKmCost, maxDailyHoursFor } from "@/lib/config/transportMode";
 import { TravelGraph } from "@/lib/itinerary/graph";
 import { scoreCandidateNode, scoreItinerary } from "@/lib/itinerary/scoring";
 import {
@@ -35,6 +33,7 @@ import {
   validateDayPlan,
   validateInput,
 } from "@/lib/itinerary/constraints";
+import { deriveOptimalBudget } from "@/lib/itinerary/budget";
 
 /**
  * The itinerary engine orchestrates two phases:
@@ -85,9 +84,11 @@ interface RouteSelection {
   order: GraphNode[];
   dayPlan: ItineraryDay[];
   estimatedCost: number;
+  budgetLineItems: ItineraryBudgetLineItem[];
   totalTravelHours: number;
   totalTravelDistance: number;
   totalFatigueHours: number;
+  meaningfulStopCount: number;
   destinationScores: number[];
   experienceScore: number;
   fatiguePenalty: number;
@@ -118,13 +119,19 @@ export async function generateItinerary(
   const graph = new TravelGraph(ctx.nodes, ctx.edges);
   const start = graph.getNode(input.start_node);
   if (!start) {
-    return { ok: false, error: invalidInput(`Start node "${input.start_node}" not found.`) };
+    return {
+      ok: false,
+      error: invalidInput(`Start node "${input.start_node}" not found.`),
+    };
   }
 
   const requestedEndId = input.end_node ?? input.start_node;
   const end = graph.getNode(requestedEndId);
   if (!end) {
-    return { ok: false, error: invalidInput(`End node "${requestedEndId}" not found.`) };
+    return {
+      ok: false,
+      error: invalidInput(`End node "${requestedEndId}" not found.`),
+    };
   }
 
   const cfg = getTravelStyleConfig(input.preferences.travel_style);
@@ -213,10 +220,15 @@ export async function generateItinerary(
   );
   if (budgetError) return { ok: false, error: budgetError };
 
+  const derivedBudget = deriveOptimalBudget(
+    selected.estimatedCost,
+    input.preferences.budget.currency,
+  );
+
   const score = scoreItinerary({
     destinationScores: selected.destinationScores,
     budgetUtilisation: clamp(
-      selected.estimatedCost / Math.max(1, input.preferences.budget.max),
+      selected.estimatedCost / Math.max(1, derivedBudget.max),
       0,
       1.25,
     ),
@@ -235,10 +247,20 @@ export async function generateItinerary(
     start_node: start.id,
     end_node: end.id,
     days: input.days,
-    preferences: input.preferences,
-    nodes: buildNodeSequence(start.id, selected.order.map((node) => node.id), end.id),
+    preferences: {
+      ...input.preferences,
+      budget: derivedBudget,
+    },
+    nodes: buildNodeSequence(
+      start.id,
+      selected.order.map((node) => node.id),
+      end.id,
+    ),
     day_plan: selected.dayPlan,
     estimated_cost: Math.round(selected.estimatedCost),
+    budget_breakdown: {
+      line_items: selected.budgetLineItems,
+    },
     score: Number(score.toFixed(3)),
     created_at: now,
   };
@@ -261,7 +283,8 @@ function normaliseModes(modes: TransportMode[] | undefined): TransportMode[] {
 function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
   const orderedCandidates = [...opts.candidates].sort((left, right) => {
     const scoreDiff =
-      (opts.scoredById.get(right.id) ?? 0) - (opts.scoredById.get(left.id) ?? 0);
+      (opts.scoredById.get(right.id) ?? 0) -
+      (opts.scoredById.get(left.id) ?? 0);
     if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
     return left.id.localeCompare(right.id);
   });
@@ -270,25 +293,35 @@ function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
   let bestFeasible: RouteSelection | null = null;
   const route: GraphNode[] = [];
   const visited = new Set<string>();
+  const prioritizeCityCoverage =
+    opts.preferences.prioritize_city_coverage ?? false;
 
   const dfs = (cursor: GraphNode, travelHours: number) => {
     if (
-      bestFeasible &&
-      !bestFeasible.isFallbackStay &&
-      travelHours > bestFeasible.totalTravelHours + 0.01
+      shouldPruneByTravelHours({
+        route,
+        travelHours,
+        bestFeasible,
+        prioritizeCityCoverage,
+        opts,
+      })
     ) {
       return;
     }
 
     const current = evaluateRoute(route, opts);
     if (current) {
-      if (!bestOverall || compareRoutes(current, bestOverall) < 0) {
+      if (
+        !bestOverall ||
+        compareRoutes(current, bestOverall, prioritizeCityCoverage) < 0
+      ) {
         bestOverall = current;
       }
 
       if (
         !validateBudget(current.estimatedCost, opts.preferences.budget) &&
-        (!bestFeasible || compareRoutes(current, bestFeasible) < 0)
+        (!bestFeasible ||
+          compareRoutes(current, bestFeasible, prioritizeCityCoverage) < 0)
       ) {
         bestFeasible = current;
       }
@@ -301,7 +334,11 @@ function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
       if (visited.has(candidate.id)) continue;
       const leg = bestLegFor(cursor.id, candidate.id, opts);
       if (!leg) continue;
-      if (leg.travel_time_hours > modeAwareDailyCap(leg.transport_mode, opts.cfg) + 0.01) continue;
+      if (
+        leg.travel_time_hours >
+        modeAwareDailyCap(leg.transport_mode, opts.cfg) + 0.01
+      )
+        continue;
 
       route.push(candidate);
       visited.add(candidate.id);
@@ -317,6 +354,24 @@ function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
 
   dfs(opts.start, 0);
   return bestFeasible ?? bestOverall;
+}
+
+function shouldPruneByTravelHours(args: {
+  route: GraphNode[];
+  travelHours: number;
+  bestFeasible: RouteSelection | null;
+  prioritizeCityCoverage: boolean;
+  opts: RouteSearchInput;
+}): boolean {
+  const { bestFeasible } = args;
+  if (!bestFeasible || bestFeasible.isFallbackStay) return false;
+  if (args.travelHours <= bestFeasible.totalTravelHours + 0.01) return false;
+  if (!args.prioritizeCityCoverage) return true;
+
+  return (
+    computeMaxPossibleMeaningfulStopCount(args.route, args.opts) <=
+    bestFeasible.meaningfulStopCount
+  );
 }
 
 function evaluateRoute(
@@ -336,7 +391,7 @@ function evaluateRoute(
   });
   if (!dayPlan) return null;
 
-  const estimatedCost = estimateCost({
+  const costEstimate = estimateCost({
     dayPlan,
     nodesById: opts.nodesById,
     matrix: opts.matrix,
@@ -365,10 +420,12 @@ function evaluateRoute(
   return {
     order: [...order],
     dayPlan,
-    estimatedCost,
+    estimatedCost: costEstimate.totalCost,
+    budgetLineItems: costEstimate.lineItems,
     totalTravelHours: travelHours,
     totalTravelDistance: travelDistance,
     totalFatigueHours: fatigueHours,
+    meaningfulStopCount: meaningfulStops.length,
     destinationScores,
     experienceScore: computeExperienceScore(meaningfulStops, destinationScores),
     fatiguePenalty: computeFatiguePenalty(dayPlan, opts.cfg, fatigueHours),
@@ -497,7 +554,8 @@ function buildStaySpecs(args: {
     const arrival = args.matrix.get(args.start.id, args.end.id);
     if (
       !arrival ||
-      arrival.travel_time_hours > modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
+      arrival.travel_time_hours >
+        modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
     ) {
       return null;
     }
@@ -522,7 +580,8 @@ function buildStaySpecs(args: {
     const arrival = args.matrix.get(previous.id, stop.id);
     if (
       !arrival ||
-      arrival.travel_time_hours > modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
+      arrival.travel_time_hours >
+        modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
     ) {
       return null;
     }
@@ -545,7 +604,8 @@ function buildStaySpecs(args: {
     const arrival = args.matrix.get(previous.id, args.end.id);
     if (
       !arrival ||
-      arrival.travel_time_hours > modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
+      arrival.travel_time_hours >
+        modeAwareDailyCap(arrival.transport_mode, args.cfg) + 0.01
     ) {
       return null;
     }
@@ -606,7 +666,8 @@ function computeMinimumDaysForPrefix(
     const arrival = bestLegFor(previous.id, stop.id, opts);
     if (
       !arrival ||
-      arrival.travel_time_hours > modeAwareDailyCap(arrival.transport_mode, opts.cfg) + 0.01
+      arrival.travel_time_hours >
+        modeAwareDailyCap(arrival.transport_mode, opts.cfg) + 0.01
     ) {
       return Number.POSITIVE_INFINITY;
     }
@@ -628,6 +689,38 @@ function computeMinimumDaysForPrefix(
   }
 
   return total;
+}
+
+function computeMaxPossibleMeaningfulStopCount(
+  order: GraphNode[],
+  opts: RouteSearchInput,
+): number {
+  const minDaysUsed = computeMinimumDaysForPrefix(order, opts);
+  if (!Number.isFinite(minDaysUsed)) {
+    return getMeaningfulStops(order, opts.start, opts.end).length;
+  }
+
+  const currentStopCount = getMeaningfulStops(
+    order,
+    opts.start,
+    opts.end,
+  ).length;
+  const remainingDays = Math.max(0, opts.days - minDaysUsed);
+  const remainingCandidates = Math.max(
+    0,
+    opts.candidates.length - order.length,
+  );
+  const theoreticalMaxStops =
+    opts.maxVisitCount + (opts.end.id !== opts.start.id ? 1 : 0);
+
+  // This is intentionally a loose upper bound. If a branch can still
+  // plausibly beat the best route on city coverage, we must keep exploring
+  // it even when its current travel time is already higher.
+  return Math.min(
+    theoreticalMaxStops,
+    currentStopCount + remainingDays,
+    currentStopCount + remainingCandidates,
+  );
 }
 
 function minimumDaysForStay(
@@ -682,7 +775,8 @@ function buildDayCapacities(
 ): number[] {
   const out: number[] = [];
   for (let day = 0; day < days; day += 1) {
-    const travelHours = day === 0 ? stay.arrivalLeg?.travel_time_hours ?? 0 : 0;
+    const travelHours =
+      day === 0 ? (stay.arrivalLeg?.travel_time_hours ?? 0) : 0;
     out.push(activityCapacity(travelHours, cfg));
   }
   return out;
@@ -699,8 +793,12 @@ function distributeStopActivities(args: {
 }): ItineraryActivity[][] {
   const orderedAttractions = [...args.attractions].sort((left, right) => {
     const hoursDiff =
-      Number(right.metadata.recommended_hours ?? args.tuning.defaultAttractionHours) -
-      Number(left.metadata.recommended_hours ?? args.tuning.defaultAttractionHours);
+      Number(
+        right.metadata.recommended_hours ?? args.tuning.defaultAttractionHours,
+      ) -
+      Number(
+        left.metadata.recommended_hours ?? args.tuning.defaultAttractionHours,
+      );
     if (Math.abs(hoursDiff) > 1e-9) return hoursDiff;
     return left.id.localeCompare(right.id);
   });
@@ -788,9 +886,7 @@ function makeExploreActivity(
     node_id: base.id,
     name: `Explore ${base.name}`,
     type: base.type,
-    duration_hours: Number(
-      Math.min(duration, isArrivalDay ? 3 : 6).toFixed(2),
-    ),
+    duration_hours: Number(Math.min(duration, isArrivalDay ? 3 : 6).toFixed(2)),
     tags: base.tags,
     description: base.metadata.description as string | undefined,
   };
@@ -804,7 +900,13 @@ function buildDestinationScores(
     return order.map(
       (node) =>
         opts.scoredById.get(node.id) ??
-        scoreCandidateNode(node, opts.start, opts.preferences, undefined, opts.tuning).score,
+        scoreCandidateNode(
+          node,
+          opts.start,
+          opts.preferences,
+          undefined,
+          opts.tuning,
+        ).score,
     );
   }
 
@@ -867,12 +969,28 @@ function computeFatiguePenalty(
       ? sum(dayPlan.map((day) => day.total_travel_hours)) / moveDays
       : 0;
 
-  return moveDays + heavyTravelDays * 0.5 + averageMoveDayTravel / 10 + fatigueHours / 15;
+  return (
+    moveDays +
+    heavyTravelDays * 0.5 +
+    averageMoveDayTravel / 10 +
+    fatigueHours / 15
+  );
 }
 
-function compareRoutes(left: RouteSelection, right: RouteSelection): number {
+function compareRoutes(
+  left: RouteSelection,
+  right: RouteSelection,
+  prioritizeCityCoverage = false,
+): number {
   if (left.isFallbackStay !== right.isFallbackStay) {
     return left.isFallbackStay ? 1 : -1;
+  }
+
+  if (
+    prioritizeCityCoverage &&
+    left.meaningfulStopCount !== right.meaningfulStopCount
+  ) {
+    return right.meaningfulStopCount - left.meaningfulStopCount;
   }
 
   const travelHours = compareNumbers(
@@ -913,12 +1031,26 @@ function estimateCost(args: {
   dayPlan: ItineraryDay[];
   nodesById: Map<string, GraphNode>;
   matrix: TravelMatrix;
-}): number {
-  let cost = 0;
+}): {
+  totalCost: number;
+  lineItems: ItineraryBudgetLineItem[];
+} {
+  let totalCost = 0;
+  const lineItems: ItineraryBudgetLineItem[] = [];
 
   for (const day of args.dayPlan) {
     const node = args.nodesById.get(day.base_node_id);
-    cost += Number(node?.metadata.avg_daily_cost ?? 0);
+    const stayCost = Number(node?.metadata.avg_daily_cost ?? 0);
+    if (stayCost > 0) {
+      lineItems.push({
+        id: `stay_${day.day_index}_${day.base_node_id}`,
+        day_index: day.day_index,
+        kind: "stay",
+        label: `Stay in ${day.base_node_name}`,
+        amount: Number(stayCost.toFixed(2)),
+      });
+      totalCost += stayCost;
+    }
 
     if (!day.travel) continue;
     const leg = args.matrix.get(
@@ -930,10 +1062,25 @@ function estimateCost(args: {
     const base = Number(leg?.metadata?.base_price ?? 0);
     const fallback =
       day.travel.distance_km * defaultPerKmCost(day.travel.transport_mode);
-    cost += explicit > 0 ? explicit : base > 0 ? base : fallback;
+    const travelCost = explicit > 0 ? explicit : base > 0 ? base : fallback;
+    const fromName =
+      args.nodesById.get(day.travel.from_node_id)?.name ?? "Previous stop";
+    const toName =
+      args.nodesById.get(day.travel.to_node_id)?.name ?? day.base_node_name;
+
+    if (travelCost > 0) {
+      lineItems.push({
+        id: `travel_${day.day_index}_${day.travel.from_node_id}_${day.travel.to_node_id}_${day.travel.transport_mode}`,
+        day_index: day.day_index,
+        kind: "travel",
+        label: `${fromName} to ${toName} by ${titleCase(day.travel.transport_mode)}`,
+        amount: Number(travelCost.toFixed(2)),
+      });
+      totalCost += travelCost;
+    }
   }
 
-  return cost;
+  return { totalCost, lineItems };
 }
 
 function computeDesiredStopHours(
@@ -945,8 +1092,7 @@ function computeDesiredStopHours(
   const attractionHours = sum(
     (attractionsByCity?.get(base.id) ?? []).map((attraction) =>
       Number(
-        attraction.metadata.recommended_hours ??
-          tuning.defaultAttractionHours,
+        attraction.metadata.recommended_hours ?? tuning.defaultAttractionHours,
       ),
     ),
   );
@@ -964,7 +1110,10 @@ function computeCandidatePoolSize(
   const upper = Math.max(lower, tuning.poolSize.max);
   return Math.min(
     totalCandidates,
-    Math.max(lower, Math.min(upper, maxVisitCount * tuning.poolSize.multiplier)),
+    Math.max(
+      lower,
+      Math.min(upper, maxVisitCount * tuning.poolSize.multiplier),
+    ),
   );
 }
 
@@ -994,7 +1143,9 @@ function activityCapacity(
   travelHours: number,
   cfg: ReturnType<typeof getTravelStyleConfig>,
 ): number {
-  return Math.max(0, cfg.maxTotalHoursPerDay - travelHours) * cfg.activityFillRatio;
+  return (
+    Math.max(0, cfg.maxTotalHoursPerDay - travelHours) * cfg.activityFillRatio
+  );
 }
 
 function totalCapacityForStay(
@@ -1003,7 +1154,10 @@ function totalCapacityForStay(
   cfg: ReturnType<typeof getTravelStyleConfig>,
 ): number {
   if (days <= 0) return 0;
-  const firstDay = activityCapacity(stay.arrivalLeg?.travel_time_hours ?? 0, cfg);
+  const firstDay = activityCapacity(
+    stay.arrivalLeg?.travel_time_hours ?? 0,
+    cfg,
+  );
   const fullDay = activityCapacity(0, cfg);
   return firstDay + Math.max(0, days - 1) * fullDay;
 }
@@ -1103,6 +1257,13 @@ function randomSuffix(): string {
     globalThis.crypto?.randomUUID?.() ??
     `${fallback}-${Date.now().toString(36)}`;
   return uuid.replace(/-/g, "").slice(0, 12);
+}
+
+function titleCase(s: string): string {
+  return s
+    .split(/[_\s-]+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 // Unused type export kept so downstream imports of `PreferenceTag` from

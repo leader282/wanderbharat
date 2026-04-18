@@ -87,19 +87,21 @@ export function validateBudget(
   budget: { min: number; max: number },
 ): ConstraintError | null {
   if (estimatedCost < budget.min) {
+    const shortfall = Math.round(budget.min - estimatedCost);
     return makeError(
       "budget_too_low",
       `Estimated trip cost ${Math.round(estimatedCost)} is below the minimum budget target of ${budget.min}.`,
       "Lower the minimum budget or add another destination or day.",
-      { estimated_cost: estimatedCost, budget },
+      { estimated_cost: estimatedCost, budget, shortfall },
     );
   }
   if (estimatedCost > budget.max) {
+    const excess = Math.round(estimatedCost - budget.max);
     return makeError(
       "budget_exceeded",
       `Estimated trip cost ${Math.round(estimatedCost)} exceeds the maximum budget of ${budget.max}.`,
       "Increase the budget, shorten the trip, or pick cheaper destinations.",
-      { estimated_cost: estimatedCost, budget },
+      { estimated_cost: estimatedCost, budget, excess },
     );
   }
   return null;

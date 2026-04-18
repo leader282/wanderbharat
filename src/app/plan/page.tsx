@@ -13,7 +13,7 @@ export default function PlanPage() {
       </h1>
       <p className="mt-3 text-lg text-[var(--color-ink-700)] max-w-2xl">
         A few quick choices and we&apos;ll build a day-by-day plan that fits
-        your pace, your budget, and the map.
+        your pace and the map, then recommend a budget that feels justified.
       </p>
 
       <div className="mt-10">

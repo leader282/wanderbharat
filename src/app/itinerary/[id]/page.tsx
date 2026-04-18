@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import ItineraryBudgetPanel from "@/components/ItineraryBudgetPanel";
 import type { Itinerary, ItineraryDay, TransportMode } from "@/types/domain";
+import {
+  getDisplayRouteStops,
+  getDistinctDestinationCount,
+  getRouteEndpoints,
+} from "@/lib/itinerary/routeDisplay";
 import { getItinerary } from "@/lib/repositories/itineraryRepository";
 
 export const runtime = "nodejs";
@@ -30,6 +36,11 @@ export default async function ItineraryPage({
 
       <Hero itinerary={itinerary} stats={stats} />
       <Summary itinerary={itinerary} stats={stats} />
+      <ItineraryBudgetPanel
+        estimatedCost={itinerary.estimated_cost}
+        budget={itinerary.preferences.budget}
+        breakdown={itinerary.budget_breakdown}
+      />
       <RouteOverview itinerary={itinerary} />
       <Timeline itinerary={itinerary} />
       <Footnote />
@@ -56,13 +67,8 @@ function deriveStats(itinerary: Itinerary): Stats {
     (a, d) => a + d.total_activity_hours,
     0,
   );
-  const distinctBases = new Set(itinerary.day_plan.map((d) => d.base_node_id));
-  const destinationCount = Math.max(0, distinctBases.size);
-
-  const startName =
-    itinerary.day_plan[0]?.base_node_name ?? "your start";
-  const endName =
-    itinerary.day_plan[itinerary.day_plan.length - 1]?.base_node_name ?? startName;
+  const destinationCount = getDistinctDestinationCount(itinerary);
+  const { startName, endName } = getRouteEndpoints(itinerary);
 
   return {
     totalTravelHours,
@@ -76,6 +82,15 @@ function deriveStats(itinerary: Itinerary): Stats {
 // ---------------------------------------------------------------------------
 
 function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
+  const summary =
+    itinerary.start_node === itinerary.end_node
+      ? `A ${paceAdjective(itinerary.preferences.travel_style)} loop starting and ending in ${stats.startName}, with ${stats.destinationCount} ${
+          stats.destinationCount === 1 ? "destination" : "destinations"
+        } and every day shaped around your pace.`
+      : `A ${paceAdjective(itinerary.preferences.travel_style)} route from ${stats.startName} to ${stats.endName}, with ${stats.destinationCount} ${
+          stats.destinationCount === 1 ? "destination" : "destinations"
+        } and every day shaped around your pace.`;
+
   return (
     <header className="mt-6">
       <p className="eyebrow">{titleCase(itinerary.region)} itinerary</p>
@@ -83,10 +98,7 @@ function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
         Your {itinerary.days}-day trip through {titleCase(itinerary.region)}.
       </h1>
       <p className="mt-3 text-lg text-[var(--color-ink-700)] max-w-2xl">
-        A {paceAdjective(itinerary.preferences.travel_style)} loop starting
-        and ending in {stats.startName}, with {stats.destinationCount}{" "}
-        {stats.destinationCount === 1 ? "destination" : "destinations"} and
-        every day shaped around your pace.
+        {summary}
       </p>
     </header>
   );
@@ -94,13 +106,7 @@ function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
 
 // ---------------------------------------------------------------------------
 
-function Summary({
-  itinerary,
-  stats,
-}: {
-  itinerary: Itinerary;
-  stats: Stats;
-}) {
+function Summary({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
   return (
     <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Stat
@@ -144,9 +150,7 @@ function Stat({
       <p className="mt-2 text-2xl font-black text-[var(--color-ink-900)]">
         {value}
       </p>
-      {sub && (
-        <p className="mt-1 text-xs text-[var(--color-ink-500)]">{sub}</p>
-      )}
+      {sub && <p className="mt-1 text-xs text-[var(--color-ink-500)]">{sub}</p>}
     </div>
   );
 }
@@ -154,29 +158,63 @@ function Stat({
 // ---------------------------------------------------------------------------
 
 function RouteOverview({ itinerary }: { itinerary: Itinerary }) {
-  // Compress consecutive same-city days into a single stop in the ribbon.
-  const stops: { name: string; days: number }[] = [];
+  const stayStops: { id: string; days: number }[] = [];
   for (const day of itinerary.day_plan) {
-    const last = stops[stops.length - 1];
-    if (last && last.name === day.base_node_name) {
+    const last = stayStops[stayStops.length - 1];
+    if (last && last.id === day.base_node_id) {
       last.days += 1;
     } else {
-      stops.push({ name: day.base_node_name, days: 1 });
+      stayStops.push({ id: day.base_node_id, days: 1 });
     }
   }
+
+  const stops = getDisplayRouteStops(itinerary).reduce<{
+    items: Array<{ id: string; name: string; badge: string | null }>;
+    nextStayIndex: number;
+  }>(
+    (acc, stop, index) => {
+      const currentStay = stayStops[acc.nextStayIndex];
+      if (currentStay && currentStay.id === stop.id) {
+        return {
+          items: [
+            ...acc.items,
+            {
+              ...stop,
+              badge: `${currentStay.days}d`,
+            },
+          ],
+          nextStayIndex: acc.nextStayIndex + 1,
+        };
+      }
+
+      return {
+        items: [
+          ...acc.items,
+          {
+            ...stop,
+            badge: index === 0 ? "start" : null,
+          },
+        ],
+        nextStayIndex: acc.nextStayIndex,
+      };
+    },
+    { items: [], nextStayIndex: 0 },
+  ).items;
 
   return (
     <div className="mt-10 card p-6">
       <p className="eyebrow">Route</p>
       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-3 text-lg font-bold">
         {stops.map((s, i) => (
-          <span key={`${s.name}-${i}`} className="flex items-center gap-2">
+          <span key={`${s.id}-${i}`} className="flex items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-full bg-[var(--color-sand-100)] px-3 py-1.5">
               <Pin />
               {s.name}
-              <span className="text-xs font-semibold text-[var(--color-ink-500)]">
-                · {s.days}d
-              </span>
+              {s.badge && (
+                <span className="text-xs font-semibold text-[var(--color-ink-500)]">
+                  · {s.badge}
+                </span>
+              )}
             </span>
             {i < stops.length - 1 && (
               <span className="text-[var(--color-brand-600)] text-xl font-black">
@@ -227,7 +265,10 @@ function DayCard({ day }: { day: ItineraryDay }) {
           <h3 className="mt-1 text-2xl font-black">{day.base_node_name}</h3>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <Badge label="Exploring" value={`${roundHours(day.total_activity_hours)} h`} />
+          <Badge
+            label="Exploring"
+            value={`${roundHours(day.total_activity_hours)} h`}
+          />
           {day.total_travel_hours > 0 && (
             <Badge
               label="On the road"
@@ -317,7 +358,8 @@ function Footnote() {
       <div>
         <p className="font-bold">Want to tweak something?</p>
         <p className="text-sm text-[var(--color-ink-500)]">
-          Start over with a different pace, budget, or starting city.
+          Start over with a different pace or starting city, or try another
+          budget above.
         </p>
       </div>
       <Link href="/plan" className="btn-primary">

@@ -1,7 +1,9 @@
 import Link from "next/link";
 
+import DeleteItineraryButton from "@/components/DeleteItineraryButton";
 import SignInButton from "@/components/SignInButton";
 import { getCurrentUser } from "@/lib/auth/session";
+import { getDisplayRouteStops } from "@/lib/itinerary/routeDisplay";
 import { listItinerariesForUser } from "@/lib/repositories/itineraryRepository";
 import type { Itinerary } from "@/types/domain";
 
@@ -28,11 +30,7 @@ export default async function TripsPage() {
       </header>
 
       <div className="mt-10">
-        {user ? (
-          <SignedInState userId={user.uid} />
-        ) : (
-          <SignedOutState />
-        )}
+        {user ? <SignedInState userId={user.uid} /> : <SignedOutState />}
       </div>
     </section>
   );
@@ -115,9 +113,9 @@ function SignedOutState() {
             Sign in to see your trips.
           </h2>
           <p className="mt-2 text-[var(--color-ink-500)] max-w-md">
-            Connect your Google account to save itineraries and revisit
-            them anytime. Trips you generated as a guest stay accessible
-            via their original link.
+            Connect your Google account to save itineraries and revisit them
+            anytime. Trips you generated as a guest stay accessible via their
+            original link.
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -128,8 +126,8 @@ function SignedOutState() {
           </div>
 
           <p className="mt-4 text-xs text-[var(--color-ink-500)]">
-            We only store what&apos;s needed to attribute trips to you —
-            your Google ID and basic profile.
+            We only store what&apos;s needed to attribute trips to you — your
+            Google ID and basic profile.
           </p>
         </div>
 
@@ -198,79 +196,78 @@ function CheckIcon() {
 // ---------------------------------------------------------------------------
 
 function ItineraryCard({ itinerary }: { itinerary: Itinerary }) {
-  const stops = uniqueStops(itinerary);
+  const routeStops = getDisplayRouteStops(itinerary);
+  const routeNames = routeStops.map((stop) => stop.name);
+  const destinationCount =
+    routeStops.length > 0 ? new Set(routeStops.map((stop) => stop.id)).size : 1;
   const route =
-    stops.length > 0
-      ? stops.length <= 3
-        ? stops.join(" → ")
-        : `${stops.slice(0, 2).join(" → ")} → +${stops.length - 2} more`
+    routeNames.length > 0
+      ? routeNames.length <= 3
+        ? routeNames.join(" → ")
+        : `${routeNames.slice(0, 2).join(" → ")} → +${routeNames.length - 2} more`
       : titleCase(itinerary.region);
+  const tripLabel = `${itinerary.days}-day ${route || titleCase(itinerary.region)} trip`;
 
   return (
-    <Link
-      href={`/itinerary/${encodeURIComponent(itinerary.id)}`}
-      className="card p-5 group flex flex-col gap-4 hover:-translate-y-0.5 transition-transform h-full"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="chip" aria-hidden>
-          {titleCase(itinerary.region)}
-        </span>
-        <span className="text-xs font-semibold text-[var(--color-ink-500)]">
-          {formatDate(itinerary.created_at)}
-        </span>
+    <article className="card p-5 flex h-full flex-col gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="chip" aria-hidden>
+            {titleCase(itinerary.region)}
+          </span>
+          <span className="text-xs font-semibold text-[var(--color-ink-500)]">
+            {formatDate(itinerary.created_at)}
+          </span>
+        </div>
+        <DeleteItineraryButton
+          itineraryId={itinerary.id}
+          tripLabel={tripLabel}
+        />
       </div>
 
-      <div>
-        <p className="text-2xl font-black text-[var(--color-ink-900)]">
-          {itinerary.days}-day {paceAdjective(itinerary.preferences.travel_style)} trip
-        </p>
-        <p className="mt-1 text-sm text-[var(--color-ink-700)] line-clamp-2">
-          {route}
-        </p>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-3 text-sm">
+      <Link
+        href={`/itinerary/${encodeURIComponent(itinerary.id)}`}
+        className="group flex h-full flex-col gap-4 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-500)]/40"
+      >
         <div>
-          <dt className="text-[0.65rem] uppercase tracking-widest font-bold text-[var(--color-ink-500)]">
-            Estimated cost
-          </dt>
-          <dd className="mt-0.5 font-bold text-[var(--color-ink-900)]">
-            {formatMoney(
-              itinerary.estimated_cost,
-              itinerary.preferences.budget.currency,
-            )}
-          </dd>
+          <p className="text-2xl font-black text-[var(--color-ink-900)]">
+            {itinerary.days}-day{" "}
+            {paceAdjective(itinerary.preferences.travel_style)} trip
+          </p>
+          <p className="mt-1 text-sm text-[var(--color-ink-700)] line-clamp-2">
+            {route}
+          </p>
         </div>
-        <div>
-          <dt className="text-[0.65rem] uppercase tracking-widest font-bold text-[var(--color-ink-500)]">
-            Destinations
-          </dt>
-          <dd className="mt-0.5 font-bold text-[var(--color-ink-900)]">
-            {stops.length || 1}
-          </dd>
-        </div>
-      </dl>
 
-      <p className="mt-auto text-sm font-semibold text-[var(--color-brand-700)] inline-flex items-center gap-1">
-        Open itinerary
-        <ArrowRight />
-      </p>
-    </Link>
+        <dl className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <dt className="text-[0.65rem] uppercase tracking-widest font-bold text-[var(--color-ink-500)]">
+              Estimated cost
+            </dt>
+            <dd className="mt-0.5 font-bold text-[var(--color-ink-900)]">
+              {formatMoney(
+                itinerary.estimated_cost,
+                itinerary.preferences.budget.currency,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[0.65rem] uppercase tracking-widest font-bold text-[var(--color-ink-500)]">
+              Destinations
+            </dt>
+            <dd className="mt-0.5 font-bold text-[var(--color-ink-900)]">
+              {destinationCount}
+            </dd>
+          </div>
+        </dl>
+
+        <p className="mt-auto inline-flex items-center gap-1 text-sm font-semibold text-[var(--color-brand-700)] transition-transform group-hover:translate-x-0.5">
+          Open itinerary
+          <ArrowRight />
+        </p>
+      </Link>
+    </article>
   );
-}
-
-// ---------------------------------------------------------------------------
-
-function uniqueStops(itinerary: Itinerary): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const day of itinerary.day_plan) {
-    if (!day?.base_node_name) continue;
-    if (seen.has(day.base_node_id)) continue;
-    seen.add(day.base_node_id);
-    out.push(day.base_node_name);
-  }
-  return out;
 }
 
 function formatDate(ts: number): string {
