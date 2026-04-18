@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import SignInButton from "@/components/SignInButton";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { makeAutoBudget } from "@/lib/itinerary/budget";
 import {
   TRANSPORT_MODES,
   TRAVEL_STYLES,
@@ -27,10 +28,9 @@ interface FormState {
   start_node: string;
   days: number;
   travel_style: TravelStyle;
-  budget_min: number;
-  budget_max: number;
   interests: string[];
   transport_modes: TransportMode[];
+  prioritize_city_coverage: boolean;
 }
 
 const INTEREST_OPTIONS: { id: string; label: string; emoji: string }[] = [
@@ -67,11 +67,12 @@ const INITIAL_STATE: FormState = {
   start_node: "",
   days: 5,
   travel_style: "balanced",
-  budget_min: 15000,
-  budget_max: 45000,
   interests: ["heritage"],
   transport_modes: ["road"],
+  prioritize_city_coverage: false,
 };
+
+const TRIP_LENGTH_OPTIONS = [3, 4, 5, 6, 7] as const;
 
 export default function PlanForm() {
   const router = useRouter();
@@ -164,8 +165,7 @@ export default function PlanForm() {
     () =>
       !!state.region &&
       !!state.start_node &&
-      state.days >= 1 &&
-      state.budget_max >= state.budget_min,
+      state.days >= 1,
     [state],
   );
 
@@ -174,11 +174,6 @@ export default function PlanForm() {
     [regions, state.region],
   );
   const currency = activeRegion?.default_currency ?? "INR";
-  const locale = activeRegion?.default_locale ?? "en-IN";
-  const formatMoney = useMemo(
-    () => makeMoneyFormatter(locale, currency),
-    [locale, currency],
-  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -203,13 +198,10 @@ export default function PlanForm() {
           days: state.days,
           preferences: {
             travel_style: state.travel_style,
-            budget: {
-              min: state.budget_min,
-              max: state.budget_max,
-              currency,
-            },
+            budget: makeAutoBudget(currency),
             interests: state.interests,
             transport_modes: state.transport_modes,
+            prioritize_city_coverage: state.prioritize_city_coverage,
           },
         }),
       });
@@ -300,122 +292,111 @@ export default function PlanForm() {
       >
         <div className="grid gap-4 sm:grid-cols-[1fr_2fr]">
           <Field label="Trip length">
-            <div className="relative">
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={state.days}
-                onChange={(e) =>
-                  setState((s) => ({ ...s, days: Number(e.target.value) }))
-                }
-                className="input pr-14"
-              />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[var(--color-ink-500)]">
-                days
-              </span>
-            </div>
+            <select
+              value={state.days}
+              onChange={(e) =>
+                setState((s) => ({ ...s, days: Number(e.target.value) }))
+              }
+              className="input"
+            >
+              {TRIP_LENGTH_OPTIONS.map((days) => (
+                <option key={days} value={days}>
+                  {days} days
+                </option>
+              ))}
+            </select>
           </Field>
 
-          <Field label="Travel style">
-            <div className="grid gap-2 sm:grid-cols-3">
-              {TRAVEL_STYLES.map((style) => {
-                const copy = STYLE_COPY[style];
-                const active = state.travel_style === style;
-                return (
-                  <button
-                    key={style}
-                    type="button"
-                    onClick={() =>
-                      setState((s) => ({ ...s, travel_style: style }))
-                    }
-                    aria-pressed={active}
-                    className={`text-left rounded-xl border p-3.5 transition ${
-                      active
-                        ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
-                        : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
-                    }`}
-                  >
-                    <p className="font-bold">{copy.label}</p>
-                    <p
-                      className={`text-xs mt-1 leading-snug ${
-                        active ? "text-white/85" : "text-[var(--color-ink-500)]"
+          <div className="space-y-4">
+            <Field label="Travel style">
+              <div className="grid gap-2 sm:grid-cols-3">
+                {TRAVEL_STYLES.map((style) => {
+                  const copy = STYLE_COPY[style];
+                  const active = state.travel_style === style;
+                  return (
+                    <button
+                      key={style}
+                      type="button"
+                      onClick={() =>
+                        setState((s) => ({ ...s, travel_style: style }))
+                      }
+                      aria-pressed={active}
+                      className={`text-left rounded-xl border p-3.5 transition ${
+                        active
+                          ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
+                          : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
                       }`}
                     >
-                      {copy.tagline}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
+                      <p className="font-bold">{copy.label}</p>
+                      <p
+                        className={`text-xs mt-1 leading-snug ${
+                          active
+                            ? "text-white/85"
+                            : "text-[var(--color-ink-500)]"
+                        }`}
+                      >
+                        {copy.tagline}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
+            <Field label="Trip planning priority">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={state.prioritize_city_coverage}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      prioritize_city_coverage: e.target.checked,
+                    }))
+                  }
+                  className="mt-1 h-4 w-4 rounded border-[rgba(26,23,20,0.2)] text-[var(--color-brand-600)]"
+                />
+                <div>
+                  <p className="font-semibold text-[var(--color-ink-900)]">
+                    Cover more cities
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--color-ink-500)]">
+                    When this is on, we&apos;ll favour covering more cities over
+                    squeezing every attraction into one stop. Expect more time on
+                    the road.
+                  </p>
+                </div>
+              </label>
+            </Field>
+          </div>
         </div>
       </Section>
 
-      {/* ----- budget + transport ----- */}
+      {/* ----- transport ----- */}
       <Section
-        title="Budget & how you get around"
-        subtitle="All-in estimate per person, including stays and transport."
+        title="How do you want to get around?"
+        subtitle="We&apos;ll calculate a justified per-person budget once we map the route."
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label={`Budget (${currency} per person)`}
-            hint={`${formatMoney(state.budget_min)} – ${formatMoney(state.budget_max)}`}
-          >
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                step={500}
-                value={state.budget_min}
-                onChange={(e) =>
+        <Field label="How do you want to travel?">
+          <div className="flex flex-wrap gap-2">
+            {TRANSPORT_MODES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className="chip"
+                aria-pressed={state.transport_modes.includes(mode)}
+                onClick={() =>
                   setState((s) => ({
                     ...s,
-                    budget_min: Number(e.target.value),
+                    transport_modes: toggle(s.transport_modes, mode),
                   }))
                 }
-                className="input"
-                aria-label="Minimum budget"
-              />
-              <span className="text-[var(--color-ink-500)]">to</span>
-              <input
-                type="number"
-                min={0}
-                step={500}
-                value={state.budget_max}
-                onChange={(e) =>
-                  setState((s) => ({
-                    ...s,
-                    budget_max: Number(e.target.value),
-                  }))
-                }
-                className="input"
-                aria-label="Maximum budget"
-              />
-            </div>
-          </Field>
-
-          <Field label="How do you want to travel?">
-            <div className="flex flex-wrap gap-2">
-              {TRANSPORT_MODES.map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className="chip"
-                  aria-pressed={state.transport_modes.includes(mode)}
-                  onClick={() =>
-                    setState((s) => ({
-                      ...s,
-                      transport_modes: toggle(s.transport_modes, mode),
-                    }))
-                  }
-                >
-                  {titleCase(mode)}
-                </button>
-              ))}
-            </div>
-          </Field>
-        </div>
+              >
+                {titleCase(mode)}
+              </button>
+            ))}
+          </div>
+        </Field>
       </Section>
 
       {/* ----- interests ----- */}
@@ -703,24 +684,6 @@ function ArrowRight() {
       <path d="m13 5 7 7-7 7" />
     </svg>
   );
-}
-
-/**
- * Build a locale + currency-aware formatter. Falls back to plain number
- * formatting if the runtime doesn't support the combination (rare).
- */
-function makeMoneyFormatter(locale: string, currency: string) {
-  try {
-    const nf = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    });
-    return (n: number) => nf.format(Math.max(0, Number(n) || 0));
-  } catch {
-    return (n: number) =>
-      `${currency} ${Math.max(0, Number(n) || 0).toLocaleString(locale)}`;
-  }
 }
 
 function titleCase(s: string): string {

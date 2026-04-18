@@ -36,9 +36,9 @@ function Hero() {
             </span>
           </h1>
           <p className="mt-6 text-lg md:text-xl text-[var(--color-ink-700)] max-w-xl leading-relaxed">
-            Tell us how long you have, how fast you like to move, and your
-            budget. We&apos;ll hand you a day-by-day plan that actually fits —
-            no endless blog tabs, no guesswork.
+            Tell us how long you have and how fast you like to move. We&apos;ll
+            hand you a day-by-day plan that actually fits, plus a budget that
+            feels justified — no endless blog tabs, no guesswork.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/plan" className="btn-primary">
@@ -285,7 +285,7 @@ function HowItWorks() {
     {
       title: "Tell us the basics",
       body:
-        "Pick a starting city, how many days you have, your travel style, and your budget.",
+        "Pick a starting city, how many days you have, and your travel style.",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
       ),
@@ -301,7 +301,7 @@ function HowItWorks() {
     {
       title: "You travel with a plan",
       body:
-        "Day-by-day stops, drive times, and activity hours that fit your budget — ready to go.",
+        "Day-by-day stops, drive times, activity hours, and a justified budget range — ready to go.",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
       ),
@@ -334,7 +334,7 @@ function HowItWorks() {
 
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Bullet title="Respects your pace" body="Relaxed, balanced, or adventurous — the plan follows your tempo." />
-        <Bullet title="Budget aware" body="Every itinerary lands inside the budget you set, or we tell you why." />
+        <Bullet title="Budget aware" body="Every itinerary comes with a justified budget range and a clear explanation of where the money goes." />
         <Bullet title="Real drive times" body="Stops are chosen with actual road distances, not wishful thinking." />
         <Bullet title="Always a fresh plan" body="Generated on the spot from your exact preferences." />
       </div>

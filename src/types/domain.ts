@@ -146,6 +146,18 @@ export interface BudgetRange {
   currency?: string;
 }
 
+export interface ItineraryBudgetLineItem {
+  id: string;
+  day_index: number;
+  kind: "stay" | "travel";
+  label: string;
+  amount: number;
+}
+
+export interface ItineraryBudgetBreakdown {
+  line_items: ItineraryBudgetLineItem[];
+}
+
 export interface ItineraryPreferences {
   travel_style: TravelStyle;
   budget: BudgetRange;
@@ -153,6 +165,11 @@ export interface ItineraryPreferences {
   interests?: PreferenceTag[];
   /** Optional preferred transport modes. Defaults to ["road"]. */
   transport_modes?: TransportMode[];
+  /**
+   * When true, the planner should prefer covering more cities even if that
+   * means spending less time within each one.
+   */
+  prioritize_city_coverage?: boolean;
 }
 
 export interface GenerateItineraryInput {
@@ -240,6 +257,8 @@ export interface Itinerary {
   day_plan: ItineraryDay[];
   /** Total estimated cost across the whole trip. */
   estimated_cost: number;
+  /** Human-readable budget drivers used by the itinerary UI. */
+  budget_breakdown?: ItineraryBudgetBreakdown;
   /** Normalised 0..1 score from the scoring function. */
   score: number;
   created_at: number;

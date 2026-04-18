@@ -6,6 +6,7 @@ import type {
   GraphEdge,
   GraphNode,
 } from "@/types/domain";
+import { makeAutoBudget } from "@/lib/itinerary/budget";
 import { generateItinerary, type EngineContext } from "@/lib/itinerary/engine";
 import { buildTravelMatrix } from "@/lib/itinerary/travelMatrix";
 
@@ -128,8 +129,18 @@ test("generateItinerary chooses the lower-travel route and preserves exact day c
       [
         makeRoadEdge({ from: start.id, to: detour.id, hours: 1, distance: 55 }),
         makeRoadEdge({ from: detour.id, to: end.id, hours: 8, distance: 470 }),
-        makeRoadEdge({ from: start.id, to: efficient.id, hours: 2, distance: 130 }),
-        makeRoadEdge({ from: efficient.id, to: end.id, hours: 2, distance: 140 }),
+        makeRoadEdge({
+          from: start.id,
+          to: efficient.id,
+          hours: 2,
+          distance: 130,
+        }),
+        makeRoadEdge({
+          from: efficient.id,
+          to: end.id,
+          hours: 2,
+          distance: 140,
+        }),
       ],
     ),
     { resolveTravelMatrix: strictResolver },
@@ -138,12 +149,185 @@ test("generateItinerary chooses the lower-travel route and preserves exact day c
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
+  assert.deepEqual(result.itinerary.nodes, [start.id, efficient.id, end.id]);
+  assert.equal(result.itinerary.day_plan.length, 3);
+});
+
+test("generateItinerary can prioritise covering more cities over lower travel time", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    recommendedHours: 6,
+    lat: 26.9,
+    lng: 75.8,
+  });
+  const ajmer = makeCity({
+    id: "node_ajmer",
+    name: "Ajmer",
+    recommendedHours: 8,
+    lat: 26.45,
+    lng: 74.64,
+  });
+  const pushkar = makeCity({
+    id: "node_pushkar",
+    name: "Pushkar",
+    recommendedHours: 8,
+    lat: 26.49,
+    lng: 74.56,
+  });
+
+  const ctx = makeContext(
+    [start, ajmer, pushkar],
+    [
+      makeRoadEdge({ from: start.id, to: ajmer.id, hours: 1, distance: 15 }),
+      makeRoadEdge({ from: ajmer.id, to: pushkar.id, hours: 1, distance: 16 }),
+      makeRoadEdge({
+        from: pushkar.id,
+        to: start.id,
+        hours: 2.5,
+        distance: 150,
+      }),
+      makeRoadEdge({ from: ajmer.id, to: start.id, hours: 1, distance: 15 }),
+    ],
+  );
+
+  const withoutCoveragePriority = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      days: 3,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        transport_modes: ["road"],
+      },
+    },
+    ctx,
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(withoutCoveragePriority.ok, true);
+  if (!withoutCoveragePriority.ok) return;
+
+  assert.deepEqual(withoutCoveragePriority.itinerary.nodes, [
+    start.id,
+    ajmer.id,
+    start.id,
+  ]);
+
+  const withCoveragePriority = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      days: 3,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        transport_modes: ["road"],
+        prioritize_city_coverage: true,
+      },
+    },
+    ctx,
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(withCoveragePriority.ok, true);
+  if (!withCoveragePriority.ok) return;
+
+  assert.deepEqual(withCoveragePriority.itinerary.nodes, [
+    start.id,
+    ajmer.id,
+    pushkar.id,
+    start.id,
+  ]);
+});
+
+test("generateItinerary does not prune a higher-coverage branch too early", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    recommendedHours: 6,
+    lat: 26.9,
+    lng: 75.8,
+  });
+  const quickLoop = makeCity({
+    id: "node_quick",
+    name: "Quick",
+    recommendedHours: 8,
+    lat: 26.7,
+    lng: 75.4,
+  });
+  const wideDetour = makeCity({
+    id: "node_wide",
+    name: "Wide",
+    recommendedHours: 8,
+    lat: 25.4,
+    lng: 74.2,
+  });
+  const deepStop = makeCity({
+    id: "node_deep",
+    name: "Deep",
+    recommendedHours: 8,
+    lat: 24.9,
+    lng: 73.7,
+  });
+
+  const ctx = makeContext(
+    [start, quickLoop, wideDetour, deepStop],
+    [
+      makeRoadEdge({
+        from: start.id,
+        to: quickLoop.id,
+        hours: 1,
+        distance: 60,
+      }),
+      makeRoadEdge({
+        from: start.id,
+        to: wideDetour.id,
+        hours: 2,
+        distance: 130,
+      }),
+      makeRoadEdge({
+        from: wideDetour.id,
+        to: deepStop.id,
+        hours: 1.6,
+        distance: 95,
+      }),
+      makeRoadEdge({
+        from: deepStop.id,
+        to: start.id,
+        hours: 1.4,
+        distance: 90,
+        bidirectional: false,
+      }),
+    ],
+  );
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      days: 3,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        transport_modes: ["road"],
+        prioritize_city_coverage: true,
+      },
+    },
+    ctx,
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
   assert.deepEqual(result.itinerary.nodes, [
     start.id,
-    efficient.id,
-    end.id,
+    wideDetour.id,
+    deepStop.id,
+    start.id,
   ]);
-  assert.equal(result.itinerary.day_plan.length, 3);
 });
 
 test("generateItinerary rejects an unknown end node", async () => {
@@ -206,6 +390,63 @@ test("generateItinerary rejects itineraries below the requested budget floor", a
   if (result.ok) return;
 
   assert.equal(result.error.reason, "budget_too_low");
+});
+
+test("generateItinerary derives a recommended budget and breakdown from the selected route", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    dailyCost: 1800,
+  });
+  const end = makeCity({
+    id: "node_end",
+    name: "End",
+    dailyCost: 2200,
+  });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: makeAutoBudget("INR"),
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(
+    result.itinerary.preferences.budget.min,
+    result.itinerary.estimated_cost,
+  );
+  assert.ok(
+    result.itinerary.preferences.budget.max >
+      result.itinerary.preferences.budget.min,
+  );
+  assert.equal(result.itinerary.preferences.budget.currency, "INR");
+  assert.ok(result.itinerary.budget_breakdown);
+  assert.ok((result.itinerary.budget_breakdown?.line_items.length ?? 0) >= 2);
+  assert.ok(
+    result.itinerary.budget_breakdown?.line_items.some(
+      (item) => item.kind === "stay",
+    ),
+  );
+  assert.ok(
+    result.itinerary.budget_breakdown?.line_items.some(
+      (item) => item.kind === "travel",
+    ),
+  );
 });
 
 test("generateItinerary treats an infeasible final leg as no feasible route", async () => {

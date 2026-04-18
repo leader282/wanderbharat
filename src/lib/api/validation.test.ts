@@ -21,6 +21,17 @@ test("generateItinerarySchema accepts a fully populated request", () => {
   assert.equal(result.success, true);
 });
 
+test("generateItinerarySchema accepts city-coverage prioritisation", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      prioritize_city_coverage: true,
+    },
+  });
+  assert.equal(result.success, true);
+});
+
 test("generateItinerarySchema accepts a minimal request without optional fields", () => {
   const result = generateItinerarySchema.safeParse({
     region: "rajasthan",
