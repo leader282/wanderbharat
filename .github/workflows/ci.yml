@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Force coloured tap output even when piped through GH Actions.
+  FORCE_COLOR: "1"
+  # The app reads these at request-time only, but having safe defaults
+  # prevents `process.env` accidentally tripping a build-time guard.
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verify:
+    name: Lint · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Node 20 = current Vercel default; 22 = newer LTS Vercel supports.
+        # Keeping both green protects against version-drift surprises.
+        node-version: [20.x, 22.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Test coverage is generated only on the primary Node version to
+      # avoid duplicate uploads from the matrix.
+      - name: Test coverage
+        if: matrix.node-version == '22.x'
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: matrix.node-version == '22.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Build with stub env vars so Next.js doesn't fail on missing config
+      # at build time. Real values live in Vercel project settings.
+      - name: Build (Next.js)
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-stub
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.example.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-stub
+          NEXT_PUBLIC_FIREBASE_DATABASE_ID: ""
+          FIREBASE_PROJECT_ID: ci-stub
+          GOOGLE_MAPS_API_KEY: ci-stub
+        run: npm run build

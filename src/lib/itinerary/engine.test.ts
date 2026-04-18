@@ -1,0 +1,280 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import type {
+  GenerateItineraryInput,
+  GraphEdge,
+  GraphNode,
+} from "@/types/domain";
+import { generateItinerary, type EngineContext } from "@/lib/itinerary/engine";
+import { buildTravelMatrix } from "@/lib/itinerary/travelMatrix";
+
+function makeCity(args: {
+  id: string;
+  name: string;
+  recommendedHours?: number;
+  dailyCost?: number;
+  tags?: string[];
+  lat?: number;
+  lng?: number;
+}): GraphNode {
+  return {
+    id: args.id,
+    type: "city",
+    name: args.name,
+    region: "test-region",
+    country: "test-country",
+    tags: args.tags ?? ["heritage"],
+    metadata: {
+      avg_daily_cost: args.dailyCost ?? 2000,
+      recommended_hours: args.recommendedHours ?? 8,
+      description: `${args.name} description`,
+    },
+    location: {
+      lat: args.lat ?? 26,
+      lng: args.lng ?? 75,
+    },
+  };
+}
+
+function makeRoadEdge(args: {
+  from: string;
+  to: string;
+  hours: number;
+  distance?: number;
+  bidirectional?: boolean;
+}): GraphEdge {
+  return {
+    id: `edge_${args.from}__${args.to}_${Math.round(args.hours * 10)}`,
+    from: args.from,
+    to: args.to,
+    type: "road",
+    distance_km: args.distance ?? args.hours * 60,
+    travel_time_hours: args.hours,
+    bidirectional: args.bidirectional ?? true,
+    regions: ["test-region"],
+    metadata: {},
+  };
+}
+
+function makeContext(nodes: GraphNode[], edges: GraphEdge[]): EngineContext {
+  return {
+    nodes,
+    edges,
+    now: () => 1700000000000,
+    makeId: (prefix) => `${prefix}_test`,
+  };
+}
+
+const strictResolver = async ({
+  nodes,
+  edges,
+  modes,
+}: {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  modes: GenerateItineraryInput["preferences"]["transport_modes"];
+}) => buildTravelMatrix(nodes, edges, modes ?? ["road"]);
+
+test("generateItinerary chooses the lower-travel route and preserves exact day count", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    recommendedHours: 6,
+    dailyCost: 1500,
+    lat: 26.9,
+    lng: 75.7,
+  });
+  const detour = makeCity({
+    id: "node_detour",
+    name: "Detour",
+    recommendedHours: 20,
+    dailyCost: 2300,
+    lat: 27.2,
+    lng: 75.9,
+  });
+  const efficient = makeCity({
+    id: "node_efficient",
+    name: "Efficient",
+    recommendedHours: 10,
+    dailyCost: 2100,
+    lat: 25.5,
+    lng: 74.2,
+  });
+  const end = makeCity({
+    id: "node_end",
+    name: "End",
+    recommendedHours: 12,
+    dailyCost: 2400,
+    lat: 24.6,
+    lng: 73.7,
+  });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: end.id,
+      days: 3,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        interests: ["heritage"],
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, detour, efficient, end],
+      [
+        makeRoadEdge({ from: start.id, to: detour.id, hours: 1, distance: 55 }),
+        makeRoadEdge({ from: detour.id, to: end.id, hours: 8, distance: 470 }),
+        makeRoadEdge({ from: start.id, to: efficient.id, hours: 2, distance: 130 }),
+        makeRoadEdge({ from: efficient.id, to: end.id, hours: 2, distance: 140 }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.itinerary.nodes, [
+    start.id,
+    efficient.id,
+    end.id,
+  ]);
+  assert.equal(result.itinerary.day_plan.length, 3);
+});
+
+test("generateItinerary rejects an unknown end node", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: "node_missing",
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 20000 },
+      },
+    },
+    makeContext([start], []),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "invalid_input");
+  assert.match(result.error.message, /End node "node_missing" not found/);
+});
+
+test("generateItinerary rejects itineraries below the requested budget floor", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    dailyCost: 800,
+  });
+  const end = makeCity({
+    id: "node_end",
+    name: "End",
+    dailyCost: 1000,
+  });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 10000, max: 20000 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "budget_too_low");
+});
+
+test("generateItinerary treats an infeasible final leg as no feasible route", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const middle = makeCity({ id: "node_middle", name: "Middle" });
+  const end = makeCity({ id: "node_end", name: "End" });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 40000 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, middle, end],
+      [
+        makeRoadEdge({ from: start.id, to: middle.id, hours: 2 }),
+        makeRoadEdge({
+          from: middle.id,
+          to: end.id,
+          hours: 9,
+          bidirectional: false,
+        }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "no_feasible_route");
+});
+
+test("generateItinerary enforces minHoursPerStop through exact day allocation", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const stop = makeCity({ id: "node_stop", name: "Stop", recommendedHours: 6 });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+
+  const result = await generateItinerary(
+    {
+      region: "test-region",
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "relaxed",
+        budget: { min: 0, max: 40000 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, stop, end],
+      [
+        makeRoadEdge({ from: start.id, to: stop.id, hours: 2 }),
+        makeRoadEdge({ from: stop.id, to: end.id, hours: 2 }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "no_feasible_route");
+});

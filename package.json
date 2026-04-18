@@ -1,0 +1,45 @@
+{
+  "name": "wanderbharat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic travel planning engine. Rajasthan is loaded as the seed dataset.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\" \"scripts/**/*.ts\"",
+    "test": "node --import tsx --test",
+    "test:watch": "node --import tsx --test --watch",
+    "test:coverage": "node -e \"require('fs').mkdirSync('coverage',{recursive:true})\" && node --import tsx --test --experimental-test-coverage --test-coverage-exclude=\"**/*.test.ts\" --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
+    "typecheck": "tsc --noEmit",
+    "ci": "npm run lint && npm run typecheck && npm test",
+    "seed:nodes": "tsx scripts/seedNodes.ts",
+    "seed:edges": "tsx scripts/seedEdges.ts",
+    "seed:attractions": "tsx scripts/seedAttractions.ts",
+    "seed:all": "npm run seed:nodes && npm run seed:edges && npm run seed:attractions"
+  },
+  "dependencies": {
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.6.0",
+    "next": "16.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20.19.39",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.3",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.2",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.6",
+    "typescript": "^5"
+  }
+}

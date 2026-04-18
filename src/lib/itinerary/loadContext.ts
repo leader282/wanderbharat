@@ -1,0 +1,179 @@
+import type { EngineContext } from "@/lib/itinerary/engine";
+import type { GraphNode, TransportMode } from "@/types/domain";
+import { getTravelStyleConfig } from "@/lib/config/travelStyle";
+import { averageSpeedKmH } from "@/lib/config/transportMode";
+import { findEdges } from "@/lib/repositories/edgeRepository";
+import { findNodes, getNodes } from "@/lib/repositories/nodeRepository";
+import { haversineKm } from "@/lib/services/distanceService";
+
+/**
+ * Fetch everything the engine needs for a planning run. Two flavours:
+ *
+ * - {@link loadEngineContextForRegion} — legacy, loads the whole region.
+ *   Fine for small seed regions (Rajasthan-sized, ~10 cities).
+ * - {@link loadEngineContextForPlan} — planning-aware. Takes the request's
+ *   start/end/days/modes and prunes candidates to nodes reachable within
+ *   a radius that makes sense for the trip. Use this for large regions.
+ */
+
+export interface PlanContextRequest {
+  regions: string[];
+  start_node_id: string;
+  end_node_id?: string;
+  days: number;
+  modes: TransportMode[];
+  travel_style: "relaxed" | "balanced" | "adventurous";
+  /** Node-count cap per planning run; protects the DFS + matrix. */
+  maxCandidateNodes?: number;
+}
+
+const DEFAULT_MAX_CANDIDATES = 60;
+
+export async function loadEngineContextForRegion(
+  region: string,
+): Promise<EngineContext> {
+  const [cities, attractions, edges] = await Promise.all([
+    findNodes({ region, type: "city" }),
+    findNodes({ region, type: "attraction" }),
+    findEdges({ region }),
+  ]);
+
+  const attractionsByCity = new Map<string, GraphNode[]>();
+  for (const a of attractions) {
+    const parent = a.parent_node_id;
+    if (!parent) continue;
+    const list = attractionsByCity.get(parent) ?? [];
+    list.push(a);
+    attractionsByCity.set(parent, list);
+  }
+
+  return {
+    nodes: [...cities, ...attractions],
+    edges,
+    attractionsByCity,
+  };
+}
+
+export async function loadEngineContextForPlan(
+  req: PlanContextRequest,
+): Promise<EngineContext> {
+  const regions = Array.from(new Set(req.regions));
+  if (regions.length === 0) {
+    throw new Error("At least one region is required.");
+  }
+
+  // 1. Resolve start/end first so we can derive a planning radius.
+  const endId = req.end_node_id ?? req.start_node_id;
+  const pinned = await getNodes(
+    endId === req.start_node_id ? [req.start_node_id] : [req.start_node_id, endId],
+  );
+  if (pinned.length === 0) {
+    throw new Error(`Start node "${req.start_node_id}" not found.`);
+  }
+  const start = pinned.find((n) => n.id === req.start_node_id);
+  if (!start) {
+    throw new Error(`Start node "${req.start_node_id}" not found.`);
+  }
+
+  const cfg = getTravelStyleConfig(req.travel_style);
+  const radius_km = computePlanningRadiusKm(cfg, req.days, req.modes);
+
+  // 2. Stream cities in the allowed regions; bbox-prune client-side.
+  //    (Real scale wants a geohash field; until then we rely on the
+  //    region filter + haversine pruning which is still O(N) reads.)
+  const cityLimit = req.maxCandidateNodes ?? DEFAULT_MAX_CANDIDATES;
+  const cities = await findNodes({ regions, type: "city" });
+  const inRange = cities
+    .map((city) => ({ city, d: haversineKm(start.location, city.location) }))
+    .filter((entry) => entry.d <= radius_km)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, cityLimit)
+    .map((entry) => entry.city);
+
+  const cityIds = new Set<string>(inRange.map((c) => c.id));
+  cityIds.add(start.id);
+  cityIds.add(endId);
+
+  // 3. Attractions — only for the cities we actually care about. Firestore
+  //    lacks a direct "parent in [...]" cheap query, so fan out in batches
+  //    of 10 via the repo's multi-get pattern.
+  const attractions: GraphNode[] = [];
+  for (const city of inRange) {
+    attractions.push(
+      ...(await findNodes({
+        regions,
+        type: "attraction",
+        parent_node_id: city.id,
+      })),
+    );
+  }
+
+  const attractionsByCity = new Map<string, GraphNode[]>();
+  for (const a of attractions) {
+    const parent = a.parent_node_id;
+    if (!parent) continue;
+    const list = attractionsByCity.get(parent) ?? [];
+    list.push(a);
+    attractionsByCity.set(parent, list);
+  }
+
+  // 4. Edges — only those touching at least one selected city. Firestore
+  //    limits `in` to 10 ids so we fan out in batches.
+  const edges = await loadEdgesForCities(Array.from(cityIds), regions);
+
+  const nodes = dedupeById([...pinned, ...inRange, ...attractions]);
+
+  return {
+    nodes,
+    edges,
+    attractionsByCity,
+  };
+}
+
+async function loadEdgesForCities(
+  cityIds: string[],
+  regions: string[],
+): Promise<EngineContext["edges"]> {
+  if (cityIds.length === 0) return [];
+  const seen = new Set<string>();
+  const out: EngineContext["edges"] = [];
+
+  // 10 ids per `from in [...]` call — Firestore's cap.
+  for (let i = 0; i < cityIds.length; i += 10) {
+    const slice = cityIds.slice(i, i + 10);
+    const chunk = await findEdges({ regions, fromIds: slice });
+    for (const edge of chunk) {
+      if (seen.has(edge.id)) continue;
+      seen.add(edge.id);
+      out.push(edge);
+    }
+  }
+  return out;
+}
+
+function computePlanningRadiusKm(
+  cfg: { maxTravelHoursPerDay: number },
+  days: number,
+  modes: TransportMode[],
+): number {
+  // Estimate how far the fastest allowed mode could plausibly take a user
+  // over the trip. Multiply by 1.5 for slack and a minimum floor so tiny
+  // round-trips don't prune out everything interesting.
+  const fastest = modes.reduce(
+    (max, mode) => Math.max(max, averageSpeedKmH(mode)),
+    0,
+  );
+  const reach = fastest * cfg.maxTravelHoursPerDay * Math.max(1, days) * 1.5;
+  return Math.max(150, reach);
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}

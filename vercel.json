@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "functions": {
+    "src/app/api/itinerary/generate/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}
