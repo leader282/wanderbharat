@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import SignInButton from "@/components/SignInButton";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   TRANSPORT_MODES,
   TRAVEL_STYLES,
@@ -75,6 +77,7 @@ export default function PlanForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectedRegion = searchParams.get("region") ?? "";
+  const { user, getIdToken } = useAuth();
 
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [regionsLoaded, setRegionsLoaded] = useState(false);
@@ -182,9 +185,18 @@ export default function PlanForm() {
     setError(null);
     setSubmitting(true);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      // Belt-and-braces: the session cookie usually authenticates this
+      // request, but if it's missing/expired the bearer token still
+      // lets the server attribute the itinerary to the right user.
+      const idToken = await getIdToken();
+      if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
       const res = await fetch("/api/itinerary/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           region: state.region,
           start_node: state.start_node,
@@ -441,11 +453,9 @@ export default function PlanForm() {
         </div>
       )}
 
-      <div className="flex items-center justify-between flex-wrap gap-3 pt-2">
-        <p className="text-xs text-[var(--color-ink-500)]">
-          We&apos;ll build a plan in a few seconds. You can always tweak and
-          regenerate.
-        </p>
+      <SaveTripCallout user={user} />
+
+      <div className="flex items-center justify-end pt-1">
         <button
           type="submit"
           disabled={!canSubmit || submitting}
@@ -465,6 +475,126 @@ export default function PlanForm() {
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Soft callout above the submit button. Tells the user where their
+ * itinerary is going to live, and offers a sign-in button if they're
+ * a guest. Designed to encourage but never block.
+ */
+function SaveTripCallout({
+  user,
+}: {
+  user: ReturnType<typeof useAuth>["user"];
+}) {
+  if (user) {
+    const initial = (user.name || user.email || "?")
+      .trim()
+      .charAt(0)
+      .toUpperCase();
+    const label = user.name?.trim().split(/\s+/)[0] ?? user.email ?? "you";
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-[var(--color-moss-600)]/20 bg-[var(--color-moss-600)]/5 px-4 py-3">
+        {user.picture ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={user.picture}
+            alt=""
+            width={28}
+            height={28}
+            className="rounded-full object-cover ring-2 ring-white"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="grid place-items-center w-7 h-7 rounded-full bg-[var(--color-moss-600)] text-white text-xs font-bold"
+          >
+            {initial}
+          </span>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[var(--color-ink-900)]">
+            Saving to your account
+          </p>
+          <p className="text-xs text-[var(--color-ink-500)] truncate">
+            We&apos;ll add this trip to {label}&apos;s itineraries the moment
+            it&apos;s ready.
+          </p>
+        </div>
+        <CheckBadge />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-[var(--color-brand-500)]/25 bg-[var(--color-brand-300)]/15 p-4 sm:p-5">
+      <div className="flex items-start gap-3 sm:gap-4">
+        <span
+          aria-hidden
+          className="grid place-items-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white text-[var(--color-brand-700)] border border-[var(--color-brand-500)]/30 shadow-sm shrink-0"
+        >
+          <BookmarkIcon />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-[var(--color-ink-900)]">
+            Save your trip to come back to it
+          </p>
+          <p className="mt-1 text-sm text-[var(--color-ink-700)]">
+            Sign in with Google and every itinerary you build will land in
+            your trips. Skip if you just want a one-off plan — the link
+            still works.
+          </p>
+        </div>
+        <div className="hidden sm:block shrink-0">
+          <SignInButton size="md" />
+        </div>
+      </div>
+      <div className="mt-3 sm:hidden">
+        <SignInButton size="md" className="w-full" />
+      </div>
+    </div>
+  );
+}
+
+function CheckBadge() {
+  return (
+    <span
+      aria-hidden
+      className="grid place-items-center w-7 h-7 rounded-full bg-[var(--color-moss-600)] text-white shrink-0"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    </span>
+  );
+}
+
+function BookmarkIcon() {
+  return (
+    <svg
+      aria-hidden
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
   );
 }
 

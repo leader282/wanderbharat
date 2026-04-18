@@ -37,12 +37,17 @@ src/
       itinerary/[id]/route.ts       GET  /api/itinerary/:id
       regions/route.ts              GET  /api/regions
       nodes/route.ts                GET  /api/nodes?region=&type=
+      auth/session/route.ts         POST/DELETE /api/auth/session (Firebase cookie)
     itinerary/[id]/page.tsx         Itinerary view
     plan/page.tsx                   Plan form
+    trips/page.tsx                  Past itineraries (signed-in users)
     page.tsx                        Landing
   components/
     PlanForm.tsx                    Data-driven (dropdowns come from DB)
+    AuthHeader.tsx                  Sign-in / user menu in the layout header
   lib/
+    auth/AuthProvider.tsx           Client context (Google sign-in + token)
+    auth/session.ts                 Server cookie helpers + getCurrentUser()
     config/travelStyle.ts           Pacing configs per travel_style
     firebase/client.ts              Browser Firebase init
     firebase/admin.ts               Server Firebase init
@@ -243,6 +248,47 @@ Responses:
 ### `GET /api/itinerary/:id`
 
 Returns `{ itinerary }` or `404`.
+
+### `POST /api/auth/session`
+
+Exchanges a freshly-minted Firebase ID token for an HTTP-only session
+cookie (`wb_session`, 14-day max age). The client signs in with Google
+via the Firebase Web SDK, then POSTs `{ idToken }`. Tokens older than
+five minutes are rejected to mitigate replay.
+
+### `DELETE /api/auth/session`
+
+Clears the session cookie. The client also calls `firebase/auth`
+`signOut()` so the SDK forgets the user too.
+
+---
+
+## Authentication
+
+- **Provider**: Google, via Firebase Authentication.
+- **Client**: `lib/auth/AuthProvider.tsx` exposes `useAuth()` with
+  `user`, `signInWithGoogle()`, `signOut()`, and `getIdToken()`.
+- **Server**: `lib/auth/session.ts` `getCurrentUser()` reads the
+  `wb_session` cookie and verifies it with `firebase-admin`. Use it
+  from server components, route handlers, and server actions.
+- **Itineraries**: `POST /api/itinerary/generate` resolves the user
+  from the session cookie first, falling back to a
+  `Authorization: Bearer <idToken>` header. The verified `uid` is
+  always written to `Itinerary.user_id` — any client-supplied
+  `user_id` in the request body is ignored.
+- **Past trips**: `/trips` is server-rendered for the signed-in user
+  and uses the existing composite index on `(user_id, created_at)`.
+
+To enable Google sign-in:
+
+1. **Firebase Console** → Authentication → Sign-in method → enable
+   **Google**.
+2. Add your local + Vercel domains under
+   Authentication → Settings → **Authorized domains**.
+3. Make sure the Firebase web config (`NEXT_PUBLIC_FIREBASE_*`) and
+   the admin service account (`FIREBASE_SERVICE_ACCOUNT_JSON` or
+   `…_PATH`) are set — both halves are required because the cookie
+   is minted on the server.
 
 ---
 
