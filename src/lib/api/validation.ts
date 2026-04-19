@@ -79,3 +79,12 @@ export const generateItinerarySchema = z.object({
 });
 
 export type GenerateItineraryBody = z.infer<typeof generateItinerarySchema>;
+
+export const adjustItineraryBudgetSchema = z.object({
+  total_budget: z.number().positive(),
+  apply: z.boolean().optional(),
+});
+
+export type AdjustItineraryBudgetBody = z.infer<
+  typeof adjustItineraryBudgetSchema
+>;

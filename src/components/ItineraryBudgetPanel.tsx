@@ -1,12 +1,16 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { presentGenerateItineraryError } from "@/lib/api/generateItineraryError";
+import { useAuth } from "@/lib/auth/AuthProvider";
 import {
   assessBudgetRequest,
   topBudgetDrivers,
   type BudgetDriver,
 } from "@/lib/itinerary/budget";
+import type { BudgetAdjustmentPreview } from "@/lib/itinerary/budgetAdjustmentPreview";
 import {
   formatTravellerParty,
   makeMoneyFormatter,
@@ -21,17 +25,25 @@ import type {
 const EMPTY_LINE_ITEMS: ItineraryBudgetLineItem[] = [];
 
 export default function ItineraryBudgetPanel({
+  itineraryId,
   estimatedCost,
   requestedBudget,
   travellers,
   breakdown,
 }: {
+  itineraryId: string;
   estimatedCost: number;
   requestedBudget: BudgetRange;
   travellers: TravellerComposition;
   breakdown?: ItineraryBudgetBreakdown;
 }) {
+  const router = useRouter();
+  const { getIdToken } = useAuth();
   const [enteredBudget, setEnteredBudget] = useState("");
+  const [preview, setPreview] = useState<BudgetAdjustmentPreview | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [applying, setApplying] = useState(false);
   const currency = requestedBudget.currency ?? "INR";
   const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
   const lineItems = breakdown?.line_items ?? EMPTY_LINE_ITEMS;
@@ -64,6 +76,8 @@ export default function ItineraryBudgetPanel({
   const invalidBudget =
     parsedBudget !== null &&
     (!Number.isFinite(parsedBudget) || parsedBudget < 0);
+  const nextBudget = parsedBudget === null || invalidBudget ? null : Math.round(parsedBudget);
+  const canRequestPreview = nextBudget !== null;
 
   const assessment = useMemo(() => {
     if (parsedBudget === null || invalidBudget) return null;
@@ -85,6 +99,54 @@ export default function ItineraryBudgetPanel({
   const tone = assessment ? toneFor(assessment.status) : null;
   const budgetGap = requestedBudget.max - totalTripCost;
   const travellerLabel = formatTravellerParty(travellers);
+
+  async function requestBudgetPreview(applyChange: boolean) {
+    if (nextBudget === null) return;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const idToken = await getIdToken();
+    if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
+    if (applyChange) {
+      setApplying(true);
+    } else {
+      setPreviewing(true);
+    }
+    setRequestError(null);
+
+    try {
+      const res = await fetch(`/api/itinerary/${encodeURIComponent(itineraryId)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          total_budget: nextBudget,
+          apply: applyChange,
+        }),
+      });
+      const payload = (await res.json().catch(() => null)) as
+        | { preview?: BudgetAdjustmentPreview }
+        | null;
+
+      if (!res.ok) {
+        setRequestError(presentGenerateItineraryError(payload, res.status));
+        return;
+      }
+
+      setPreview(payload?.preview ?? null);
+      if (applyChange) {
+        router.refresh();
+      }
+    } catch {
+      setRequestError(
+        "We couldn't recalculate this budget right now. Please try again.",
+      );
+    } finally {
+      setPreviewing(false);
+      setApplying(false);
+    }
+  }
 
   return (
     <div className="mt-10 card p-6 md:p-8">
@@ -204,8 +266,8 @@ export default function ItineraryBudgetPanel({
               Try another total budget ({currency})
             </span>
             <span className="mt-1 block text-sm text-[var(--color-ink-500)]">
-              Enter a total budget and we&apos;ll tell you exactly how it fits
-              this itinerary.
+              Enter a total budget to preview how the route, stays, and things
+              to do would change before you apply it.
             </span>
             <input
               type="number"
@@ -213,7 +275,11 @@ export default function ItineraryBudgetPanel({
               step={500}
               inputMode="numeric"
               value={enteredBudget}
-              onChange={(e) => setEnteredBudget(e.target.value)}
+              onChange={(e) => {
+                setEnteredBudget(e.target.value);
+                setPreview(null);
+                setRequestError(null);
+              }}
               placeholder={String(requestedBudget.max)}
               className="input mt-3"
             />
@@ -235,7 +301,16 @@ export default function ItineraryBudgetPanel({
               role="alert"
               className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
             >
-              Enter a valid non-negative budget to compare against this route.
+              Enter a valid non-negative budget to preview changes.
+            </div>
+          )}
+
+          {requestError && (
+            <div
+              role="alert"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+            >
+              {requestError}
             </div>
           )}
 
@@ -249,23 +324,50 @@ export default function ItineraryBudgetPanel({
                 estimatedCost,
                 formatMoney,
               })}</p>
-              {assessment.topDrivers.length > 0 &&
-                assessment.status !== "within_range" && (
-                  <ul className="mt-3 space-y-2">
-                    {assessment.topDrivers.map((driver) => (
-                      <li
-                        key={`assessment:${driver.kind}:${driver.label}`}
-                        className={`flex items-start justify-between gap-3 ${tone.item}`}
-                      >
-                        <span>{driverLabel(driver)}</span>
-                        <span className="font-semibold whitespace-nowrap">
-                          {formatMoney(driver.amount)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
             </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void requestBudgetPreview(false)}
+              disabled={!canRequestPreview || previewing || applying}
+              className="btn-secondary"
+            >
+              {previewing ? (
+                <>
+                  <Spinner />
+                  Previewing…
+                </>
+              ) : (
+                "Preview changes"
+              )}
+            </button>
+
+            {preview && (
+              <button
+                type="button"
+                onClick={() => void requestBudgetPreview(true)}
+                disabled={previewing || applying}
+                className="btn-primary"
+              >
+                {applying ? (
+                  <>
+                    <Spinner />
+                    Updating itinerary…
+                  </>
+                ) : (
+                  "Apply this budget"
+                )}
+              </button>
+            )}
+          </div>
+
+          {preview && (
+            <BudgetPreviewCard
+              preview={preview}
+              formatMoney={formatMoney}
+            />
           )}
         </div>
       </div>
@@ -281,6 +383,42 @@ function BudgetStat({ label, value }: { label: string; value: string }) {
       </p>
       <p className="mt-1.5 text-lg font-bold tracking-tight text-[var(--color-ink-900)]">
         {value}
+      </p>
+    </div>
+  );
+}
+
+function BudgetPreviewCard({
+  preview,
+  formatMoney,
+}: {
+  preview: BudgetAdjustmentPreview;
+  formatMoney: (value: number) => string;
+}) {
+  const tone = previewToneFor(preview.direction);
+
+  return (
+    <div className={`mt-4 rounded-xl border px-4 py-4 ${tone.container}`}>
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em]">
+        {previewHeading(preview)}
+      </p>
+      <p className="mt-2 font-semibold">{preview.summary}</p>
+
+      <div className="mt-3 space-y-2">
+        {preview.impacts.map((impact) => (
+          <div
+            key={impact.id}
+            className={`rounded-xl border px-3 py-3 ${tone.item}`}
+          >
+            <p className="font-semibold">{impact.title}</p>
+            <p className="mt-1 text-xs leading-relaxed">{impact.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs">
+        Estimated trip cost: {formatMoney(preview.currentEstimatedCost)} now,{" "}
+        {formatMoney(preview.proposedEstimatedCost)} with this budget.
       </p>
     </div>
   );
@@ -304,6 +442,26 @@ function messageForAssessment(
   }
 }
 
+function previewToneFor(direction: BudgetAdjustmentPreview["direction"]) {
+  switch (direction) {
+    case "downgrade":
+      return {
+        container: "border-amber-200 bg-amber-50 text-amber-900",
+        item: "border-amber-200/80 bg-white/70 text-amber-950",
+      };
+    case "upgrade":
+      return {
+        container: "border-emerald-200 bg-emerald-50 text-emerald-900",
+        item: "border-emerald-200/80 bg-white/70 text-emerald-950",
+      };
+    default:
+      return {
+        container: "border-sky-200 bg-sky-50 text-sky-900",
+        item: "border-sky-200/80 bg-white/70 text-sky-950",
+      };
+  }
+}
+
 function toneFor(status: ReturnType<typeof assessBudgetRequest>["status"]) {
   switch (status) {
     case "shortfall":
@@ -321,6 +479,17 @@ function toneFor(status: ReturnType<typeof assessBudgetRequest>["status"]) {
         container: "border-emerald-200 bg-emerald-50 text-emerald-900",
         item: "text-emerald-900",
       };
+  }
+}
+
+function previewHeading(preview: BudgetAdjustmentPreview): string {
+  switch (preview.direction) {
+    case "downgrade":
+      return "Possible downgrades";
+    case "upgrade":
+      return "Possible upgrades";
+    default:
+      return "Route impact";
   }
 }
 
@@ -352,4 +521,32 @@ function sumByKind(
   return lineItems
     .filter((item) => item.kind === kind)
     .reduce((sum, item) => sum + item.amount, 0);
+}
+
+function Spinner() {
+  return (
+    <svg
+      aria-hidden
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      className="animate-spin"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeOpacity="0.25"
+        strokeWidth="3"
+      />
+      <path
+        d="M22 12a10 10 0 0 0-10-10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }

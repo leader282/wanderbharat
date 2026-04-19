@@ -76,6 +76,7 @@ export default async function ItineraryPage({
       <Hero itinerary={itinerary} stats={stats} />
       <Summary itinerary={itinerary} stats={stats} />
       <ItineraryBudgetPanel
+        itineraryId={itinerary.id}
         estimatedCost={itinerary.estimated_cost}
         requestedBudget={itinerary.preferences.budget}
         travellers={itinerary.preferences.travellers}
@@ -593,7 +594,8 @@ function Footnote() {
         <p className="font-bold">Want to tweak something?</p>
         <p className="text-sm text-[var(--color-ink-500)]">
           Start over with a different pace or starting city, or compare this
-          same route against another total budget above.
+          trip against another total budget above and apply the new version if
+          you like it.
         </p>
       </div>
       <Link href="/plan" className="btn-primary">
