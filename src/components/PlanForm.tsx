@@ -7,8 +7,10 @@ import SignInButton from "@/components/SignInButton";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { makeAutoBudget } from "@/lib/itinerary/budget";
 import {
+  ACCOMMODATION_PREFERENCES,
   TRANSPORT_MODES,
   TRAVEL_STYLES,
+  type AccommodationPreference,
   type GraphNode,
   type TransportMode,
   type TravelStyle,
@@ -28,10 +30,23 @@ interface FormState {
   start_node: string;
   days: number;
   travel_style: TravelStyle;
+  accommodationPreference: AccommodationPreference;
   interests: string[];
   transport_modes: TransportMode[];
   prioritize_city_coverage: boolean;
+  /** "HH:MM" 24-hour clock used to render the daily plan. */
+  preferred_start_time: string;
 }
+
+const START_TIME_OPTIONS: {
+  id: string;
+  label: string;
+  tagline: string;
+}[] = [
+  { id: "07:00", label: "Early bird", tagline: "Out the door by 7. Beat crowds, catch sunrise." },
+  { id: "09:00", label: "Standard", tagline: "A 9 AM start — comfortable for most people." },
+  { id: "10:00", label: "Slow morning", tagline: "Sleep in, take it easy, ease into the day." },
+];
 
 const INTEREST_OPTIONS: { id: string; label: string; emoji: string }[] = [
   { id: "heritage", label: "Heritage", emoji: "🏛️" },
@@ -62,14 +77,38 @@ const STYLE_COPY: Record<
   },
 };
 
+const ACCOMMODATION_COPY: Record<
+  AccommodationPreference,
+  { label: string; tagline: string }
+> = {
+  auto: {
+    label: "Auto",
+    tagline: "Let the planner balance value, rating, and fit city by city.",
+  },
+  budget: {
+    label: "Budget",
+    tagline: "Prioritise lower nightly rates and simpler properties.",
+  },
+  midrange: {
+    label: "Midrange",
+    tagline: "Aim for comfortable, well-rated stays without overshooting.",
+  },
+  premium: {
+    label: "Premium",
+    tagline: "Prefer higher-end, resort, and heritage-style options.",
+  },
+};
+
 const INITIAL_STATE: FormState = {
   region: "",
   start_node: "",
   days: 5,
   travel_style: "balanced",
+  accommodationPreference: "auto",
   interests: ["heritage"],
   transport_modes: ["road"],
   prioritize_city_coverage: false,
+  preferred_start_time: "09:00",
 };
 
 const TRIP_LENGTH_OPTIONS = [3, 4, 5, 6, 7] as const;
@@ -199,9 +238,11 @@ export default function PlanForm() {
           preferences: {
             travel_style: state.travel_style,
             budget: makeAutoBudget(currency),
+            accommodationPreference: state.accommodationPreference,
             interests: state.interests,
             transport_modes: state.transport_modes,
             prioritize_city_coverage: state.prioritize_city_coverage,
+            preferred_start_time: state.preferred_start_time,
           },
         }),
       });
@@ -343,6 +384,52 @@ export default function PlanForm() {
               </div>
             </Field>
 
+            <Field label="When does your day start?">
+              <div className="grid gap-2 sm:grid-cols-3">
+                {START_TIME_OPTIONS.map((opt) => {
+                  const active = state.preferred_start_time === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() =>
+                        setState((s) => ({
+                          ...s,
+                          preferred_start_time: opt.id,
+                        }))
+                      }
+                      aria-pressed={active}
+                      className={`text-left rounded-xl border p-3.5 transition ${
+                        active
+                          ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
+                          : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
+                      }`}
+                    >
+                      <p className="font-bold">
+                        {opt.label}{" "}
+                        <span
+                          className={`font-mono text-xs font-semibold ${
+                            active ? "text-white/80" : "text-[var(--color-ink-500)]"
+                          }`}
+                        >
+                          {formatStartTimeLabel(opt.id)}
+                        </span>
+                      </p>
+                      <p
+                        className={`text-xs mt-1 leading-snug ${
+                          active
+                            ? "text-white/85"
+                            : "text-[var(--color-ink-500)]"
+                        }`}
+                      >
+                        {opt.tagline}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+
             <Field label="Trip planning priority">
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-4 py-3">
                 <input
@@ -370,6 +457,48 @@ export default function PlanForm() {
             </Field>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Where do you want to stay?"
+        subtitle="This preference guides the hotel selector after the route is locked."
+      >
+        <Field label="Accommodation preference">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {ACCOMMODATION_PREFERENCES.map((preference) => {
+              const copy = ACCOMMODATION_COPY[preference];
+              const active = state.accommodationPreference === preference;
+
+              return (
+                <button
+                  key={preference}
+                  type="button"
+                  onClick={() =>
+                    setState((s) => ({
+                      ...s,
+                      accommodationPreference: preference,
+                    }))
+                  }
+                  aria-pressed={active}
+                  className={`text-left rounded-xl border p-3.5 transition ${
+                    active
+                      ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
+                      : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
+                  }`}
+                >
+                  <p className="font-bold">{copy.label}</p>
+                  <p
+                    className={`text-xs mt-1 leading-snug ${
+                      active ? "text-white/85" : "text-[var(--color-ink-500)]"
+                    }`}
+                  >
+                    {copy.tagline}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
       </Section>
 
       {/* ----- transport ----- */}
@@ -691,6 +820,14 @@ function titleCase(s: string): string {
     .split(/[_\s-]+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function formatStartTimeLabel(value: string): string {
+  const [h, m] = value.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return value;
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 /**

@@ -254,6 +254,7 @@ export async function generateItinerary(
       end.id,
     ),
     day_plan: selected.dayPlan,
+    stays: [],
     estimated_cost: Math.round(selected.estimatedCost),
     budget_breakdown: {
       line_items: selected.budgetLineItems,

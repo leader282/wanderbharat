@@ -22,6 +22,7 @@ function makeItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
     },
     nodes: ["node_start", "node_end"],
     day_plan: [],
+    stays: [],
     estimated_cost: 12000,
     score: 0.77,
     created_at: 1700000000000,

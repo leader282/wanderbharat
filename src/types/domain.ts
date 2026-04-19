@@ -41,6 +41,26 @@ export const TRAVEL_STYLES = [
 ] as const;
 export type TravelStyle = (typeof TRAVEL_STYLES)[number];
 
+export const ACCOMMODATION_CATEGORIES = [
+  "budget",
+  "midrange",
+  "premium",
+  "hostel",
+  "heritage",
+  "resort",
+] as const;
+export type AccommodationCategory =
+  (typeof ACCOMMODATION_CATEGORIES)[number];
+
+export const ACCOMMODATION_PREFERENCES = [
+  "auto",
+  "budget",
+  "midrange",
+  "premium",
+] as const;
+export type AccommodationPreference =
+  (typeof ACCOMMODATION_PREFERENCES)[number];
+
 /**
  * Free-form preference tags that can match node tags (e.g. "heritage",
  * "food", "wildlife", "luxury", "spiritual"). Kept as `string` to allow the
@@ -150,6 +170,11 @@ export interface ItineraryBudgetLineItem {
 
 export interface ItineraryBudgetBreakdown {
   line_items: ItineraryBudgetLineItem[];
+  lodgingSubtotal?: number;
+  travelSubtotal?: number;
+  nightlyAverage?: number;
+  totalTripCost?: number;
+  warnings?: string[];
 }
 
 export interface ItineraryPreferences {
@@ -164,6 +189,15 @@ export interface ItineraryPreferences {
    * means spending less time within each one.
    */
   prioritize_city_coverage?: boolean;
+  /** Preferred lodging band for the deterministic accommodation planner. */
+  accommodationPreference?: AccommodationPreference;
+  /**
+   * Preferred local start time for each day, formatted "HH:MM" (24-hour).
+   * Used purely for presentation: the renderer lays out travel, activities,
+   * meals, and buffers along a real clock starting at this time. Defaults
+   * to "09:00" when absent. Engine logic ignores it.
+   */
+  preferred_start_time?: string;
 }
 
 export interface GenerateItineraryInput {
@@ -235,6 +269,35 @@ export interface ItineraryDay {
   total_travel_hours: number;
 }
 
+export interface Accommodation {
+  id: string;
+  regionId: string;
+  nodeId: string;
+  name: string;
+  category: AccommodationCategory;
+  pricePerNight: number;
+  currency: string;
+  rating: number;
+  reviewCount: number;
+  amenities: string[];
+  location: Coordinates;
+  distanceFromCenterKm: number;
+  familyFriendly?: boolean;
+  coupleFriendly?: boolean;
+  breakfastIncluded?: boolean;
+  active: boolean;
+}
+
+export interface StayAssignment {
+  nodeId: string;
+  startDay: number;
+  endDay: number;
+  nights: number;
+  accommodationId: string | null;
+  nightlyCost: number;
+  totalCost: number;
+}
+
 /** Full itinerary — persisted to Firestore as-is. */
 export interface Itinerary {
   id: string;
@@ -248,6 +311,8 @@ export interface Itinerary {
   nodes: string[];
   /** Per-day breakdown built by the engine. */
   day_plan: ItineraryDay[];
+  /** Deterministic stay assignments layered on top of the routed days. */
+  stays: StayAssignment[];
   /** Total estimated cost across the whole trip. */
   estimated_cost: number;
   /** Human-readable budget drivers used by the itinerary UI. */

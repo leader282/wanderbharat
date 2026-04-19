@@ -1,13 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import DayStayBlock, {
+  type DayStayContext,
+  type ItineraryStayEntry,
+} from "@/components/DayStayBlock";
 import ItineraryBudgetPanel from "@/components/ItineraryBudgetPanel";
-import type { Itinerary, ItineraryDay, TransportMode } from "@/types/domain";
+import type {
+  Itinerary,
+  ItineraryDay,
+  StayAssignment,
+  TransportMode,
+} from "@/types/domain";
+import {
+  buildDaySchedule,
+  formatDuration,
+  formatTimeRange,
+  type ScheduleBlock,
+} from "@/lib/itinerary/daySchedule";
 import {
   getDisplayRouteStops,
   getDistinctDestinationCount,
   getRouteEndpoints,
 } from "@/lib/itinerary/routeDisplay";
+import { getAccommodations } from "@/lib/repositories/accommodationRepository";
 import { getItinerary } from "@/lib/repositories/itineraryRepository";
 
 export const runtime = "nodejs";
@@ -22,7 +38,14 @@ export default async function ItineraryPage({
   const itinerary = await getItinerary(id);
   if (!itinerary) notFound();
 
+  const stayAccommodationIds = itinerary.stays
+    .map((stay) => stay.accommodationId)
+    .filter((id): id is string => Boolean(id));
+  const accommodations = await getAccommodations(stayAccommodationIds);
   const stats = deriveStats(itinerary);
+  const stayEntries = buildStayEntries(itinerary, accommodations);
+  const stayByDayIndex = buildStayByDayIndex(stayEntries);
+  const currency = itinerary.preferences.budget.currency ?? "INR";
 
   return (
     <section className="mt-10 md:mt-14 animate-fadeUp">
@@ -42,7 +65,12 @@ export default async function ItineraryPage({
         breakdown={itinerary.budget_breakdown}
       />
       <RouteOverview itinerary={itinerary} />
-      <Timeline itinerary={itinerary} />
+      <Timeline
+        itinerary={itinerary}
+        stayByDayIndex={stayByDayIndex}
+        currency={currency}
+        startTime={itinerary.preferences.preferred_start_time}
+      />
       <Footnote />
     </section>
   );
@@ -77,6 +105,50 @@ function deriveStats(itinerary: Itinerary): Stats {
     startName,
     endName,
   };
+}
+
+function buildStayEntries(
+  itinerary: Itinerary,
+  accommodations: Awaited<ReturnType<typeof getAccommodations>>,
+): ItineraryStayEntry[] {
+  const accommodationsById = new Map(
+    accommodations.map((accommodation) => [accommodation.id, accommodation]),
+  );
+
+  return itinerary.stays.map((stay) => ({
+    stay,
+    cityName: resolveStayCityName(itinerary.day_plan, stay),
+    accommodation: stay.accommodationId
+      ? accommodationsById.get(stay.accommodationId) ?? null
+      : null,
+  }));
+}
+
+function buildStayByDayIndex(
+  entries: ItineraryStayEntry[],
+): Map<number, DayStayContext> {
+  const map = new Map<number, DayStayContext>();
+  for (const entry of entries) {
+    const { startDay, endDay } = entry.stay;
+    for (let day = startDay; day <= endDay; day++) {
+      map.set(day, {
+        entry,
+        nightNumber: day - startDay + 1,
+        isFirstNight: day === startDay,
+      });
+    }
+  }
+  return map;
+}
+
+function resolveStayCityName(days: ItineraryDay[], stay: StayAssignment): string {
+  const exactDay = days.find(
+    (day) => day.day_index === stay.startDay && day.base_node_id === stay.nodeId,
+  );
+  if (exactDay) return exactDay.base_node_name;
+
+  const fallback = days.find((day) => day.base_node_id === stay.nodeId);
+  return fallback?.base_node_name ?? stay.nodeId;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,11 +302,33 @@ function RouteOverview({ itinerary }: { itinerary: Itinerary }) {
 
 // ---------------------------------------------------------------------------
 
-function Timeline({ itinerary }: { itinerary: Itinerary }) {
+function Timeline({
+  itinerary,
+  stayByDayIndex,
+  currency,
+  startTime,
+}: {
+  itinerary: Itinerary;
+  stayByDayIndex: Map<number, DayStayContext>;
+  currency: string;
+  startTime: string | undefined;
+}) {
+  const startLabel = formatStartHint(startTime);
+
   return (
     <div className="mt-12">
       <p className="eyebrow">Day by day</p>
-      <h2 className="mt-2 text-2xl md:text-3xl font-black">Your daily plan</h2>
+      <h2 className="mt-2 text-2xl md:text-3xl font-black">
+        Your complete daily plan
+      </h2>
+      <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
+        A real clock for every day — travel, things to do, and where you&apos;ll
+        sleep, all timed for you. Each day starts at{" "}
+        <span className="font-semibold text-[var(--color-ink-900)]">
+          {startLabel}
+        </span>
+        , with a 1-hour lunch slotted in around midday.
+      </p>
 
       <ol className="mt-6 pl-8 space-y-6">
         {itinerary.day_plan.map((day, index) => (
@@ -246,7 +340,12 @@ function Timeline({ itinerary }: { itinerary: Itinerary }) {
             {index < itinerary.day_plan.length - 1 && (
               <span className="timeline-line" aria-hidden />
             )}
-            <DayCard day={day} />
+            <DayCard
+              day={day}
+              stayContext={stayByDayIndex.get(day.day_index)}
+              currency={currency}
+              startTime={startTime}
+            />
           </li>
         ))}
       </ol>
@@ -254,7 +353,19 @@ function Timeline({ itinerary }: { itinerary: Itinerary }) {
   );
 }
 
-function DayCard({ day }: { day: ItineraryDay }) {
+function DayCard({
+  day,
+  stayContext,
+  currency,
+  startTime,
+}: {
+  day: ItineraryDay;
+  stayContext: DayStayContext | undefined;
+  currency: string;
+  startTime: string | undefined;
+}) {
+  const schedule = buildDaySchedule({ day, startTime });
+
   return (
     <div className="card p-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -278,64 +389,122 @@ function DayCard({ day }: { day: ItineraryDay }) {
         </div>
       </div>
 
-      {day.travel && (
-        <div className="mt-4 flex items-center gap-3 rounded-lg bg-[var(--color-sand-100)] px-4 py-3 text-sm">
-          <TransportIcon mode={day.travel.transport_mode} />
-          <div>
-            <p className="font-bold text-[var(--color-ink-900)]">
-              Travel to {day.base_node_name}
-            </p>
-            <p className="text-[var(--color-ink-500)]">
-              {Math.round(day.travel.distance_km)} km ·{" "}
-              {roundHours(day.travel.travel_time_hours)} h by{" "}
-              {titleCase(day.travel.transport_mode)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {day.activities.length > 0 && (
+      {schedule.length > 0 && (
         <ul className="mt-5 space-y-4">
-          {day.activities.map((a, i) => (
-            <li
-              key={`${a.node_id}-${i}`}
-              className="flex gap-4 items-start pt-4 first:pt-0 border-t border-[rgba(26,23,20,0.06)] first:border-t-0"
-            >
-              <span className="mt-1 grid place-items-center w-9 h-9 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-brand-700)] shrink-0">
-                <Compass />
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start gap-3">
-                  <p className="font-bold text-[var(--color-ink-900)]">
-                    {a.name}
-                  </p>
-                  <span className="text-xs font-mono font-semibold text-[var(--color-ink-500)] whitespace-nowrap">
-                    {roundHours(a.duration_hours)} h
-                  </span>
-                </div>
-                {a.description && (
-                  <p className="text-sm text-[var(--color-ink-500)] mt-1">
-                    {a.description}
-                  </p>
-                )}
-                {a.tags.length > 0 && (
-                  <p className="mt-1.5 flex flex-wrap gap-1.5">
-                    {a.tags.slice(0, 4).map((t) => (
-                      <span
-                        key={t}
-                        className="text-[0.68rem] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white border border-[rgba(26,23,20,0.08)] text-[var(--color-ink-500)]"
-                      >
-                        {titleCase(t)}
-                      </span>
-                    ))}
-                  </p>
-                )}
-              </div>
-            </li>
+          {schedule.map((block, i) => (
+            <ScheduleRow
+              key={`${block.kind}-${block.startMin}-${i}`}
+              block={block}
+              isFirst={i === 0}
+            />
           ))}
         </ul>
       )}
+
+      {stayContext && <DayStayBlock context={stayContext} currency={currency} />}
     </div>
+  );
+}
+
+function ScheduleRow({
+  block,
+  isFirst,
+}: {
+  block: ScheduleBlock;
+  isFirst: boolean;
+}) {
+  const range = formatTimeRange(block.startMin, block.endMin);
+  const duration = formatDuration(block.durationMin);
+  const rowClass = `flex gap-4 items-start pt-4 first:pt-0 border-t border-[rgba(26,23,20,0.06)] ${
+    isFirst ? "border-t-0" : ""
+  }`;
+
+  if (block.kind === "travel") {
+    return (
+      <li className={rowClass}>
+        <TransportIcon mode={block.transportMode} />
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start gap-3">
+            <p className="font-bold text-[var(--color-ink-900)]">
+              Travel to {block.toName}
+            </p>
+            <TimeRangeLabel range={range} duration={duration} />
+          </div>
+          <p className="text-sm text-[var(--color-ink-500)] mt-1">
+            {Math.round(block.distanceKm)} km by{" "}
+            {titleCase(block.transportMode)}
+          </p>
+        </div>
+      </li>
+    );
+  }
+
+  if (block.kind === "meal") {
+    return (
+      <li className={rowClass}>
+        <span className="mt-1 grid place-items-center w-9 h-9 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-brand-700)] shrink-0">
+          <Fork />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start gap-3">
+            <p className="font-bold text-[var(--color-ink-900)]">
+              {block.label} break
+            </p>
+            <TimeRangeLabel range={range} duration={duration} />
+          </div>
+          <p className="text-sm text-[var(--color-ink-500)] mt-1">
+            A flexible window to grab a meal nearby.
+          </p>
+        </div>
+      </li>
+    );
+  }
+
+  const a = block.activity;
+  return (
+    <li className={rowClass}>
+      <span className="mt-1 grid place-items-center w-9 h-9 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-brand-700)] shrink-0">
+        <Compass />
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-start gap-3">
+          <p className="font-bold text-[var(--color-ink-900)]">{a.name}</p>
+          <TimeRangeLabel range={range} duration={duration} />
+        </div>
+        {a.description && (
+          <p className="text-sm text-[var(--color-ink-500)] mt-1">
+            {a.description}
+          </p>
+        )}
+        {a.tags.length > 0 && (
+          <p className="mt-1.5 flex flex-wrap gap-1.5">
+            {a.tags.slice(0, 4).map((t) => (
+              <span
+                key={t}
+                className="text-[0.68rem] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white border border-[rgba(26,23,20,0.08)] text-[var(--color-ink-500)]"
+              >
+                {titleCase(t)}
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function TimeRangeLabel({
+  range,
+  duration,
+}: {
+  range: string;
+  duration: string;
+}) {
+  return (
+    <span className="text-xs font-mono font-semibold text-[var(--color-ink-500)] whitespace-nowrap text-right shrink-0">
+      <span className="text-[var(--color-ink-900)]">{range}</span>
+      <span className="ml-1.5 opacity-70">· {duration}</span>
+    </span>
   );
 }
 
@@ -452,6 +621,27 @@ function Compass() {
   );
 }
 
+function Fork() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 2v8a3 3 0 0 0 6 0V2" />
+      <path d="M10 10v12" />
+      <path d="M17 2c-1.5 0-3 2-3 5v6h3" />
+      <path d="M17 13v9" />
+    </svg>
+  );
+}
+
 function ArrowLeft() {
   return (
     <svg
@@ -469,6 +659,14 @@ function ArrowLeft() {
       <path d="m11 19-7-7 7-7" />
     </svg>
   );
+}
+
+function formatStartHint(value: string | undefined): string {
+  const raw = value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "09:00";
+  const [h, m] = raw.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 function roundHours(n: number): string {
