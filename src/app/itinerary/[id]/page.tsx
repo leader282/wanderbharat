@@ -61,7 +61,7 @@ export default async function ItineraryPage({
     <section className="mt-10 md:mt-14 animate-fadeUp">
       <Link
         href="/plan"
-        className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-brand-700)] hover:translate-x-[-2px] transition-transform"
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink-700)] transition-colors hover:text-[var(--color-ink-900)] hover:-translate-x-px"
       >
         <ArrowLeft />
         Plan another trip
@@ -181,9 +181,9 @@ function MapSection({
   }));
 
   return (
-    <div className="mt-10">
+    <div className="mt-12">
       <p className="eyebrow">Map</p>
-      <h2 className="mt-2 text-2xl md:text-3xl font-black">
+      <h2 className="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-ink-900)]">
         See the route on a real map
       </h2>
       <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
@@ -212,10 +212,10 @@ function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
   return (
     <header className="mt-6">
       <p className="eyebrow">{titleCase(itinerary.region)} itinerary</p>
-      <h1 className="mt-2 text-4xl md:text-5xl font-black leading-[1.05]">
+      <h1 className="mt-3 text-4xl md:text-[3rem] font-bold leading-[1.06] tracking-tight text-[var(--color-ink-900)]">
         Your {itinerary.days}-day trip through {titleCase(itinerary.region)}.
       </h1>
-      <p className="mt-3 text-lg text-[var(--color-ink-700)] max-w-2xl">
+      <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[var(--color-ink-600)]">
         {summary}
       </p>
     </header>
@@ -262,13 +262,15 @@ function Stat({
 }) {
   return (
     <div className="card p-5">
-      <p className="text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[var(--color-ink-500)]">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-black text-[var(--color-ink-900)]">
+      <p className="mt-2 text-2xl font-bold tracking-tight text-[var(--color-ink-900)]">
         {value}
       </p>
-      {sub && <p className="mt-1 text-xs text-[var(--color-ink-500)]">{sub}</p>}
+      {sub && (
+        <p className="mt-1.5 text-xs text-[var(--color-ink-500)]">{sub}</p>
+      )}
     </div>
   );
 }
@@ -322,10 +324,10 @@ function RouteOverview({ itinerary }: { itinerary: Itinerary }) {
   return (
     <div className="mt-10 card p-6">
       <p className="eyebrow">Route</p>
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-3 text-lg font-bold">
+      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-3 text-base font-bold">
         {stops.map((s, i) => (
           <span key={`${s.id}-${i}`} className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-2 rounded-full bg-[var(--color-sand-100)] px-3 py-1.5">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--hairline)] bg-[var(--color-sand-50)] px-3 py-1.5 text-[var(--color-ink-900)]">
               <Pin />
               {s.name}
               {s.badge && (
@@ -335,7 +337,10 @@ function RouteOverview({ itinerary }: { itinerary: Itinerary }) {
               )}
             </span>
             {i < stops.length - 1 && (
-              <span className="text-[var(--color-brand-600)] text-xl font-black">
+              <span
+                aria-hidden
+                className="text-lg font-semibold text-[var(--color-ink-400)]"
+              >
                 →
               </span>
             )}
@@ -362,9 +367,9 @@ function Timeline({
   const startLabel = formatStartHint(startTime);
 
   return (
-    <div className="mt-12">
+    <div className="mt-14">
       <p className="eyebrow">Day by day</p>
-      <h2 className="mt-2 text-2xl md:text-3xl font-black">
+      <h2 className="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-ink-900)]">
         Your complete daily plan
       </h2>
       <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
@@ -416,10 +421,12 @@ function DayCard({
     <div className="card p-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <p className="text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
-            Day {day.day_index + 1}
+          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-[var(--color-ink-500)]">
+            Day {String(day.day_index + 1).padStart(2, "0")}
           </p>
-          <h3 className="mt-1 text-2xl font-black">{day.base_node_name}</h3>
+          <h3 className="mt-1.5 text-2xl font-bold tracking-tight text-[var(--color-ink-900)]">
+            {day.base_node_name}
+          </h3>
         </div>
         <div className="flex items-center gap-3 text-xs">
           <Badge
@@ -642,7 +649,7 @@ function Pin() {
       strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="text-[var(--color-brand-600)]"
+      className="text-[var(--color-brand-700)]"
     >
       <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
       <circle cx="12" cy="10" r="3" />

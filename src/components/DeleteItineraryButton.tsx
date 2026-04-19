@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function DeleteItineraryButton({
   itineraryId,
@@ -11,24 +11,22 @@ export default function DeleteItineraryButton({
   tripLabel: string;
 }) {
   const router = useRouter();
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const titleId = `delete-itinerary-title-${itineraryId}`;
+  const errorTimerRef = useRef<number | null>(null);
 
+  // Clear any pending error toast on unmount.
   useEffect(() => {
-    if (!confirmOpen || deleting) return;
+    return () => {
+      if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+    };
+  }, []);
 
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setConfirmOpen(false);
-        setError(null);
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmOpen, deleting]);
+  function showError(message: string) {
+    setError(message);
+    if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = window.setTimeout(() => setError(null), 4000);
+  }
 
   async function handleDelete() {
     if (deleting) return;
@@ -48,131 +46,58 @@ export default function DeleteItineraryButton({
         const payload = (await res.json().catch(() => null)) as {
           message?: string;
         } | null;
-        setError(payload?.message ?? "We couldn't delete that itinerary.");
+        showError(payload?.message ?? "We couldn't delete that itinerary.");
         setDeleting(false);
         return;
       }
 
       router.refresh();
     } catch {
-      setError("We couldn't delete that itinerary.");
+      showError("We couldn't delete that itinerary.");
       setDeleting(false);
     }
   }
 
-  function openConfirm() {
-    if (deleting) return;
-    setError(null);
-    setConfirmOpen(true);
-  }
-
-  function closeConfirm() {
-    if (deleting) return;
-    setError(null);
-    setConfirmOpen(false);
-  }
-
   return (
     <>
-      {confirmOpen && (
+      {error && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,23,20,0.45)] px-4"
-          onClick={closeConfirm}
+          role="alert"
+          className="fixed inset-x-0 top-4 z-50 mx-auto flex w-fit max-w-[calc(100%-2rem)] items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg animate-fadeBackdrop"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            className="w-full max-w-md rounded-2xl border border-[rgba(26,23,20,0.08)] bg-white p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <span
-                aria-hidden
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-red-50 text-red-700"
-              >
-                <TrashIcon />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h2
-                  id={titleId}
-                  className="text-xl font-black text-[var(--color-ink-900)]"
-                >
-                  Delete itinerary?
-                </h2>
-                <p className="mt-2 text-sm text-[var(--color-ink-600)]">
-                  This will permanently remove the saved trip from your account.
-                </p>
-                <p className="mt-3 rounded-xl bg-[var(--color-sand-50)] px-3 py-2 text-sm font-semibold text-[var(--color-ink-800)]">
-                  {tripLabel}
-                </p>
-              </div>
-            </div>
-
-            {error && (
-              <div
-                role="alert"
-                className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
-              >
-                {error}
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={closeConfirm}
-                disabled={deleting}
-                className="btn-secondary justify-center"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting}
-                className={[
-                  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition",
-                  deleting
-                    ? "cursor-wait bg-red-200 text-red-900"
-                    : "bg-red-600 text-white hover:bg-red-700",
-                ].join(" ")}
-              >
-                <TrashIcon />
-                {deleting ? "Deleting..." : "Delete itinerary"}
-              </button>
-            </div>
-          </div>
+          <span aria-hidden className="mt-0.5 text-red-700">
+            <AlertIcon size={14} />
+          </span>
+          <span>{error}</span>
         </div>
       )}
 
-      <div className="flex flex-col items-end gap-1">
-        <button
-          type="button"
-          onClick={openConfirm}
-          disabled={deleting}
-          className={[
-            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-            deleting
-              ? "cursor-wait border-[rgba(26,23,20,0.08)] bg-[var(--color-sand-50)] text-[var(--color-ink-500)]"
-              : "border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300",
-          ].join(" ")}
-          aria-label={`Delete ${tripLabel}`}
-        >
-          <TrashIcon />
-          {deleting ? "Deleting..." : "Delete"}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={handleDelete}
+        disabled={deleting}
+        aria-label={`Delete ${tripLabel}`}
+        title="Delete itinerary"
+        className={[
+          "relative z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border transition",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30",
+          deleting
+            ? "cursor-wait border-[var(--hairline)] bg-[var(--color-sand-50)] text-[var(--color-ink-400)]"
+            : "border-[var(--hairline)] bg-white text-[var(--color-ink-500)] hover:border-red-200 hover:bg-red-50 hover:text-red-700",
+        ].join(" ")}
+      >
+        {deleting ? <Spinner size={12} /> : <TrashIcon size={13} />}
+      </button>
     </>
   );
 }
 
-function TrashIcon() {
+function TrashIcon({ size = 12 }: { size?: number }) {
   return (
     <svg
       aria-hidden
-      width="12"
-      height="12"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -185,6 +110,54 @@ function TrashIcon() {
       <path d="M19 6l-1 14H6L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function AlertIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+function Spinner({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className="animate-spin"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.25"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

@@ -55,16 +55,16 @@ export default function DayStayBlock({
   }
 
   return (
-    <div className="mt-5 rounded-xl bg-[var(--color-sand-100)] p-4">
+    <div className="mt-5 rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] p-4">
       <div className="flex items-start gap-3">
         <BedIcon />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <p className="text-[0.65rem] uppercase tracking-widest text-[var(--color-ink-500)] font-bold">
+              <p className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--color-ink-500)] font-bold">
                 Check in · {nightsLabel}
               </p>
-              <p className="mt-1 text-base md:text-lg font-black text-[var(--color-ink-900)] truncate">
+              <p className="mt-1 text-base md:text-lg font-bold tracking-tight text-[var(--color-ink-900)] truncate">
                 {accommodation.name}
               </p>
               <p className="mt-0.5 text-xs text-[var(--color-ink-500)]">
@@ -75,7 +75,7 @@ export default function DayStayBlock({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className="font-black text-[var(--color-ink-900)]">
+              <p className="font-bold text-[var(--color-ink-900)]">
                 {formatMoney(stay.nightlyCost)}
                 <span className="text-xs font-normal text-[var(--color-ink-500)]">
                   {" "}
@@ -121,7 +121,7 @@ export default function DayStayBlock({
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full bg-[var(--color-brand-300)]/15 px-2.5 py-1 font-semibold text-[var(--color-brand-700)]">
+    <span className="rounded-full border border-[var(--hairline)] bg-white px-2.5 py-1 font-semibold text-[var(--color-ink-700)]">
       {children}
     </span>
   );
@@ -131,7 +131,7 @@ function BedIcon() {
   return (
     <span
       aria-hidden
-      className="grid place-items-center w-9 h-9 rounded-lg bg-white text-[var(--color-brand-700)] border border-[rgba(26,23,20,0.08)] shrink-0"
+      className="grid place-items-center w-9 h-9 rounded-lg bg-white text-[var(--color-ink-900)] border border-[var(--hairline)] shrink-0"
     >
       <svg
         viewBox="0 0 24 24"

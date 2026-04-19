@@ -197,7 +197,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
 
   if (data.markers.length === 0 && data.legs.length === 0) {
     return (
-      <div className="rounded-[28px] border border-[rgba(26,23,20,0.08)] bg-white p-6 text-sm text-[var(--color-ink-500)]">
+      <div className="card p-6 text-sm text-[var(--color-ink-500)]">
         No map-ready stops or routes were found for this itinerary yet.
       </div>
     );
@@ -205,7 +205,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
 
   if (!GOOGLE_MAPS_BROWSER_API_KEY) {
     return (
-      <div className="rounded-[28px] border border-[rgba(26,23,20,0.08)] bg-white p-6">
+      <div className="card p-6">
         <p className="font-bold text-[var(--color-ink-900)]">
           Map is not configured for the browser.
         </p>
@@ -218,7 +218,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
   }
 
   return (
-    <div className="rounded-[28px] border border-[rgba(26,23,20,0.08)] bg-white p-5 md:p-6">
+    <div className="card p-5 md:p-6">
       <Script
         id="wanderbharat-google-maps-js"
         src={`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
@@ -273,7 +273,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
             role="region"
             aria-label="Itinerary map"
             aria-busy={mapsState !== "ready"}
-            className="h-[420px] w-full overflow-hidden rounded-[24px] border border-[rgba(26,23,20,0.08)] bg-[linear-gradient(180deg,#f7efe7_0%,#f5f8fb_100%)]"
+            className="h-[420px] w-full overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[linear-gradient(180deg,#f3efe5_0%,#eef1f4_100%)]"
           />
           {mapsState !== "ready" && (
             <p
@@ -288,14 +288,14 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-[var(--color-ink-500)]">
-        <LegendDot className="bg-[var(--color-brand-700)]" label="Stops" />
-        <LegendDot className="bg-sky-600" label="Stays" />
-        <LegendDot className="bg-emerald-600" label="Attractions" />
+        <LegendDot className="bg-[var(--color-ink-900)]" label="Stops" />
+        <LegendDot className="bg-[var(--color-indigo-500)]" label="Stays" />
+        <LegendDot className="bg-[var(--color-teal-500)]" label="Attractions" />
         <LegendLine
-          className="bg-[var(--color-brand-700)]"
+          className="bg-[var(--color-ink-900)]"
           label="Stored route geometry"
         />
-        <LegendLine className="bg-slate-400" label="Direct fallback line" />
+        <LegendLine className="bg-[var(--color-ink-400)]" label="Direct fallback line" />
       </div>
 
       {data.missing_geometry_count > 0 && (
@@ -325,8 +325,8 @@ function FilterButton({
       aria-pressed={active}
       className={`rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
         active
-          ? "bg-[var(--color-brand-700)] text-white"
-          : "bg-[var(--color-sand-100)] text-[var(--color-ink-700)] hover:bg-[var(--color-sand-200)]"
+          ? "bg-[var(--color-ink-900)] text-white"
+          : "border border-[var(--hairline)] bg-white text-[var(--color-ink-700)] hover:border-[var(--color-ink-700)] hover:text-[var(--color-ink-900)]"
       }`}
     >
       {children}
@@ -382,7 +382,7 @@ function markerPin(
 ): google.maps.marker.PinElementOptions {
   if (marker.kind === "stop") {
     return {
-      background: "#92400E",
+      background: "#14110d",
       borderColor: "#ffffff",
       glyphColor: "#ffffff",
       glyphText: String((marker.stop_order ?? 0) + 1),
@@ -392,7 +392,7 @@ function markerPin(
 
   if (marker.kind === "stay") {
     return {
-      background: "#0284C7",
+      background: "#3d4f8c",
       borderColor: "#ffffff",
       glyphColor: "#ffffff",
       glyphText: "H",
@@ -401,7 +401,7 @@ function markerPin(
   }
 
   return {
-    background: "#059669",
+    background: "#0f7670",
     borderColor: "#ffffff",
     glyphColor: "#ffffff",
     glyphText: "A",
@@ -410,14 +410,14 @@ function markerPin(
 }
 
 function transportColor(leg: ItineraryMapLeg): string {
-  if (!leg.has_geometry) return "#94A3B8";
+  if (!leg.has_geometry) return "#9a9181";
   switch (leg.transport_mode) {
     case "train":
-      return "#0F766E";
+      return "#0f7670";
     case "flight":
-      return "#7C3AED";
+      return "#3d4f8c";
     default:
-      return "#92400E";
+      return "#14110d";
   }
 }
 
