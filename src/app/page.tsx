@@ -54,7 +54,7 @@ function Hero() {
 
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-x-6 gap-y-2 border-t border-[var(--hairline)] pt-6">
             <HeroStat value="10+" label="cities mapped" />
-            <HeroStat value="1–30" label="day itineraries" />
+            <HeroStat value="1–7" label="day itineraries" />
             <HeroStat value="0" label="generic tours" />
           </dl>
         </div>
@@ -419,7 +419,7 @@ function HowItWorks() {
     {
       title: "Tell us the basics",
       body:
-        "Pick a starting city, how many days you have, and your travel style.",
+        "Pick a starting city, who's travelling, your budget, and your pace.",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
       ),

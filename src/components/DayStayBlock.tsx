@@ -1,4 +1,9 @@
 import type { Accommodation, StayAssignment } from "@/types/domain";
+import {
+  formatTravellerParty,
+  makeMoneyFormatter,
+  titleCaseWords,
+} from "@/lib/itinerary/presentation";
 
 export interface ItineraryStayEntry {
   stay: StayAssignment;
@@ -68,7 +73,7 @@ export default function DayStayBlock({
                 {accommodation.name}
               </p>
               <p className="mt-0.5 text-xs text-[var(--color-ink-500)]">
-                {titleCase(accommodation.category)} · ★{" "}
+                {titleCaseWords(accommodation.category)} · ★{" "}
                 {accommodation.rating.toFixed(1)} (
                 {accommodation.reviewCount.toLocaleString("en-IN")} reviews) ·{" "}
                 {accommodation.distanceFromCenterKm.toFixed(1)} km from center
@@ -96,7 +101,7 @@ export default function DayStayBlock({
                   key={amenity}
                   className="text-[0.68rem] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white border border-[rgba(26,23,20,0.08)] text-[var(--color-ink-500)]"
                 >
-                  {titleCase(amenity)}
+                  {titleCaseWords(amenity)}
                 </span>
               ))}
             </div>
@@ -111,6 +116,31 @@ export default function DayStayBlock({
               )}
               {accommodation.familyFriendly && <Pill>Family friendly</Pill>}
               {accommodation.coupleFriendly && <Pill>Couple friendly</Pill>}
+            </div>
+          )}
+
+          {stay.roomAllocation && stay.roomAllocation.rooms.length > 0 && (
+            <div className="mt-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-3.5 py-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
+                Room allocation · {stay.roomAllocation.totalRooms}{" "}
+                {stay.roomAllocation.totalRooms === 1 ? "room" : "rooms"} for{" "}
+                {formatParty(stay.roomAllocation)}
+              </p>
+              <ul className="mt-2 space-y-1.5 text-sm text-[var(--color-ink-700)]">
+                {stay.roomAllocation.rooms.map((room) => (
+                  <li
+                    key={room.roomTypeId}
+                    className="flex items-start justify-between gap-3"
+                  >
+                    <span>
+                      {room.roomCount} x {room.roomTypeName}
+                    </span>
+                    <span className="font-semibold whitespace-nowrap">
+                      {formatMoney(room.nightlyCost)} / night
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -154,23 +184,11 @@ function BedIcon() {
   );
 }
 
-function titleCase(value: string): string {
-  return value
-    .split(/[_\s-]+/)
-    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
-    .join(" ");
-}
-
-function makeMoneyFormatter(currency: string) {
-  try {
-    const nf = new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    });
-    return (value: number) => nf.format(Math.max(0, Number(value) || 0));
-  } catch {
-    return (value: number) =>
-      `${currency} ${Math.round(Math.max(0, Number(value) || 0)).toLocaleString("en-IN")}`;
-  }
+function formatParty(
+  allocation: NonNullable<StayAssignment["roomAllocation"]>,
+): string {
+  return formatTravellerParty({
+    adults: allocation.adults,
+    children: allocation.children,
+  });
 }

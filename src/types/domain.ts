@@ -95,7 +95,11 @@ export interface GraphNode {
 }
 
 export interface NodeMetadata {
-  /** Average daily cost for a traveller while spending time at this node. */
+  /**
+   * Average daily variable cost for a single traveller while spending time at
+   * this node. The planner multiplies by the party size when estimating total
+   * trip cost.
+   */
   avg_daily_cost?: number;
   /** Recommended total hours to experience this node. */
   recommended_hours?: number;
@@ -105,6 +109,10 @@ export interface NodeMetadata {
   image_url?: string;
   /** Google Places `place_id` if derived from Google. */
   google_place_id?: string;
+  /** Optional local opening time ("HH:MM"). */
+  opening_time?: string;
+  /** Optional local closing time ("HH:MM"). */
+  closing_time?: string;
   /** Allow any forward-compatible extras without breaking typing. */
   [key: string]: unknown;
 }
@@ -157,8 +165,18 @@ export interface EdgeMetadata {
 export interface BudgetRange {
   min: number;
   max: number;
+  /**
+   * Total trip budget window in the itinerary currency. The planner treats
+   * `max` as the hard ceiling and `min` as an optional floor when callers
+   * want to rule out under-spending.
+   */
   /** ISO 4217 code, e.g. "INR". Optional for MVP. */
   currency?: string;
+}
+
+export interface TravellerComposition {
+  adults: number;
+  children: number;
 }
 
 export interface ItineraryBudgetLineItem {
@@ -175,12 +193,15 @@ export interface ItineraryBudgetBreakdown {
   travelSubtotal?: number;
   nightlyAverage?: number;
   totalTripCost?: number;
+  requestedBudget?: BudgetRange;
+  recommendedBudget?: BudgetRange;
   warnings?: string[];
 }
 
 export interface ItineraryPreferences {
   travel_style: TravelStyle;
   budget: BudgetRange;
+  travellers: TravellerComposition;
   /** Optional preference tags to prioritise (e.g. ["heritage", "food"]). */
   interests?: PreferenceTag[];
   /** Optional preferred transport modes. Defaults to ["road"]. */
@@ -191,7 +212,7 @@ export interface ItineraryPreferences {
    */
   prioritize_city_coverage?: boolean;
   /** Preferred lodging band for the deterministic accommodation planner. */
-  accommodationPreference?: AccommodationPreference;
+  accommodation_preference?: AccommodationPreference;
   /**
    * Preferred local start time for each day, formatted "HH:MM" (24-hour).
    * Used purely for presentation: the renderer lays out travel, activities,
@@ -212,6 +233,12 @@ export interface GenerateItineraryInput {
   start_node: string;
   /** Optional — defaults to the same as start_node (round-trip). */
   end_node?: string;
+  /**
+   * Optional extra cities the user wants the route to cover. When present,
+   * the planner tries to include every requested city; otherwise it returns
+   * a structured feasibility error that explains what would need to change.
+   */
+  requested_city_ids?: string[];
   days: number;
   preferences: ItineraryPreferences;
   /** Optional user id for persistence. */
@@ -250,6 +277,10 @@ export interface ItineraryActivity {
   duration_hours: number;
   tags: PreferenceTag[];
   description?: string;
+  /** Optional local opening time ("HH:MM"). */
+  opening_time?: string;
+  /** Optional local closing time ("HH:MM"). */
+  closing_time?: string;
 }
 
 /** A contiguous day within an itinerary. */
@@ -276,17 +307,51 @@ export interface Accommodation {
   nodeId: string;
   name: string;
   category: AccommodationCategory;
+  /**
+   * Lowest bookable nightly rate retained for legacy sorting / display. Real
+   * stay selection is driven by `roomTypes`.
+   */
   pricePerNight: number;
   currency: string;
   rating: number;
   reviewCount: number;
   amenities: string[];
+  roomTypes?: AccommodationRoomType[];
   location: Coordinates;
   distanceFromCenterKm: number;
   familyFriendly?: boolean;
   coupleFriendly?: boolean;
   breakfastIncluded?: boolean;
   active: boolean;
+}
+
+export interface AccommodationRoomType {
+  id: string;
+  name: string;
+  pricePerNight: number;
+  maxAdults?: number;
+  maxChildren?: number;
+  maxOccupancy?: number;
+  amenities?: string[];
+}
+
+export interface StayRoomSelection {
+  roomTypeId: string;
+  roomTypeName: string;
+  roomCount: number;
+  unitPricePerNight: number;
+  nightlyCost: number;
+  totalCost: number;
+  maxAdults?: number;
+  maxChildren?: number;
+  maxOccupancy?: number;
+}
+
+export interface StayRoomAllocationSummary {
+  adults: number;
+  children: number;
+  totalRooms: number;
+  rooms: StayRoomSelection[];
 }
 
 export interface StayAssignment {
@@ -297,6 +362,7 @@ export interface StayAssignment {
   accommodationId: string | null;
   nightlyCost: number;
   totalCost: number;
+  roomAllocation?: StayRoomAllocationSummary;
 }
 
 /** Full itinerary — persisted to Firestore as-is. */
@@ -385,6 +451,7 @@ export type ConstraintErrorReason =
   | "budget_exceeded"
   | "no_feasible_route"
   | "insufficient_nodes"
+  | "requested_cities_uncovered"
   | "invalid_input";
 
 export interface ConstraintError {

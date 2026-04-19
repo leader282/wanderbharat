@@ -5,11 +5,13 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
+import { validateBudget } from "@/lib/itinerary/constraints";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
 import { getByNode } from "@/lib/repositories/accommodationRepository";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 import { precacheItineraryRouteGeometry } from "@/lib/services/itineraryMapService";
+import type { TransportMode } from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,10 +77,20 @@ export async function handleGenerateItinerary(
         error: "invalid_input",
         message: "Request body failed validation.",
         details: parsed.error.flatten(),
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
       },
       { status: 400 },
     );
   }
+
+  const requestedModes: TransportMode[] =
+    parsed.data.preferences.transport_modes &&
+    parsed.data.preferences.transport_modes.length > 0
+      ? parsed.data.preferences.transport_modes
+      : ["road"];
 
   const resolveUserId = deps.resolveUserId ?? defaultResolveUserId;
   let authedUserId: string | null = null;
@@ -97,8 +109,9 @@ export async function handleGenerateItinerary(
       regions: input.regions,
       start_node_id: input.start_node,
       end_node_id: input.end_node,
+      requested_city_ids: input.requested_city_ids,
       days: input.days,
-      modes: input.preferences.transport_modes ?? ["road"],
+      modes: requestedModes,
       travel_style: input.preferences.travel_style,
     });
   } catch (err) {
@@ -121,8 +134,9 @@ export async function handleGenerateItinerary(
     const accommodationPlan = await deps.planAccommodations({
       days: itinerary.day_plan,
       budget: parsed.data.preferences.budget,
+      travellers: input.preferences.travellers,
       travelStyle: input.preferences.travel_style,
-      accommodationPreference: input.preferences.accommodationPreference,
+      accommodationPreference: input.preferences.accommodation_preference,
       interests: input.preferences.interests,
     });
     itinerary = integrateAccommodationPlanIntoItinerary({
@@ -131,6 +145,13 @@ export async function handleGenerateItinerary(
       warnings: accommodationPlan.warnings,
       requestedBudget: parsed.data.preferences.budget,
     });
+    const finalBudgetError = validateBudget(
+      itinerary.estimated_cost,
+      parsed.data.preferences.budget,
+    );
+    if (finalBudgetError) {
+      return NextResponse.json(finalBudgetError, { status: 422 });
+    }
   } catch (err) {
     return NextResponse.json(
       {

@@ -5,9 +5,11 @@ import type { ItineraryActivity, ItineraryDay } from "@/types/domain";
 import {
   DEFAULT_DAY_START,
   buildDaySchedule,
+  buildDayScheduleResult,
   formatClock,
   formatDuration,
   formatTimeRange,
+  isDayScheduleFeasible,
 } from "@/lib/itinerary/daySchedule";
 
 function activity(
@@ -182,6 +184,54 @@ test("buildDaySchedule falls back to the default start time on a malformed value
     Number(DEFAULT_DAY_START.slice(0, 2)) * 60 +
     Number(DEFAULT_DAY_START.slice(3));
   assert.equal(blocks[0].startMin, defaultMin);
+});
+
+test("buildDaySchedule waits until an attraction opens before placing it", () => {
+  const blocks = buildDaySchedule({
+    day: dayOf([
+      activity("Late museum", 2, {
+        opening_time: "11:00",
+        closing_time: "18:00",
+      }),
+    ]),
+    startTime: "09:00",
+  });
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].kind, "activity");
+  assert.equal(blocks[0].startMin, 11 * 60);
+  assert.equal(blocks[0].endMin, 13 * 60);
+});
+
+test("buildDayScheduleResult reports infeasible activities that would end after closing", () => {
+  const result = buildDayScheduleResult({
+    day: dayOf([
+      activity("Museum", 2, {
+        opening_time: "16:00",
+        closing_time: "17:00",
+      }),
+    ]),
+    startTime: "09:00",
+    maxDaySpanHours: 10,
+  });
+
+  assert.equal(result.isFeasible, false);
+  assert.equal(result.unscheduledActivities[0]?.name, "Museum");
+});
+
+test("isDayScheduleFeasible accounts for the travel-style day span limit", () => {
+  const feasible = isDayScheduleFeasible({
+    day: dayOf([
+      activity("Sunset fort", 2, {
+        opening_time: "18:00",
+        closing_time: "20:00",
+      }),
+    ]),
+    startTime: "09:00",
+    maxDaySpanHours: 8,
+  });
+
+  assert.equal(feasible, false);
 });
 
 // ---------------------------------------------------------------------------

@@ -19,8 +19,9 @@ function makeItinerary(): Itinerary {
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 999999, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
       transport_modes: ["road"],
-      accommodationPreference: "midrange",
+      accommodation_preference: "midrange",
     },
     nodes: ["node_jaipur", "node_udaipur"],
     day_plan: [
@@ -126,15 +127,17 @@ test("integrateAccommodationPlanIntoItinerary rewrites budget totals and stores 
     warnings: [
       "Only over-budget accommodations were available in Udaipur; selected the best deterministic fallback.",
     ],
-    requestedBudget: { currency: "INR" },
+    requestedBudget: { min: 0, max: 999999, currency: "INR" },
   });
 
   assert.equal(itinerary.estimated_cost, 9700);
-  assert.equal(itinerary.preferences.budget.min, 9700);
+  assert.equal(itinerary.preferences.budget.max, 999999);
   assert.equal(itinerary.budget_breakdown?.lodgingSubtotal, 8200);
   assert.equal(itinerary.budget_breakdown?.travelSubtotal, 1500);
   assert.equal(itinerary.budget_breakdown?.nightlyAverage, 2733.33);
   assert.equal(itinerary.budget_breakdown?.totalTripCost, 9700);
+  assert.equal(itinerary.budget_breakdown?.requestedBudget?.currency, "INR");
+  assert.equal(itinerary.budget_breakdown?.recommendedBudget?.min, 9700);
   assert.equal(itinerary.stays.length, 2);
   assert.deepEqual(itinerary.warnings, [
     "Only over-budget accommodations were available in Udaipur; selected the best deterministic fallback.",

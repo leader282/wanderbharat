@@ -24,6 +24,7 @@ function makeNode(args: Partial<GraphNode> & { id: string }): GraphNode {
 const balancedPrefs: ItineraryPreferences = {
   travel_style: "balanced",
   budget: { min: 0, max: 50000 },
+  travellers: { adults: 2, children: 0 },
   interests: ["heritage", "food"],
   transport_modes: ["road"],
 };

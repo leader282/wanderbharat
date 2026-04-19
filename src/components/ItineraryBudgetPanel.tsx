@@ -7,42 +7,60 @@ import {
   topBudgetDrivers,
   type BudgetDriver,
 } from "@/lib/itinerary/budget";
+import {
+  formatTravellerParty,
+  makeMoneyFormatter,
+} from "@/lib/itinerary/presentation";
 import type {
   BudgetRange,
   ItineraryBudgetBreakdown,
   ItineraryBudgetLineItem,
+  TravellerComposition,
 } from "@/types/domain";
 
 const EMPTY_LINE_ITEMS: ItineraryBudgetLineItem[] = [];
 
 export default function ItineraryBudgetPanel({
   estimatedCost,
-  budget,
+  requestedBudget,
+  travellers,
   breakdown,
 }: {
   estimatedCost: number;
-  budget: BudgetRange;
+  requestedBudget: BudgetRange;
+  travellers: TravellerComposition;
   breakdown?: ItineraryBudgetBreakdown;
 }) {
-  const [requestedBudget, setRequestedBudget] = useState("");
-  const currency = budget.currency ?? "INR";
+  const [enteredBudget, setEnteredBudget] = useState("");
+  const currency = requestedBudget.currency ?? "INR";
   const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
-  const buffer = Math.max(0, budget.max - estimatedCost);
   const lineItems = breakdown?.line_items ?? EMPTY_LINE_ITEMS;
-  const lodgingSubtotal =
-    breakdown?.lodgingSubtotal ?? sumByKind(lineItems, "stay");
-  const travelSubtotal =
-    breakdown?.travelSubtotal ?? sumByKind(lineItems, "travel");
-  const nightlyAverage = breakdown?.nightlyAverage ?? 0;
+  const hasStaySubtotal =
+    breakdown?.lodgingSubtotal !== undefined ||
+    lineItems.some((item) => item.kind === "stay");
+  const lodgingSubtotal = hasStaySubtotal
+    ? breakdown?.lodgingSubtotal ?? sumByKind(lineItems, "stay")
+    : 0;
+  const hasTravelSubtotal =
+    breakdown?.travelSubtotal !== undefined ||
+    lineItems.some((item) => item.kind === "travel");
+  const travelSubtotal = hasTravelSubtotal
+    ? breakdown?.travelSubtotal ?? sumByKind(lineItems, "travel")
+    : 0;
+  const hasNightlyAverage = breakdown?.nightlyAverage !== undefined;
+  const nightlyAverage = hasNightlyAverage ? breakdown?.nightlyAverage ?? 0 : 0;
   const totalTripCost = breakdown?.totalTripCost ?? estimatedCost;
   const breakdownWarnings = breakdown?.warnings ?? [];
+  const hasDetailedBreakdown =
+    hasStaySubtotal || hasTravelSubtotal || hasNightlyAverage;
+  const recommendedBudget = breakdown?.recommendedBudget;
   const biggestDrivers = useMemo(
     () => topBudgetDrivers(lineItems, 3),
     [lineItems],
   );
 
   const parsedBudget =
-    requestedBudget.trim() === "" ? null : Number(requestedBudget);
+    enteredBudget.trim() === "" ? null : Number(enteredBudget);
   const invalidBudget =
     parsedBudget !== null &&
     (!Number.isFinite(parsedBudget) || parsedBudget < 0);
@@ -52,12 +70,21 @@ export default function ItineraryBudgetPanel({
     return assessBudgetRequest({
       requestedBudget: parsedBudget,
       estimatedCost,
-      recommended: budget,
+      recommended: recommendedBudget ?? requestedBudget,
       lineItems,
     });
-  }, [budget, estimatedCost, invalidBudget, lineItems, parsedBudget]);
+  }, [
+    estimatedCost,
+    invalidBudget,
+    lineItems,
+    parsedBudget,
+    recommendedBudget,
+    requestedBudget,
+  ]);
 
   const tone = assessment ? toneFor(assessment.status) : null;
+  const budgetGap = requestedBudget.max - totalTripCost;
+  const travellerLabel = formatTravellerParty(travellers);
 
   return (
     <div className="mt-10 card p-6 md:p-8">
@@ -65,27 +92,64 @@ export default function ItineraryBudgetPanel({
         <div>
           <p className="eyebrow">Budget</p>
           <h2 className="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-ink-900)]">
-            Why this budget feels justified
+            How the total budget breaks down
           </h2>
           <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
-            We estimate this route and stay plan at {formatMoney(totalTripCost)}{" "}
-            per person, then add {formatMoney(buffer)} of headroom on top so the
-            recommended budget still feels realistic when stays and transport
-            move around.
+            We estimate this route, travel, and room plan at{" "}
+            {formatMoney(totalTripCost)} total for {travellerLabel}. Your current
+            total trip budget is {formatMoney(requestedBudget.max)}.
+            {recommendedBudget && (
+              <>
+                {" "}
+                For this exact route, we&apos;d usually recommend{" "}
+                {formatMoney(recommendedBudget.min)} to{" "}
+                {formatMoney(recommendedBudget.max)}.
+              </>
+            )}
           </p>
         </div>
 
         <span className="chip" aria-hidden>
-          Per person
+          {travellerLabel}
         </span>
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <BudgetStat label="Lodging subtotal" value={formatMoney(lodgingSubtotal)} />
-        <BudgetStat label="Travel subtotal" value={formatMoney(travelSubtotal)} />
-        <BudgetStat label="Average nightly rate" value={formatMoney(nightlyAverage)} />
-        <BudgetStat label="Total trip cost" value={formatMoney(totalTripCost)} />
+        <BudgetStat
+          label="Total trip budget"
+          value={formatMoney(requestedBudget.max)}
+        />
+        <BudgetStat
+          label="Estimated total cost"
+          value={formatMoney(totalTripCost)}
+        />
+        <BudgetStat
+          label="Stay subtotal"
+          value={hasStaySubtotal ? formatMoney(lodgingSubtotal) : "Not itemised"}
+        />
+        <BudgetStat
+          label={budgetGap >= 0 ? "Budget buffer" : "Over budget"}
+          value={formatMoney(Math.abs(budgetGap))}
+        />
       </div>
+
+      {hasDetailedBreakdown ? (
+        <p className="mt-3 text-sm text-[var(--color-ink-500)]">
+          {hasTravelSubtotal
+            ? `Travel comes to ${formatMoney(travelSubtotal)}. `
+            : "Travel is not itemised separately in this saved itinerary. "}
+          {hasNightlyAverage
+            ? `The average nightly room allocation comes to ${formatMoney(
+                nightlyAverage,
+              )}.`
+            : "Night-by-night room averages are not available for this saved itinerary yet."}
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-[var(--color-ink-500)]">
+          This saved itinerary predates the newer line-item breakdown, so the
+          total estimate is still valid even though the detailed split is limited.
+        </p>
+      )}
 
       {breakdownWarnings.length > 0 && (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -127,7 +191,7 @@ export default function ItineraryBudgetPanel({
               ))
             ) : (
               <li className="rounded-xl border border-[var(--hairline)] bg-white px-4 py-3 text-sm text-[var(--color-ink-500)]">
-                We&apos;ll show the detailed cost drivers here as soon as the
+                We&apos;ll show the detailed cost drivers here as soon as this
                 itinerary has itemised budget data.
               </li>
             )}
@@ -137,7 +201,7 @@ export default function ItineraryBudgetPanel({
         <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--color-sand-50)] p-4">
           <label className="block">
             <span className="text-sm font-semibold text-[var(--color-ink-700)]">
-              Try your budget ({currency} per person)
+              Try another total budget ({currency})
             </span>
             <span className="mt-1 block text-sm text-[var(--color-ink-500)]">
               Enter a total budget and we&apos;ll tell you exactly how it fits
@@ -148,16 +212,22 @@ export default function ItineraryBudgetPanel({
               min={0}
               step={500}
               inputMode="numeric"
-              value={requestedBudget}
-              onChange={(e) => setRequestedBudget(e.target.value)}
-              placeholder={String(budget.max)}
+              value={enteredBudget}
+              onChange={(e) => setEnteredBudget(e.target.value)}
+              placeholder={String(requestedBudget.max)}
               className="input mt-3"
             />
           </label>
 
           <p className="mt-2 text-xs text-[var(--color-ink-500)]">
-            Recommended range: {formatMoney(budget.min)} to{" "}
-            {formatMoney(budget.max)}
+            Requested budget: {formatMoney(requestedBudget.max)}
+            {recommendedBudget && (
+              <>
+                {" "}
+                · Recommended range: {formatMoney(recommendedBudget.min)} to{" "}
+                {formatMoney(recommendedBudget.max)}
+              </>
+            )}
           </p>
 
           {invalidBudget && (
@@ -175,7 +245,7 @@ export default function ItineraryBudgetPanel({
               className={`mt-4 rounded-xl border px-4 py-3 text-sm ${tone.container}`}
             >
               <p className="font-semibold">{messageForAssessment(assessment, {
-                budget,
+                budget: recommendedBudget ?? requestedBudget,
                 estimatedCost,
                 formatMoney,
               })}</p>
@@ -267,26 +337,12 @@ function driverLabel(driver: BudgetDriver): string {
 function driverMeta(driver: BudgetDriver): string {
   if (driver.kind === "stay") {
     return driver.occurrences > 1
-      ? "Accommodation and local spend across repeated nights"
-      : "Accommodation and local spend for this stop";
+      ? "Accommodation across repeated nights"
+      : "Accommodation for this stop";
   }
   return driver.occurrences > 1
     ? "Repeated transport legs in this itinerary"
     : "Transport between destinations";
-}
-
-function makeMoneyFormatter(currency: string) {
-  try {
-    const nf = new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    });
-    return (value: number) => nf.format(Math.max(0, Number(value) || 0));
-  } catch {
-    return (value: number) =>
-      `${currency} ${Math.round(Math.max(0, Number(value) || 0)).toLocaleString("en-IN")}`;
-  }
 }
 
 function sumByKind(

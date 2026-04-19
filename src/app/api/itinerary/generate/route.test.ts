@@ -23,6 +23,7 @@ function makeItinerary(): Itinerary {
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 50000 },
+      travellers: { adults: 2, children: 0 },
       transport_modes: ["road"],
     },
     nodes: ["node_start", "node_end"],
@@ -77,9 +78,48 @@ const validBody = {
   preferences: {
     travel_style: "balanced" as const,
     budget: { min: 0, max: 50000 },
+    travellers: { adults: 2, children: 0 },
     transport_modes: ["road" as const],
   },
 };
+
+test("handleGenerateItinerary returns structured validation issues for invalid input", async () => {
+  let generateCalls = 0;
+
+  const response = await handleGenerateItinerary(
+    makeRequest({
+      ...validBody,
+      preferences: {
+        ...validBody.preferences,
+        transport_modes: [],
+      },
+    }),
+    {
+      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      generateItinerary: async () => {
+        generateCalls += 1;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary(),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      saveItinerary: async () => {},
+      resolveUserId: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 400);
+  const payload = (await response.json()) as {
+    error: string;
+    issues: Array<{ path: string; message: string }>;
+  };
+  assert.equal(payload.error, "invalid_input");
+  assert.ok(
+    payload.issues.some((issue) => issue.path === "preferences.transport_modes"),
+  );
+  assert.equal(generateCalls, 0);
+});
 
 test("handleGenerateItinerary returns 201 and persists successful plans", async () => {
   let savedId: string | null = null;
@@ -216,4 +256,60 @@ test("handleGenerateItinerary integrates stay assignments into the persisted iti
   assert.deepEqual(savedItinerary?.warnings, [
     "No active accommodations matched the travel-style filters for End.",
   ]);
+});
+
+test("handleGenerateItinerary returns 422 when room allocations push the final trip over budget", async () => {
+  let saveCalls = 0;
+
+  const response = await handleGenerateItinerary(
+    makeRequest({
+      ...validBody,
+      preferences: {
+        ...validBody.preferences,
+        budget: { min: 0, max: 4000 },
+      },
+    }),
+    {
+      loadEngineContextForPlan: async () => ({
+        nodes: [],
+        edges: [],
+      }),
+      generateItinerary: async () => ({
+        ok: true as const,
+        itinerary: makeItinerary(),
+      }),
+      planAccommodations: async () => ({
+        stays: [
+          {
+            nodeId: "node_start",
+            startDay: 0,
+            endDay: 0,
+            nights: 1,
+            accommodationId: "acc_start",
+            nightlyCost: 3200,
+            totalCost: 3200,
+          },
+          {
+            nodeId: "node_end",
+            startDay: 1,
+            endDay: 1,
+            nights: 1,
+            accommodationId: "acc_end",
+            nightlyCost: 2800,
+            totalCost: 2800,
+          },
+        ],
+        warnings: [],
+      }),
+      saveItinerary: async () => {
+        saveCalls += 1;
+      },
+      resolveUserId: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 422);
+  const payload = (await response.json()) as { reason: string };
+  assert.equal(payload.reason, "budget_exceeded");
+  assert.equal(saveCalls, 0);
 });

@@ -5,6 +5,7 @@ import type { GenerateItineraryInput, ItineraryDay } from "@/types/domain";
 import {
   insufficientNodes,
   noFeasibleRoute,
+  requestedCitiesUncovered,
   validateBudget,
   validateDayPlan,
   validateInput,
@@ -23,6 +24,7 @@ function makeInput(
     preferences: {
       travel_style: "balanced",
       budget: { min: 1000, max: 50000 },
+      travellers: { adults: 2, children: 0 },
     },
     ...overrides,
   };
@@ -68,7 +70,7 @@ test("validateInput rejects a missing start node", () => {
 });
 
 test("validateInput rejects an out-of-range day count", () => {
-  for (const days of [0, -3, 31, Number.NaN, Number.POSITIVE_INFINITY]) {
+  for (const days of [0, -3, 8, Number.NaN, Number.POSITIVE_INFINITY]) {
     const err = validateInput(makeInput({ days }));
     assert.ok(err, `expected error for days=${days}`);
     assert.equal(err?.reason, "invalid_input");
@@ -81,6 +83,7 @@ test("validateInput rejects a budget where max < min", () => {
       preferences: {
         travel_style: "balanced",
         budget: { min: 5000, max: 1000 },
+        travellers: { adults: 1, children: 0 },
       },
     }),
   );
@@ -95,11 +98,34 @@ test("validateInput rejects a negative budget min", () => {
       preferences: {
         travel_style: "balanced",
         budget: { min: -100, max: 1000 },
+        travellers: { adults: 1, children: 0 },
       },
     }),
   );
   assert.ok(err);
   assert.equal(err?.reason, "invalid_input");
+});
+
+test("validateInput rejects blank requested city ids", () => {
+  const err = validateInput(makeInput({ requested_city_ids: ["node_ajmer", "   "] }));
+  assert.ok(err);
+  assert.equal(err?.reason, "invalid_input");
+});
+
+test("validateInput rejects an empty transport mode list", () => {
+  const err = validateInput(
+    makeInput({
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 1000, max: 50000 },
+        travellers: { adults: 2, children: 0 },
+        transport_modes: [],
+      },
+    }),
+  );
+  assert.ok(err);
+  assert.equal(err?.reason, "invalid_input");
+  assert.match(err!.message, /transport mode/i);
 });
 
 // ------------------------- validateDayPlan ----------------------------------
@@ -209,4 +235,32 @@ test("noFeasibleRoute returns a structured error with a suggestion", () => {
   const err = noFeasibleRoute();
   assert.equal(err.reason, "no_feasible_route");
   assert.ok(err.suggestion);
+});
+
+test("requestedCitiesUncovered reports extra days when still feasible under the cap", () => {
+  const err = requestedCitiesUncovered({
+    missingCityIds: ["node_pushkar"],
+    missingCityNames: ["Pushkar"],
+    currentDays: 4,
+    requiredDays: 6,
+  });
+  assert.equal(err.reason, "requested_cities_uncovered");
+  assert.equal(
+    (err.details as { additional_days_needed: number }).additional_days_needed,
+    2,
+  );
+});
+
+test("requestedCitiesUncovered reports when the 7-day cap makes the request impossible", () => {
+  const err = requestedCitiesUncovered({
+    missingCityIds: ["node_pushkar", "node_jaisalmer"],
+    missingCityNames: ["Pushkar", "Jaisalmer"],
+    currentDays: 5,
+    requiredDays: 8,
+  });
+  assert.equal(err.reason, "requested_cities_uncovered");
+  assert.equal(
+    (err.details as { feasible_within_cap: boolean }).feasible_within_cap,
+    false,
+  );
 });

@@ -1,10 +1,65 @@
 import { z } from "zod";
 
+import { MAX_TRIP_DAYS } from "@/lib/itinerary/planningLimits";
 import {
   ACCOMMODATION_PREFERENCES,
   TRANSPORT_MODES,
   TRAVEL_STYLES,
 } from "@/types/domain";
+
+const generateItineraryPreferencesSchema = z
+  .object({
+    travel_style: z.enum(TRAVEL_STYLES),
+    budget: z.object({
+      min: z.number().nonnegative(),
+      max: z.number().nonnegative(),
+      currency: z.string().optional(),
+    }),
+    travellers: z.object({
+      adults: z.number().int().min(1).max(20),
+      children: z.number().int().min(0).max(20),
+    }),
+    interests: z.array(z.string()).optional(),
+    transport_modes: z.array(z.enum(TRANSPORT_MODES)).min(1).optional(),
+    prioritize_city_coverage: z.boolean().optional(),
+    accommodation_preference: z
+      .enum(ACCOMMODATION_PREFERENCES)
+      .optional(),
+    // Backwards-compatible alias for older clients while the canonical
+    // request/storage shape is normalised to snake_case.
+    accommodationPreference: z
+      .enum(ACCOMMODATION_PREFERENCES)
+      .optional(),
+    preferred_start_time: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Must be 'HH:MM' (24-hour).")
+      .optional(),
+  })
+  .superRefine((preferences, ctx) => {
+    if (
+      preferences.accommodation_preference &&
+      preferences.accommodationPreference &&
+      preferences.accommodation_preference !== preferences.accommodationPreference
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["accommodation_preference"],
+        message:
+          "accommodation_preference and accommodationPreference must match.",
+      });
+    }
+  })
+  .transform(
+    ({
+      accommodationPreference,
+      accommodation_preference,
+      ...preferences
+    }) => ({
+      ...preferences,
+      accommodation_preference:
+        accommodation_preference ?? accommodationPreference,
+    }),
+  );
 
 export const generateItinerarySchema = z.object({
   /**
@@ -17,24 +72,10 @@ export const generateItinerarySchema = z.object({
   regions: z.array(z.string().min(1)).min(1).max(10),
   start_node: z.string().min(1),
   end_node: z.string().optional(),
-  days: z.number().int().min(1).max(30),
+  requested_city_ids: z.array(z.string().min(1)).max(10).optional(),
+  days: z.number().int().min(1).max(MAX_TRIP_DAYS),
   user_id: z.string().optional(),
-  preferences: z.object({
-    travel_style: z.enum(TRAVEL_STYLES),
-    budget: z.object({
-      min: z.number().nonnegative(),
-      max: z.number().nonnegative(),
-      currency: z.string().optional(),
-    }),
-    interests: z.array(z.string()).optional(),
-    transport_modes: z.array(z.enum(TRANSPORT_MODES)).optional(),
-    prioritize_city_coverage: z.boolean().optional(),
-    accommodationPreference: z.enum(ACCOMMODATION_PREFERENCES).optional(),
-    preferred_start_time: z
-      .string()
-      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Must be 'HH:MM' (24-hour).")
-      .optional(),
-  }),
+  preferences: generateItineraryPreferencesSchema,
 });
 
 export type GenerateItineraryBody = z.infer<typeof generateItinerarySchema>;

@@ -1,4 +1,8 @@
-import type { Accommodation, AccommodationCategory } from "@/types/domain";
+import type {
+  Accommodation,
+  AccommodationCategory,
+  AccommodationRoomType,
+} from "@/types/domain";
 
 export interface AccommodationSeedCity {
   nodeId: string;
@@ -226,6 +230,10 @@ function buildAccommodation(args: {
 }): Accommodation {
   const { city, currency, template } = args;
   const name = template.buildName(city);
+  const baseRate = roundToNearestHundred(
+    city.baseNightlyRate * template.priceMultiplier,
+  );
+  const roomTypes = buildRoomTypes(template, baseRate);
 
   return {
     id: `acc_${city.regionId}_${city.nodeId.replace(/^node_/, "")}_${template.key}`,
@@ -233,13 +241,12 @@ function buildAccommodation(args: {
     nodeId: city.nodeId,
     name,
     category: template.category,
-    pricePerNight: roundToNearestHundred(
-      city.baseNightlyRate * template.priceMultiplier,
-    ),
+    pricePerNight: Math.min(...roomTypes.map((roomType) => roomType.pricePerNight)),
     currency,
     rating: template.rating,
     reviewCount: template.reviewCount,
     amenities: template.amenities,
+    roomTypes,
     location: {
       lat: Number((city.lat + template.latOffset).toFixed(6)),
       lng: Number((city.lng + template.lngOffset).toFixed(6)),
@@ -256,6 +263,79 @@ function buildAccommodation(args: {
       : {}),
     active: true,
   };
+}
+
+function buildRoomTypes(
+  template: AccommodationTemplate,
+  baseRate: number,
+): AccommodationRoomType[] {
+  if (template.category === "hostel") {
+    return [
+      {
+        id: `${template.key}_dorm_bed`,
+        name: "Dorm Bed",
+        pricePerNight: roundToNearestHundred(baseRate * 0.45),
+        maxAdults: 1,
+        maxChildren: 0,
+        maxOccupancy: 1,
+      },
+      {
+        id: `${template.key}_private_room`,
+        name: "Private Room",
+        pricePerNight: roundToNearestHundred(baseRate),
+        maxAdults: 2,
+        maxChildren: 0,
+        maxOccupancy: 2,
+      },
+    ];
+  }
+
+  const roomTypes: AccommodationRoomType[] = [
+    {
+      id: `${template.key}_standard`,
+      name: "Standard Room",
+      pricePerNight: baseRate,
+      maxAdults: 2,
+      maxChildren: template.familyFriendly ? 1 : 0,
+      maxOccupancy: template.familyFriendly ? 3 : 2,
+    },
+    {
+      id: `${template.key}_deluxe`,
+      name: "Deluxe Room",
+      pricePerNight: roundToNearestHundred(baseRate * 1.15),
+      maxAdults: 2,
+      maxChildren: template.familyFriendly ? 1 : 0,
+      maxOccupancy: template.familyFriendly ? 3 : 2,
+    },
+  ];
+
+  if (template.familyFriendly) {
+    roomTypes.push({
+      id: `${template.key}_family`,
+      name: "Family Room",
+      pricePerNight: roundToNearestHundred(baseRate * 1.45),
+      maxAdults: 2,
+      maxChildren: 2,
+      maxOccupancy: 4,
+    });
+  }
+
+  if (
+    template.category === "premium" ||
+    template.category === "heritage" ||
+    template.category === "resort"
+  ) {
+    roomTypes.push({
+      id: `${template.key}_suite`,
+      name: template.category === "heritage" ? "Heritage Suite" : "Suite",
+      pricePerNight: roundToNearestHundred(baseRate * 1.75),
+      maxAdults: 3,
+      maxChildren: 2,
+      maxOccupancy: 5,
+    });
+  }
+
+  return roomTypes;
 }
 
 function roundToNearestHundred(value: number): number {
