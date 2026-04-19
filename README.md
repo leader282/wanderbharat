@@ -100,7 +100,7 @@ NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 NEXT_PUBLIC_FIREBASE_DATABASE_ID=            # optional named DB id
 
-FIREBASE_SERVICE_ACCOUNT_JSON={...}          # or SERVICE_ACCOUNT_PATH=/path/to/key.json
+FIREBASE_SERVICE_ACCOUNT_JSON=<base64-of-service-account-json>  # or SERVICE_ACCOUNT_PATH=/path/to/key.json
 FIREBASE_PROJECT_ID=...
 
 GOOGLE_MAPS_API_KEY=...                      # server: Places + Routes APIs
@@ -352,7 +352,8 @@ To enable Google sign-in:
 3. Make sure the Firebase web config (`NEXT_PUBLIC_FIREBASE_*`) and
    the admin service account (`FIREBASE_SERVICE_ACCOUNT_JSON` or
    `…_PATH`) are set — both halves are required because the cookie
-   is minted on the server.
+   is minted on the server. On Vercel, prefer the base64-encoded
+   service-account JSON in `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
 ---
 
@@ -423,9 +424,10 @@ PRs for GitHub Actions versions, so the CI itself stays patched.
 2. Set every env var from `.env.example` in the Vercel project settings
    (Production **and** Preview):
    - `NEXT_PUBLIC_FIREBASE_*` — browser-safe Firebase web config.
-   - `FIREBASE_SERVICE_ACCOUNT_JSON` — paste the full service-account JSON
-     here (do **not** use `FIREBASE_SERVICE_ACCOUNT_PATH` on Vercel; it points
-     at a local file that doesn't exist in the build container).
+   - `FIREBASE_SERVICE_ACCOUNT_JSON` — paste the base64-encoded
+     service-account JSON here (do **not** use
+     `FIREBASE_SERVICE_ACCOUNT_PATH` on Vercel; it points at a local
+     file that doesn't exist in the build container).
    - `FIREBASE_PROJECT_ID` — usually the same as
      `NEXT_PUBLIC_FIREBASE_PROJECT_ID`.
 

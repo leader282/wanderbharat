@@ -15,20 +15,44 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
  * Server-only Firebase Admin bootstrap.
  *
  * Credentials resolution order:
- *   1. FIREBASE_SERVICE_ACCOUNT_JSON (inline JSON, good for Vercel)
+ *   1. FIREBASE_SERVICE_ACCOUNT_JSON (base64-encoded JSON recommended for
+ *      Vercel; raw inline JSON still accepted for backwards compatibility)
  *   2. FIREBASE_SERVICE_ACCOUNT_PATH (file path, good for local dev)
  *   3. GOOGLE_APPLICATION_CREDENTIALS via applicationDefault() (Google Cloud)
  */
+export function parseServiceAccountEnv(value: string): ServiceAccount {
+  const trimmed = value.trim();
+
+  try {
+    const json = trimmed.startsWith("{") ? trimmed : decodeBase64Json(trimmed);
+    return JSON.parse(json) as ServiceAccount;
+  } catch (err) {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_JSON must be raw JSON or a base64-encoded JSON object: " +
+        (err as Error).message,
+    );
+  }
+}
+
+function decodeBase64Json(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "=",
+  );
+  const decoded = Buffer.from(padded, "base64").toString("utf8").trim();
+
+  if (!decoded.startsWith("{")) {
+    throw new Error("base64-decoded value is not a JSON object");
+  }
+
+  return decoded;
+}
+
 function resolveServiceAccount(): ServiceAccount | null {
   const inline = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   if (inline) {
-    try {
-      return JSON.parse(inline) as ServiceAccount;
-    } catch (err) {
-      throw new Error(
-        `FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON: ${(err as Error).message}`,
-      );
-    }
+    return parseServiceAccountEnv(inline);
   }
 
   const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
