@@ -3,57 +3,77 @@ import "./_env";
 
 import { parseArgs } from "./_cli";
 import { loadDataset } from "./data";
+import { resolveRegions } from "./_regions";
 import { mapLimit } from "@/lib/utils/concurrency";
 import type { GraphEdge } from "@/types/domain";
 
 /**
- * Seed the `edges` collection with the base travel network for a region.
+ * Seed the `edges` collection with the base travel network for one or more
+ * regions.
  *
  * Usage:
  *   npx tsx scripts/seedEdges.ts --region rajasthan
- *   npx tsx scripts/seedEdges.ts --region rajasthan --use-google
- *   npx tsx scripts/seedEdges.ts --region rajasthan --concurrency 8
+ *   npx tsx scripts/seedEdges.ts --regions rajasthan,gujarat,himachal
+ *   npx tsx scripts/seedEdges.ts --all
+ *   npx tsx scripts/seedEdges.ts --all --use-google --concurrency 8
  *   npx tsx scripts/seedEdges.ts --region rajasthan --dry-run
  *
  * Live Google Routes enrichment is opt-in because (a) it costs money and
  * (b) curated seed data is already good enough for demos. When enabled,
  * calls run in parallel bounded by `--concurrency` (default 8).
+ *
+ * Datasets without an `edges()` factory are skipped with a warning rather
+ * than failing the whole run, so `--all` keeps moving.
  */
 
 async function main() {
   const args = parseArgs();
-  const region = String(args.region ?? "rajasthan");
   const dryRun = Boolean(args["dry-run"]);
   const useGoogle = Boolean(args["use-google"]);
   const concurrency = Math.max(
     1,
     Math.min(32, Number(args.concurrency ?? 8)),
   );
-
-  const dataset = await loadDataset(region);
-  if (!dataset.edges) {
-    throw new Error(
-      `Dataset ${region} does not expose an edges() factory. Skipping.`,
-    );
-  }
-
-  let edges = dataset.edges();
-  if (useGoogle) {
-    edges = await enrichWithGoogle(edges, concurrency);
-  }
+  const regions = resolveRegions(args);
 
   console.log(
-    `[seedEdges] region=${region} count=${edges.length} dryRun=${dryRun} useGoogle=${useGoogle} concurrency=${concurrency}`,
+    `[seedEdges] regions=${regions.join(",")} dryRun=${dryRun} useGoogle=${useGoogle} concurrency=${concurrency}`,
   );
 
-  if (dryRun) {
-    console.log(JSON.stringify(edges, null, 2));
-    return;
+  let totalEdges = 0;
+  for (const region of regions) {
+    const dataset = await loadDataset(region);
+    if (!dataset.edges) {
+      console.warn(
+        `[seedEdges] ${region}: dataset does not expose an edges() factory — skipping.`,
+      );
+      continue;
+    }
+
+    let edges = dataset.edges();
+    if (useGoogle) {
+      edges = await enrichWithGoogle(edges, concurrency);
+    }
+
+    console.log(
+      `[seedEdges] ${region}: ${edges.length} edge${edges.length === 1 ? "" : "s"}`,
+    );
+    totalEdges += edges.length;
+
+    if (dryRun) {
+      console.log(JSON.stringify(edges, null, 2));
+      continue;
+    }
+
+    const { upsertEdges } = await import("@/lib/repositories/edgeRepository");
+    await upsertEdges(edges);
   }
 
-  const { upsertEdges } = await import("@/lib/repositories/edgeRepository");
-  await upsertEdges(edges);
-  console.log(`[seedEdges] upserted ${edges.length} edges.`);
+  if (!dryRun) {
+    console.log(
+      `[seedEdges] done — upserted ${totalEdges} edges across ${regions.length} region${regions.length === 1 ? "" : "s"}.`,
+    );
+  }
 }
 
 async function enrichWithGoogle(

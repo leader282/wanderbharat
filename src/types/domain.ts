@@ -118,12 +118,6 @@ export interface GraphEdge {
    * `array-contains-any` for fast scoped graph loads.
    */
   regions: string[];
-  /**
-   * @deprecated kept only for backwards-compatibility with documents
-   * written before `regions: string[]` was introduced. New writes should
-   * set {@link regions}. Reads coerce legacy docs at the repository layer.
-   */
-  region?: string;
   metadata: EdgeMetadata;
 }
 
@@ -173,14 +167,13 @@ export interface ItineraryPreferences {
 }
 
 export interface GenerateItineraryInput {
-  /** Primary region; used for persistence + default scoping. */
-  region: string;
   /**
-   * Optional additional regions to consider as candidates. Lets a trip
-   * cross region borders without requiring cross-region edges up front
-   * (the engine falls back to live-routing / haversine between regions).
+   * Region slugs the planner may draw candidates from. The first entry
+   * is the primary region — persisted on the resulting itinerary doc
+   * and used for trip-list filtering. Additional entries widen the
+   * candidate pool for cross-region trips. Must be non-empty.
    */
-  regions?: string[];
+  regions: string[];
   start_node: string;
   /** Optional — defaults to the same as start_node (round-trip). */
   end_node?: string;

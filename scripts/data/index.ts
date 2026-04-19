@@ -1,10 +1,14 @@
+import { readdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { GraphEdge, GraphNode, RegionSummary } from "@/types/domain";
 
 /**
  * Shape that every seed-data module must export. Seed scripts load datasets
  * by name via {@link loadDataset} — adding a new region is a matter of
  * creating `scripts/data/<slug>.ts` that default-exports a
- * {@link SeedDataset}. No edits to the seed scripts required.
+ * {@link SeedDataset}. No edits to the seed scripts are required.
  */
 export interface SeedDataset {
   region: string;
@@ -25,53 +29,48 @@ export interface SeedDataset {
 
 /**
  * Dynamically load a dataset file. Adding `scripts/data/<slug>.ts` is all
- * that's needed — no registry edits. The loader normalises whatever the
- * file exports into a {@link SeedDataset}.
+ * that's needed — no registry edits. The file must default-export a
+ * {@link SeedDataset}.
  */
 export async function loadDataset(slug: string): Promise<SeedDataset> {
-  const mod = (await import(`./${slug}.ts`)) as Record<string, unknown>;
-
-  // Preferred shape: `export default { ... } as SeedDataset`.
-  const defaultExport = mod.default as SeedDataset | undefined;
-  if (defaultExport && typeof defaultExport === "object") {
-    return defaultExport;
+  let mod: { default?: SeedDataset };
+  try {
+    mod = (await import(`./${slug}.ts`)) as { default?: SeedDataset };
+  } catch (err) {
+    throw new Error(
+      `Could not load scripts/data/${slug}.ts: ${(err as Error).message}`,
+    );
   }
 
-  // Back-compat for hand-written modules with named exports (e.g.
-  // `rajasthan.ts` keeps its existing shape). Wire them up here so the
-  // scripts don't have to care.
-  if (slug === "rajasthan") {
-    const {
-      RAJASTHAN_REGION,
-      RAJASTHAN_COUNTRY,
-      RAJASTHAN_CITIES,
-      RAJASTHAN_CURRENCY,
-      RAJASTHAN_LOCALE,
-      RAJASTHAN_DEFAULT_TRANSPORT_MODES,
-      toCityNodes,
-      toRoadEdges,
-    } = mod as typeof import("./rajasthan");
-    return {
-      region: RAJASTHAN_REGION,
-      country: RAJASTHAN_COUNTRY,
-      summary: {
-        default_currency: RAJASTHAN_CURRENCY,
-        default_locale: RAJASTHAN_LOCALE,
-        default_transport_modes: [...RAJASTHAN_DEFAULT_TRANSPORT_MODES],
-      },
-      cities: () => toCityNodes(),
-      edges: () => toRoadEdges(),
-      placesQueries: () =>
-        RAJASTHAN_CITIES.map((c) => ({
-          city_id: c.id,
-          query: c.places_query ?? `top tourist attractions in ${c.name}`,
-          center: { lat: c.lat, lng: c.lng },
-          city_tags: c.tags,
-        })),
-    };
+  const dataset = mod.default;
+  if (!dataset || typeof dataset !== "object") {
+    throw new Error(
+      `scripts/data/${slug}.ts must default-export a SeedDataset.`,
+    );
   }
+  if (dataset.region !== slug) {
+    throw new Error(
+      `scripts/data/${slug}.ts declares region="${dataset.region}" but was loaded as "${slug}". The slug must match the filename.`,
+    );
+  }
+  return dataset;
+}
 
-  throw new Error(
-    `scripts/data/${slug}.ts does not export a default SeedDataset.`,
-  );
+/**
+ * Discover every dataset available on disk. Returns a sorted list of region
+ * slugs (filenames without extension), excluding the loader itself and any
+ * leading-underscore helper modules. Used by the seed scripts to power
+ * `--all`.
+ */
+export function listAvailableRegions(): string[] {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return readdirSync(here)
+    .filter(
+      (file) =>
+        (file.endsWith(".ts") || file.endsWith(".js")) &&
+        !file.startsWith("_") &&
+        !file.startsWith("index."),
+    )
+    .map((file) => file.replace(/\.(ts|js)$/, ""))
+    .sort();
 }

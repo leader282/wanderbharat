@@ -3,13 +3,14 @@ import { z } from "zod";
 import { TRANSPORT_MODES, TRAVEL_STYLES } from "@/types/domain";
 
 export const generateItinerarySchema = z.object({
-  region: z.string().min(1),
   /**
-   * Optional extra regions to include in the candidate pool. The primary
-   * `region` is still used for persistence / scoping; adding more regions
-   * lets a plan cross borders without changing the seed data.
+   * One or more region slugs that the planner is allowed to draw
+   * candidates from. The first entry is treated as the primary region for
+   * persistence and trip-list filtering; additional entries widen the
+   * candidate pool for cross-region trips. Must contain at least one
+   * slug; capped at 10 to prevent runaway graph loads.
    */
-  regions: z.array(z.string().min(1)).max(10).optional(),
+  regions: z.array(z.string().min(1)).min(1).max(10),
   start_node: z.string().min(1),
   end_node: z.string().optional(),
   days: z.number().int().min(1).max(30),

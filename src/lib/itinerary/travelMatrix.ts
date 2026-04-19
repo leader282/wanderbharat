@@ -54,7 +54,6 @@ export interface TravelMatrix {
 export interface ResolveTravelMatrixInput {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  region?: string;
   regions?: string[];
   modes: TransportMode[];
   now?: () => number;
@@ -68,7 +67,11 @@ export interface ResolveTravelMatrixInput {
 export interface TravelMatrixDependencies {
   /** Batched matrix fetcher; defaults to Google computeRouteMatrix. */
   fetchTravelMatrix?: typeof googleTravelMatrix;
-  /** Legacy per-pair fetcher used as a fallback if batching is disabled. */
+  /**
+   * Single-leg fetcher used when the batched matrix returns nothing
+   * (e.g. provider error, empty response). Also the seam tests inject
+   * to assert the resolution path without HTTP.
+   */
   fetchTravelTime?: typeof getTravelTime;
   persistEdges?: typeof upsertEdges;
 }
@@ -121,7 +124,7 @@ export async function resolveTravelMatrix(
   const tuning = input.tuning ?? defaultEngineTuning;
   const nodes = uniqueNodes(input.nodes);
   const lookup = createEdgeLookup(input.edges);
-  const regionSet = new Set(input.regions ?? (input.region ? [input.region] : []));
+  const regionSet = new Set(input.regions ?? []);
   const freshEdges: GraphEdge[] = [];
   const fetchMatrix = deps.fetchTravelMatrix ?? googleTravelMatrix;
   const fetchSingle = deps.fetchTravelTime ?? getTravelTime;
@@ -188,7 +191,7 @@ export async function resolveTravelMatrix(
         }
       });
     } else {
-      // Fallback path — resolved one-by-one. Kept for test injection.
+      // Resolve one-by-one when the batched matrix returns nothing.
       for (const pair of missingPairs) {
         let leg = null;
         try {

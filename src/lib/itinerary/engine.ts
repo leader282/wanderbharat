@@ -136,9 +136,7 @@ export async function generateItinerary(
 
   const cfg = getTravelStyleConfig(input.preferences.travel_style);
   const modes = normaliseModes(input.preferences.transport_modes);
-  const allowedRegions = new Set<string>(
-    input.regions && input.regions.length > 0 ? input.regions : [input.region],
-  );
+  const allowedRegions = new Set<string>(input.regions);
 
   const candidates = graph
     .allNodes()
@@ -185,7 +183,6 @@ export async function generateItinerary(
       ? await matrixResolver({
           nodes: uniqueNodes([start, end, ...pool.map((entry) => entry.node)]),
           edges: ctx.edges,
-          region: input.region,
           regions: Array.from(allowedRegions),
           modes,
           now: ctx.now,
@@ -243,7 +240,7 @@ export async function generateItinerary(
   const itinerary: Itinerary = {
     id,
     user_id: input.user_id ?? null,
-    region: input.region,
+    region: input.regions[0],
     start_node: start.id,
     end_node: end.id,
     days: input.days,

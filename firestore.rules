@@ -2,13 +2,14 @@ rules_version = '2';
 
 // Minimal but safe rules for the MVP.
 //
-// - `nodes` and `edges` are world-readable reference data (cities, routes).
-// - `itineraries` are readable by their owner, writable only by the server
-//   (admin SDK, which bypasses these rules).
+// - `nodes`, `edges`, and `regions` are world-readable reference data.
+// - `itineraries` are readable by their owner (anonymous itineraries are
+//   readable by anyone with the id).
 // - `users` are readable/writable by the owner only.
 //
-// The admin SDK bypasses these rules entirely, so the API routes + seed
-// scripts work regardless of how strict these get.
+// All writes are server-only: the admin SDK bypasses these rules entirely,
+// so the API routes + seed scripts can mutate every collection regardless
+// of how strict client-side rules get.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /nodes/{nodeId} {
@@ -17,6 +18,11 @@ service cloud.firestore {
     }
 
     match /edges/{edgeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /regions/{regionId} {
       allow read: if true;
       allow write: if false;
     }

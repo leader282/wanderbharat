@@ -1,5 +1,7 @@
 import type { GraphEdge, GraphNode } from "@/types/domain";
 
+import type { SeedDataset } from "./index";
+
 /**
  * Rajasthan seed dataset.
  *
@@ -13,13 +15,13 @@ import type { GraphEdge, GraphNode } from "@/types/domain";
  * Google-Routes values via `--use-google`.
  */
 
-export const RAJASTHAN_REGION = "rajasthan";
-export const RAJASTHAN_COUNTRY = "india";
-export const RAJASTHAN_CURRENCY = "INR";
-export const RAJASTHAN_LOCALE = "en-IN";
-export const RAJASTHAN_DEFAULT_TRANSPORT_MODES = ["road", "train"] as const;
+const REGION = "rajasthan";
+const COUNTRY = "india";
+const CURRENCY = "INR";
+const LOCALE = "en-IN";
+const DEFAULT_TRANSPORT_MODES = ["road", "train"] as const;
 
-export interface SeedCity {
+interface SeedCity {
   id: string;
   name: string;
   lat: number;
@@ -32,7 +34,7 @@ export interface SeedCity {
   places_query?: string;
 }
 
-export const RAJASTHAN_CITIES: SeedCity[] = [
+const CITIES: SeedCity[] = [
   {
     id: "node_jaipur",
     name: "Jaipur",
@@ -101,8 +103,7 @@ export const RAJASTHAN_CITIES: SeedCity[] = [
     tags: ["spiritual", "heritage"],
     avg_daily_cost: 1600,
     recommended_hours: 6,
-    description:
-      "Home of the Dargah Sharif of Khwaja Moinuddin Chishti.",
+    description: "Home of the Dargah Sharif of Khwaja Moinuddin Chishti.",
     places_query: "top tourist attractions in Ajmer Rajasthan",
   },
   {
@@ -149,9 +150,9 @@ export const RAJASTHAN_CITIES: SeedCity[] = [
     tags: ["wildlife", "nature", "adventure"],
     avg_daily_cost: 3000,
     recommended_hours: 12,
-    description:
-      "Tiger reserve built around a 10th-century hilltop fort.",
-    places_query: "top tourist attractions near Ranthambore National Park Rajasthan",
+    description: "Tiger reserve built around a 10th-century hilltop fort.",
+    places_query:
+      "top tourist attractions near Ranthambore National Park Rajasthan",
   },
 ];
 
@@ -167,7 +168,7 @@ interface RawRoadEdge {
  * Curated road network. Approximate distances/times along well-travelled
  * routes; `seedEdges --use-google` can overwrite with live Routes data.
  */
-export const RAJASTHAN_ROAD_EDGES: RawRoadEdge[] = [
+const ROAD_EDGES: RawRoadEdge[] = [
   { from: "node_jaipur", to: "node_udaipur", distance_km: 393, travel_time_hours: 7.0, road_quality: "good" },
   { from: "node_jaipur", to: "node_jodhpur", distance_km: 336, travel_time_hours: 6.0, road_quality: "good" },
   { from: "node_jaipur", to: "node_jaisalmer", distance_km: 565, travel_time_hours: 10.0, road_quality: "good" },
@@ -198,21 +199,13 @@ export const RAJASTHAN_ROAD_EDGES: RawRoadEdge[] = [
   { from: "node_ranthambore", to: "node_chittorgarh", distance_km: 279, travel_time_hours: 5.5, road_quality: "average" },
 ];
 
-/**
- * Projects the seed data into the shape the DB expects. Kept here so the
- * seed scripts stay short and data-focused.
- */
-export function toCityNodes(
-  cities: SeedCity[] = RAJASTHAN_CITIES,
-  region = RAJASTHAN_REGION,
-  country = RAJASTHAN_COUNTRY,
-): GraphNode[] {
-  return cities.map((c) => ({
+function toCityNodes(): GraphNode[] {
+  return CITIES.map((c) => ({
     id: c.id,
     type: "city",
     name: c.name,
-    region,
-    country,
+    region: REGION,
+    country: COUNTRY,
     tags: c.tags,
     metadata: {
       avg_daily_cost: c.avg_daily_cost,
@@ -224,11 +217,8 @@ export function toCityNodes(
   }));
 }
 
-export function toRoadEdges(
-  edges: RawRoadEdge[] = RAJASTHAN_ROAD_EDGES,
-  region = RAJASTHAN_REGION,
-): GraphEdge[] {
-  return edges.map((e) => ({
+function toRoadEdges(): GraphEdge[] {
+  return ROAD_EDGES.map((e) => ({
     id: `edge_${e.from}__${e.to}`,
     from: e.from,
     to: e.to,
@@ -236,9 +226,30 @@ export function toRoadEdges(
     distance_km: e.distance_km,
     travel_time_hours: e.travel_time_hours,
     bidirectional: true,
-    regions: [region],
+    regions: [REGION],
     metadata: {
       road_quality: e.road_quality ?? "good",
     },
   }));
 }
+
+const dataset: SeedDataset = {
+  region: REGION,
+  country: COUNTRY,
+  summary: {
+    default_currency: CURRENCY,
+    default_locale: LOCALE,
+    default_transport_modes: [...DEFAULT_TRANSPORT_MODES],
+  },
+  cities: toCityNodes,
+  edges: toRoadEdges,
+  placesQueries: () =>
+    CITIES.map((c) => ({
+      city_id: c.id,
+      query: c.places_query ?? `top tourist attractions in ${c.name}`,
+      center: { lat: c.lat, lng: c.lng },
+      city_tags: c.tags,
+    })),
+};
+
+export default dataset;

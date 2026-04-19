@@ -3,54 +3,67 @@ import "./_env";
 
 import { parseArgs } from "./_cli";
 import { loadDataset } from "./data";
+import { resolveRegions } from "./_regions";
 
 /**
- * Seed the `nodes` collection with city-level data for a region.
+ * Seed the `nodes` collection with city-level data for one or more regions.
  *
  * Usage:
  *   npx tsx scripts/seedNodes.ts --region rajasthan
- *   npx tsx scripts/seedNodes.ts --region rajasthan --dry-run
+ *   npx tsx scripts/seedNodes.ts --regions rajasthan,gujarat,himachal
+ *   npx tsx scripts/seedNodes.ts --all
+ *   npx tsx scripts/seedNodes.ts --all --dry-run
  *
  * The script is region-agnostic: create `scripts/data/<slug>.ts` that
  * default-exports a `SeedDataset` (see scripts/data/index.ts) and the
- * script will pick it up automatically.
+ * script picks it up automatically (including via `--all`).
  */
 
 async function main() {
   const args = parseArgs();
-  const region = String(args.region ?? "rajasthan");
   const dryRun = Boolean(args["dry-run"]);
+  const regions = resolveRegions(args);
 
-  const dataset = await loadDataset(region);
-  const nodes = dataset.cities();
   console.log(
-    `[seedNodes] region=${region} count=${nodes.length} dryRun=${dryRun}`,
+    `[seedNodes] regions=${regions.join(",")} dryRun=${dryRun} (${regions.length} dataset${regions.length === 1 ? "" : "s"})`,
   );
 
-  if (dryRun) {
-    console.log(JSON.stringify(nodes, null, 2));
-    return;
+  let totalNodes = 0;
+  for (const region of regions) {
+    const dataset = await loadDataset(region);
+    const nodes = dataset.cities();
+    console.log(
+      `[seedNodes] ${region}: ${nodes.length} city node${nodes.length === 1 ? "" : "s"}`,
+    );
+    totalNodes += nodes.length;
+
+    if (dryRun) {
+      console.log(JSON.stringify(nodes, null, 2));
+      continue;
+    }
+
+    const { upsertNodes } = await import("@/lib/repositories/nodeRepository");
+    const { upsertRegionSummary } = await import(
+      "@/lib/repositories/regionRepository"
+    );
+
+    await upsertNodes(nodes);
+
+    const bbox = computeBbox(nodes);
+    await upsertRegionSummary({
+      region: dataset.region,
+      country: dataset.country,
+      count: nodes.length,
+      bbox,
+      ...(dataset.summary ?? {}),
+    });
   }
 
-  const { upsertNodes } = await import("@/lib/repositories/nodeRepository");
-  const { upsertRegionSummary } = await import(
-    "@/lib/repositories/regionRepository"
-  );
-
-  await upsertNodes(nodes);
-
-  const bbox = computeBbox(nodes);
-  await upsertRegionSummary({
-    region: dataset.region,
-    country: dataset.country,
-    count: nodes.length,
-    bbox,
-    ...(dataset.summary ?? {}),
-  });
-
-  console.log(
-    `[seedNodes] upserted ${nodes.length} city nodes + 1 region summary.`,
-  );
+  if (!dryRun) {
+    console.log(
+      `[seedNodes] done — upserted ${totalNodes} city nodes across ${regions.length} region${regions.length === 1 ? "" : "s"}.`,
+    );
+  }
 }
 
 function computeBbox(

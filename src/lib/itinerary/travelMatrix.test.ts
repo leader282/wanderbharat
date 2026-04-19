@@ -29,7 +29,7 @@ test("resolveTravelMatrix fetches and caches missing legs", async () => {
     {
       nodes: [jaipur, udaipur],
       edges: [],
-      region: "test-region",
+      regions: ["test-region"],
       modes: ["road"],
       now: () => 123456,
     },
@@ -68,7 +68,7 @@ test("resolveTravelMatrix leaves unresolved pairs infeasible when lookup returns
     {
       nodes: [ajmer, pushkar],
       edges: [],
-      region: "test-region",
+      regions: ["test-region"],
       modes: ["road"],
     },
     {

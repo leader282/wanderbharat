@@ -34,7 +34,7 @@ function makeItinerary(): Itinerary {
 }
 
 const validBody = {
-  region: "test-region",
+  regions: ["test-region"],
   start_node: "node_start",
   end_node: "node_end",
   days: 3,
@@ -49,7 +49,7 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   let savedId: string | null = null;
 
   const response = await handleGenerateItinerary(makeRequest(validBody), {
-    loadEngineContextForRegion: async () => ({
+    loadEngineContextForPlan: async () => ({
       nodes: [],
       edges: [],
     }),
@@ -73,7 +73,7 @@ test("handleGenerateItinerary returns 422 without persisting failed plans", asyn
   let saveCalls = 0;
 
   const response = await handleGenerateItinerary(makeRequest(validBody), {
-    loadEngineContextForRegion: async () => ({
+    loadEngineContextForPlan: async () => ({
       nodes: [],
       edges: [],
     }),
@@ -104,7 +104,7 @@ test("handleGenerateItinerary attaches the verified user_id to the itinerary inp
   const response = await handleGenerateItinerary(
     makeRequest({ ...validBody, user_id: "client_lied" }),
     {
-      loadEngineContextForRegion: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
       generateItinerary: async (input) => {
         observedUserId = input.user_id;
         return {

@@ -17,7 +17,7 @@ function makeInput(
   overrides: Partial<GenerateItineraryInput> = {},
 ): GenerateItineraryInput {
   return {
-    region: "rajasthan",
+    regions: ["rajasthan"],
     start_node: "node_jaipur",
     days: 3,
     preferences: {
@@ -46,8 +46,15 @@ test("validateInput accepts a well-formed request", () => {
   assert.equal(validateInput(makeInput()), null);
 });
 
-test("validateInput rejects a blank region", () => {
-  const err = validateInput(makeInput({ region: "   " }));
+test("validateInput rejects an empty regions list", () => {
+  const err = validateInput(makeInput({ regions: [] }));
+  assert.ok(err);
+  assert.equal(err?.reason, "invalid_input");
+  assert.match(err!.message, /region/i);
+});
+
+test("validateInput rejects a blank region slug inside the list", () => {
+  const err = validateInput(makeInput({ regions: ["rajasthan", "   "] }));
   assert.ok(err);
   assert.equal(err?.reason, "invalid_input");
   assert.match(err!.message, /region/i);

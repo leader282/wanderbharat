@@ -3,9 +3,10 @@
 A **generic travel planning engine** built with Next.js (App Router),
 TypeScript, Firebase (Auth + Firestore), and Vercel.
 
-> The engine works for any region. **Rajasthan is loaded as the seed
-> dataset**, nothing more. There is no Rajasthan-specific logic in any
-> layer of the app.
+> The engine works for any region. **Rajasthan, Gujarat, and Himachal
+> Pradesh ship as seed datasets** — nothing more. There is no
+> region-specific logic in any layer of the app; new regions are added by
+> dropping a file under `scripts/data/`.
 
 ---
 
@@ -68,9 +69,14 @@ src/
     api/validation.ts               Zod schemas
   types/domain.ts                   All domain types live here
 scripts/
-  data/rajasthan.ts                 SEED DATA — can be ignored/replaced
-  seedNodes.ts                      Seeds `nodes` (cities)
-  seedEdges.ts                      Seeds `edges` (road network)
+  data/index.ts                     SeedDataset type + dynamic loader + listAvailableRegions()
+  data/rajasthan.ts                 SEED DATA — default-exports a SeedDataset
+  data/gujarat.ts                   SEED DATA — default-exports a SeedDataset
+  data/himachal.ts                  SEED DATA — default-exports a SeedDataset
+  _regions.ts                       Resolves --region / --regions / --all into a slug list
+  purge.ts                          Wipes nodes/edges/regions/itineraries
+  seedNodes.ts                      Seeds `nodes` (cities) + `regions` summary
+  seedEdges.ts                      Seeds `edges` (road/train/flight network)
   seedAttractions.ts                Seeds `nodes` (type=attraction) via Places
 ```
 
@@ -102,27 +108,42 @@ GOOGLE_MAPS_API_KEY=...                      # Places + Routes APIs
 
 ### 3. Seed Firestore
 
+Three regions ship out of the box: **rajasthan**, **gujarat**, **himachal**.
+
 ```bash
-# Cities + road network
-npm run seed:nodes
-npm run seed:edges
+# (optional) wipe seed collections first — destructive, requires --yes.
+# Skip --region to purge every region; pass --keep-itineraries to only
+# wipe nodes/edges/regions and leave generated trips alone.
+npm run db:purge -- --yes
+npm run db:purge -- --region rajasthan --yes
 
-# Attractions (requires GOOGLE_MAPS_API_KEY)
-npm run seed:attractions
-
-# Or everything in one go:
+# Seed everything (every dataset under scripts/data/) in one go:
 npm run seed:all
+
+# …or one collection at a time. Region selection is required — pass
+# --all / --regions / --region (plus optional --dry-run):
+npm run seed:nodes        -- --all
+npm run seed:edges        -- --regions gujarat,himachal
+npm run seed:attractions  -- --region himachal --per-city 8     # needs GOOGLE_MAPS_API_KEY
 ```
 
-Every seed script accepts `--region <slug>` and `--dry-run`. To add a new
-region:
+Region selection (one of these is required on every seed/purge script):
 
-1. Create `scripts/data/<region>.ts` exporting city + edge factories
-   matching the shape in `scripts/data/rajasthan.ts`.
-2. Register the factory inside each seeder's `DATASETS` map.
-3. Run `npm run seed:all -- --region <region>`.
+| Flag                       | Meaning                                                |
+| -------------------------- | ------------------------------------------------------ |
+| `--all`                    | Every `scripts/data/<slug>.ts` on disk (auto-detected) |
+| `--regions a,b,c`          | Comma-separated explicit list                          |
+| `--region <slug>`          | Single slug (also accepts a comma list)                |
 
-No changes are needed in the engine, API, or UI.
+To add a new region:
+
+1. Create `scripts/data/<region>.ts` that **default-exports** a `SeedDataset`
+   (see `scripts/data/index.ts` for the type and `scripts/data/rajasthan.ts`
+   for a working example).
+2. Run `npm run seed:all` — it will pick up the new file automatically.
+
+The seed scripts auto-discover datasets by filename — no registry edits, and
+no changes are needed in the engine, API, or UI.
 
 ### 4. Run the dev server
 
@@ -153,7 +174,11 @@ npm run dev
 }
 ```
 
-### `edges` (generic — road today, train/flight later)
+### `edges` (generic — road, train, flight)
+
+`regions` is an array because edges may straddle a region border (e.g. a
+Jaipur → Delhi flight sits in both `["rajasthan", "delhi"]`). The repos
+filter with `array-contains` / `array-contains-any` against this field.
 
 ```json
 {
@@ -163,8 +188,28 @@ npm run dev
   "type": "road",
   "distance_km": 393,
   "travel_time_hours": 7,
-  "region": "rajasthan",
+  "bidirectional": true,
+  "regions": ["rajasthan"],
   "metadata": { "road_quality": "good" }
+}
+```
+
+### `regions` (denormalised summaries)
+
+Written by `seedNodes` after each region's cities are upserted. The UI's
+region picker reads this collection so a fresh seed shows up without a
+full `nodes` scan.
+
+```json
+{
+  "region": "rajasthan",
+  "country": "india",
+  "count": 10,
+  "default_currency": "INR",
+  "default_locale": "en-IN",
+  "default_transport_modes": ["road", "train"],
+  "bbox": { "min_lat": 24.59, "min_lng": 70.91, "max_lat": 28.02, "max_lng": 76.50 },
+  "updated_at": 1732000000000
 }
 ```
 
@@ -194,8 +239,11 @@ npm run dev
 
 ## How the engine works
 
-1. **Load graph** — `loadEngineContextForRegion(region)` pulls all nodes +
-   edges scoped to the region from Firestore.
+1. **Load graph** — `loadEngineContextForPlan({ regions, start_node_id, days,
+   modes, travel_style })` pulls only the cities, attractions, and edges
+   reachable within the trip's planning radius. The radius is derived from
+   the fastest allowed mode × `maxTravelHoursPerDay × days × 1.5`, so
+   large regions don't blow up the matrix.
 2. **Filter** — exclude the start/end nodes from candidate destinations.
 3. **Score** — every candidate is scored on
    `0.45·proximity + 0.4·tagMatch + 0.15·popularity`.
@@ -226,7 +274,7 @@ Request body:
 
 ```json
 {
-  "region": "rajasthan",
+  "regions": ["rajasthan"],
   "start_node": "node_jaipur",
   "end_node": "node_jaipur",
   "days": 5,
@@ -238,6 +286,11 @@ Request body:
   }
 }
 ```
+
+`regions` must contain at least one slug (max 10). The first entry is
+the primary region — persisted on the resulting itinerary doc and used
+for trip-list filtering. Additional entries widen the candidate pool
+for cross-region trips.
 
 Responses:
 - `201 Created` — `{ itinerary: Itinerary }`
