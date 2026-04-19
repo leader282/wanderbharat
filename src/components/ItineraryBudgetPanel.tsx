@@ -60,14 +60,14 @@ export default function ItineraryBudgetPanel({
   const tone = assessment ? toneFor(assessment.status) : null;
 
   return (
-    <div className="mt-10 card p-6 md:p-7">
+    <div className="mt-10 card p-6 md:p-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p className="eyebrow">Budget</p>
-          <h2 className="mt-2 text-2xl md:text-3xl font-black">
+          <h2 className="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-ink-900)]">
             Why this budget feels justified
           </h2>
-          <p className="mt-2 text-[var(--color-ink-500)] max-w-2xl">
+          <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
             We estimate this route and stay plan at {formatMoney(totalTripCost)}{" "}
             per person, then add {formatMoney(buffer)} of headroom on top so the
             recommended budget still feels realistic when stays and transport
@@ -110,7 +110,7 @@ export default function ItineraryBudgetPanel({
               biggestDrivers.map((driver) => (
                 <li
                   key={`${driver.kind}:${driver.label}`}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-[rgba(26,23,20,0.06)] bg-white px-4 py-3"
+                  className="flex items-start justify-between gap-3 rounded-xl border border-[var(--hairline)] bg-white px-4 py-3"
                 >
                   <div>
                     <p className="font-semibold text-[var(--color-ink-900)]">
@@ -126,7 +126,7 @@ export default function ItineraryBudgetPanel({
                 </li>
               ))
             ) : (
-              <li className="rounded-xl border border-[rgba(26,23,20,0.06)] bg-white px-4 py-3 text-sm text-[var(--color-ink-500)]">
+              <li className="rounded-xl border border-[var(--hairline)] bg-white px-4 py-3 text-sm text-[var(--color-ink-500)]">
                 We&apos;ll show the detailed cost drivers here as soon as the
                 itinerary has itemised budget data.
               </li>
@@ -134,7 +134,7 @@ export default function ItineraryBudgetPanel({
           </ul>
         </div>
 
-        <div className="rounded-2xl border border-[rgba(26,23,20,0.08)] bg-[var(--color-sand-50)] p-4">
+        <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--color-sand-50)] p-4">
           <label className="block">
             <span className="text-sm font-semibold text-[var(--color-ink-700)]">
               Try your budget ({currency} per person)
@@ -205,11 +205,11 @@ export default function ItineraryBudgetPanel({
 
 function BudgetStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[rgba(26,23,20,0.08)] bg-[var(--color-sand-50)] px-4 py-3">
-      <p className="text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+    <div className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
         {label}
       </p>
-      <p className="mt-1 text-lg font-black text-[var(--color-ink-900)]">
+      <p className="mt-1.5 text-lg font-bold tracking-tight text-[var(--color-ink-900)]">
         {value}
       </p>
     </div>

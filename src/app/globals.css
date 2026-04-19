@@ -1,21 +1,68 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+ * wanderbharat — design tokens
+ *
+ * The token NAMES are intentionally preserved (sand-*, brand-*, ink-*,
+ * moss-*) so existing components inherit the new system without churn.
+ * Their VALUES have been retuned away from the desert/saffron palette
+ * toward a calmer, India-wide editorial palette:
+ *
+ *   - sand-* :  warm stone neutrals (less yellow, more contemporary)
+ *   - ink-*  :  deep premium charcoal text/surface scale
+ *   - brand-*:  refined saffron-gold (used sparingly, editorial accents)
+ *   - teal-* :  muted peacock-teal accent (legend / status)
+ *   - indigo-*: muted indigo accent (legend / status)
+ *   - moss-* :  refined success green
+ *
+ * Primary CTAs intentionally use ink, not brand. Brand is reserved for
+ * eyebrows, focus halos, badges, and subtle accents.
+ * ------------------------------------------------------------------------ */
+
 @theme {
-  --color-sand-50: #fbf6ea;
-  --color-sand-100: #f4e9d1;
-  --color-sand-200: #e8d3a6;
-  --color-sand-300: #d9b878;
-  --color-ink-900: #1a1714;
-  --color-ink-800: #2b2621;
-  --color-ink-700: #3f3931;
-  --color-ink-500: #6d655b;
-  --color-ink-400: #8e867b;
-  --color-brand-300: #f9c27a;
-  --color-brand-500: #e48a2b;
-  --color-brand-600: #c96f12;
-  --color-brand-700: #9e5510;
-  --color-brand-900: #5a300a;
-  --color-moss-600: #3f7a4a;
+  /* warm stone neutrals (replaces sandy yellows) */
+  --color-sand-50: #faf8f3;
+  --color-sand-100: #f1ede3;
+  --color-sand-200: #e2dccd;
+  --color-sand-300: #c5bda6;
+
+  /* premium ink scale */
+  --color-ink-900: #14110d;
+  --color-ink-800: #221e18;
+  --color-ink-700: #3a342a;
+  --color-ink-600: #514a3e;
+  --color-ink-500: #6e6557;
+  --color-ink-400: #9a9181;
+
+  /* refined saffron-gold (less neon-orange) */
+  --color-brand-300: #e6c98c;
+  --color-brand-500: #b8881f;
+  --color-brand-600: #8f6912;
+  --color-brand-700: #6e510e;
+  --color-brand-900: #3a2a06;
+
+  /* peacock-teal accent (used sparingly) */
+  --color-teal-500: #0f7670;
+  --color-teal-700: #0a5550;
+
+  /* muted indigo accent (used sparingly) */
+  --color-indigo-500: #3d4f8c;
+  --color-indigo-700: #2b3a6d;
+
+  /* refined success */
+  --color-moss-600: #2c6b3a;
+
+  /* shared surface system */
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+  --shadow-soft:
+    0 1px 2px rgba(20, 17, 13, 0.04),
+    0 8px 24px -14px rgba(20, 17, 13, 0.12);
+  --shadow-lift:
+    0 1px 2px rgba(20, 17, 13, 0.05),
+    0 12px 32px -16px rgba(20, 17, 13, 0.18);
+  --hairline: rgba(20, 17, 13, 0.08);
+  --hairline-strong: rgba(20, 17, 13, 0.14);
 }
 
 :root {
@@ -31,13 +78,13 @@ body {
 body {
   background:
     radial-gradient(
-      1200px 600px at 10% -10%,
-      rgba(249, 194, 122, 0.35),
+      900px 520px at 100% -10%,
+      rgba(15, 118, 112, 0.05),
       transparent 60%
     ),
     radial-gradient(
-      900px 500px at 110% 0%,
-      rgba(201, 111, 18, 0.18),
+      1100px 600px at -10% 0%,
+      rgba(184, 136, 31, 0.07),
       transparent 60%
     ),
     var(--color-sand-50);
@@ -53,47 +100,70 @@ body {
 h1,
 h2,
 h3 {
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
 }
 
-/* ---- Shared UI helpers ---- */
+h1 {
+  font-feature-settings: "ss01", "cv11";
+}
 
+::selection {
+  background: rgba(184, 136, 31, 0.22);
+  color: var(--color-ink-900);
+}
+
+/* ---- Shared UI helpers ------------------------------------------------ */
+
+/*
+ * Primary action — premium dark surface.
+ * We deliberately decouple the CTA from the brand color so the brand
+ * (saffron-gold) can stay reserved for editorial accents. This is the
+ * SaaS-grade pattern used by Linear, Stripe, Vercel, etc.
+ */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-500),
-    var(--color-brand-700)
-  );
+  background: var(--color-ink-900);
   color: white;
-  border-radius: 0.625rem;
-  padding: 0.75rem 1.15rem;
+  border-radius: 0.75rem;
+  padding: 0.7rem 1.15rem;
   font-weight: 600;
   font-size: 0.95rem;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
+  border: 1px solid var(--color-ink-900);
   transition:
     transform 0.15s ease,
-    box-shadow 0.15s ease,
-    filter 0.15s ease;
+    box-shadow 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
   box-shadow:
-    0 1px 2px rgba(154, 84, 16, 0.2),
-    0 8px 24px -8px rgba(201, 111, 18, 0.45);
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(20, 17, 13, 0.18),
+    0 10px 24px -12px rgba(20, 17, 13, 0.45);
 }
 .btn-primary:hover {
+  background: #000;
+  border-color: #000;
   transform: translateY(-1px);
-  filter: brightness(1.04);
   box-shadow:
-    0 2px 4px rgba(154, 84, 16, 0.22),
-    0 14px 28px -10px rgba(201, 111, 18, 0.55);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(20, 17, 13, 0.22),
+    0 16px 32px -14px rgba(20, 17, 13, 0.55);
+}
+.btn-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 2px var(--color-sand-50),
+    0 0 0 4px rgba(184, 136, 31, 0.45);
 }
 .btn-primary:disabled {
-  opacity: 0.55;
+  opacity: 0.45;
   cursor: not-allowed;
   transform: none;
-  filter: grayscale(0.2);
+  box-shadow: none;
 }
 
 .btn-secondary {
@@ -101,40 +171,110 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(6px);
+  background: white;
   color: var(--color-ink-800);
-  border-radius: 0.625rem;
-  padding: 0.75rem 1.1rem;
+  border-radius: 0.75rem;
+  padding: 0.7rem 1.1rem;
   font-weight: 600;
   font-size: 0.95rem;
-  border: 1px solid rgba(26, 23, 20, 0.08);
+  border: 1px solid var(--hairline-strong);
   transition:
     background 0.15s ease,
-    border-color 0.15s ease;
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.18s ease;
+  box-shadow: 0 1px 0 rgba(20, 17, 13, 0.02);
 }
 .btn-secondary:hover {
   background: white;
-  border-color: rgba(26, 23, 20, 0.16);
+  border-color: var(--color-ink-700);
+  color: var(--color-ink-900);
+}
+.btn-secondary:focus-visible {
+  outline: none;
+  border-color: var(--color-ink-700);
+  box-shadow:
+    0 0 0 2px var(--color-sand-50),
+    0 0 0 4px rgba(184, 136, 31, 0.4);
 }
 
-.card {
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(26, 23, 20, 0.06);
-  border-radius: 1.1rem;
+/*
+ * Destructive action — same silhouette as btn-primary so both buttons
+ * line up cleanly in dialogs, but a confident red surface to signal
+ * danger. Reserved for irreversible actions (delete, remove, revoke).
+ */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #b91c1c;
+  color: white;
+  border-radius: 0.75rem;
+  padding: 0.7rem 1.15rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.005em;
+  border: 1px solid #b91c1c;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
   box-shadow:
-    0 1px 2px rgba(26, 23, 20, 0.04),
-    0 12px 32px -12px rgba(26, 23, 20, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 1px 2px rgba(127, 22, 22, 0.18),
+    0 10px 24px -12px rgba(127, 22, 22, 0.5);
+}
+.btn-danger:hover {
+  background: #991b1b;
+  border-color: #991b1b;
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 2px 4px rgba(127, 22, 22, 0.24),
+    0 16px 32px -14px rgba(127, 22, 22, 0.55);
+}
+.btn-danger:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 2px white,
+    0 0 0 4px rgba(185, 28, 28, 0.45);
+}
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/*
+ * Cards — clean editorial surface. Soft border + low layered shadow,
+ * less rounded than before so things read more product than poster.
+ */
+.card {
+  background: white;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 
 .card-solid {
   background: white;
-  border: 1px solid rgba(26, 23, 20, 0.06);
-  border-radius: 1.1rem;
-  box-shadow:
-    0 1px 2px rgba(26, 23, 20, 0.04),
-    0 12px 32px -12px rgba(26, 23, 20, 0.08);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Subtle, semi-transparent surface — used for stacked overlays. */
+.card-glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
 }
 
 .eyebrow {
@@ -147,8 +287,8 @@ h3 {
 
 .input {
   width: 100%;
-  border-radius: 0.625rem;
-  border: 1px solid rgba(26, 23, 20, 0.12);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--hairline-strong);
   background: white;
   padding: 0.65rem 0.85rem;
   font-size: 0.95rem;
@@ -159,8 +299,8 @@ h3 {
     box-shadow 0.15s ease;
 }
 .input:focus {
-  border-color: var(--color-brand-500);
-  box-shadow: 0 0 0 4px rgba(228, 138, 43, 0.18);
+  border-color: var(--color-ink-700);
+  box-shadow: 0 0 0 4px rgba(184, 136, 31, 0.18);
 }
 .input:disabled {
   background: var(--color-sand-50);
@@ -168,34 +308,86 @@ h3 {
   cursor: not-allowed;
 }
 
+/*
+ * Chips — muted resting state, ink-solid pressed state. The previous
+ * brand-gradient pressed state was loud; ink reads as confident
+ * selection without screaming color.
+ */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   border-radius: 9999px;
-  padding: 0.45rem 0.85rem;
+  padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
   font-weight: 600;
-  border: 1px solid rgba(26, 23, 20, 0.08);
+  border: 1px solid var(--hairline);
   background: white;
   color: var(--color-ink-700);
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .chip:hover {
-  border-color: var(--color-brand-500);
+  border-color: var(--color-ink-700);
   color: var(--color-ink-900);
 }
+.chip:focus-visible {
+  outline: none;
+  border-color: var(--color-ink-700);
+  box-shadow: 0 0 0 3px rgba(184, 136, 31, 0.25);
+}
 .chip[aria-pressed="true"] {
-  background: linear-gradient(
-    135deg,
-    var(--color-brand-500),
-    var(--color-brand-700)
-  );
+  background: var(--color-ink-900);
   color: white;
-  border-color: transparent;
+  border-color: var(--color-ink-900);
+}
+.chip[aria-pressed="true"]:hover {
+  background: var(--color-ink-800);
+  border-color: var(--color-ink-800);
+}
+
+/*
+ * Tile — used for selectable option cards (e.g. travel style, start
+ * time, accommodation preference). Same surface system as cards, with
+ * a calm, ink-based active treatment.
+ */
+.tile {
+  text-align: left;
+  border-radius: 0.875rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--hairline);
+  background: white;
+  color: var(--color-ink-800);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+.tile:hover {
+  border-color: var(--color-ink-700);
+}
+.tile:focus-visible {
+  outline: none;
+  border-color: var(--color-ink-700);
+  box-shadow: 0 0 0 3px rgba(184, 136, 31, 0.25);
+}
+.tile[aria-pressed="true"] {
+  background: var(--color-ink-900);
+  border-color: var(--color-ink-900);
+  color: white;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 22px -14px rgba(20, 17, 13, 0.4);
+}
+.tile[aria-pressed="true"] .tile-sub {
+  color: rgba(255, 255, 255, 0.78);
+}
+.tile-sub {
+  color: var(--color-ink-500);
 }
 
 /* Timeline dots used in the itinerary view. */
@@ -211,8 +403,8 @@ h3 {
   height: 0.75rem;
   border-radius: 9999px;
   background: white;
-  border: 2px solid var(--color-brand-500);
-  box-shadow: 0 0 0 4px rgba(228, 138, 43, 0.18);
+  border: 2px solid var(--color-ink-900);
+  box-shadow: 0 0 0 4px rgba(184, 136, 31, 0.16);
 }
 .timeline-line {
   position: absolute;
@@ -222,8 +414,19 @@ h3 {
   width: 2px;
   background: linear-gradient(
     to bottom,
-    rgba(228, 138, 43, 0.35),
-    rgba(228, 138, 43, 0)
+    rgba(20, 17, 13, 0.18),
+    rgba(20, 17, 13, 0)
+  );
+}
+
+/* Subtle, hairline section divider used between landing sections. */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--hairline-strong),
+    transparent
   );
 }
 
@@ -238,5 +441,58 @@ h3 {
   }
 }
 .animate-fadeUp {
-  animation: fadeUp 0.35s ease-out both;
+  animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Modal / dialog motion -------------------------------------------- */
+
+@keyframes fadeBackdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fadeBackdrop {
+  animation: fadeBackdrop 0.2s ease both;
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-scaleIn {
+  animation: scaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes sheetIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.animate-sheetIn {
+  animation: sheetIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeUp,
+  .animate-fadeBackdrop,
+  .animate-scaleIn,
+  .animate-sheetIn {
+    animation: none;
+  }
+  html,
+  body {
+    scroll-behavior: auto;
+  }
 }

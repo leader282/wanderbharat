@@ -277,7 +277,7 @@ export default function PlanForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card p-6 md:p-8 space-y-8">
+    <form onSubmit={handleSubmit} className="card p-6 md:p-8 space-y-9">
       {/* ----- destination ----- */}
       <Section
         title="Where are you going?"
@@ -362,20 +362,10 @@ export default function PlanForm() {
                         setState((s) => ({ ...s, travel_style: style }))
                       }
                       aria-pressed={active}
-                      className={`text-left rounded-xl border p-3.5 transition ${
-                        active
-                          ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
-                          : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
-                      }`}
+                      className="tile"
                     >
                       <p className="font-bold">{copy.label}</p>
-                      <p
-                        className={`text-xs mt-1 leading-snug ${
-                          active
-                            ? "text-white/85"
-                            : "text-[var(--color-ink-500)]"
-                        }`}
-                      >
+                      <p className="tile-sub mt-1 text-xs leading-snug">
                         {copy.tagline}
                       </p>
                     </button>
@@ -399,29 +389,21 @@ export default function PlanForm() {
                         }))
                       }
                       aria-pressed={active}
-                      className={`text-left rounded-xl border p-3.5 transition ${
-                        active
-                          ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
-                          : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
-                      }`}
+                      className="tile"
                     >
                       <p className="font-bold">
                         {opt.label}{" "}
                         <span
                           className={`font-mono text-xs font-semibold ${
-                            active ? "text-white/80" : "text-[var(--color-ink-500)]"
+                            active
+                              ? "text-white/75"
+                              : "text-[var(--color-ink-500)]"
                           }`}
                         >
                           {formatStartTimeLabel(opt.id)}
                         </span>
                       </p>
-                      <p
-                        className={`text-xs mt-1 leading-snug ${
-                          active
-                            ? "text-white/85"
-                            : "text-[var(--color-ink-500)]"
-                        }`}
-                      >
+                      <p className="tile-sub mt-1 text-xs leading-snug">
                         {opt.tagline}
                       </p>
                     </button>
@@ -431,7 +413,7 @@ export default function PlanForm() {
             </Field>
 
             <Field label="Trip planning priority">
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-4 py-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--hairline)] bg-white px-4 py-3 transition-colors hover:border-[var(--color-ink-700)]">
                 <input
                   type="checkbox"
                   checked={state.prioritize_city_coverage}
@@ -441,7 +423,7 @@ export default function PlanForm() {
                       prioritize_city_coverage: e.target.checked,
                     }))
                   }
-                  className="mt-1 h-4 w-4 rounded border-[rgba(26,23,20,0.2)] text-[var(--color-brand-600)]"
+                  className="mt-1 h-4 w-4 rounded border-[var(--hairline-strong)] accent-[var(--color-ink-900)]"
                 />
                 <div>
                   <p className="font-semibold text-[var(--color-ink-900)]">
@@ -480,18 +462,10 @@ export default function PlanForm() {
                     }))
                   }
                   aria-pressed={active}
-                  className={`text-left rounded-xl border p-3.5 transition ${
-                    active
-                      ? "border-transparent bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white shadow-md"
-                      : "border-[rgba(26,23,20,0.1)] bg-white hover:border-[var(--color-brand-500)]"
-                  }`}
+                  className="tile"
                 >
                   <p className="font-bold">{copy.label}</p>
-                  <p
-                    className={`text-xs mt-1 leading-snug ${
-                      active ? "text-white/85" : "text-[var(--color-ink-500)]"
-                    }`}
-                  >
+                  <p className="tile-sub mt-1 text-xs leading-snug">
                     {copy.tagline}
                   </p>
                 </button>
@@ -605,7 +579,7 @@ function SaveTripCallout({
       .toUpperCase();
     const label = user.name?.trim().split(/\s+/)[0] ?? user.email ?? "you";
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-[var(--color-moss-600)]/20 bg-[var(--color-moss-600)]/5 px-4 py-3">
+      <div className="flex items-center gap-3 rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3">
         {user.picture ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -619,7 +593,7 @@ function SaveTripCallout({
         ) : (
           <span
             aria-hidden
-            className="grid place-items-center w-7 h-7 rounded-full bg-[var(--color-moss-600)] text-white text-xs font-bold"
+            className="grid place-items-center w-7 h-7 rounded-full bg-[var(--color-ink-900)] text-white text-xs font-bold"
           >
             {initial}
           </span>
@@ -639,11 +613,11 @@ function SaveTripCallout({
   }
 
   return (
-    <div className="rounded-xl border border-[var(--color-brand-500)]/25 bg-[var(--color-brand-300)]/15 p-4 sm:p-5">
+    <div className="rounded-xl border border-[var(--hairline-strong)] bg-[var(--color-sand-50)] p-4 sm:p-5">
       <div className="flex items-start gap-3 sm:gap-4">
         <span
           aria-hidden
-          className="grid place-items-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white text-[var(--color-brand-700)] border border-[var(--color-brand-500)]/30 shadow-sm shrink-0"
+          className="grid place-items-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white text-[var(--color-ink-900)] border border-[var(--hairline)] shadow-sm shrink-0"
         >
           <BookmarkIcon />
         </span>
@@ -651,7 +625,7 @@ function SaveTripCallout({
           <p className="font-bold text-[var(--color-ink-900)]">
             Save your trip to come back to it
           </p>
-          <p className="mt-1 text-sm text-[var(--color-ink-700)]">
+          <p className="mt-1 text-sm text-[var(--color-ink-600)]">
             Sign in with Google and every itinerary you build will land in
             your trips. Skip if you just want a one-off plan — the link
             still works.

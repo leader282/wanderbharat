@@ -58,7 +58,7 @@ export default function AuthHeader() {
     return (
       <div
         aria-hidden
-        className="ml-1 h-9 w-9 sm:w-32 rounded-lg bg-[var(--color-sand-100)] animate-pulse"
+        className="ml-1 h-9 w-9 sm:w-28 rounded-lg bg-[var(--color-sand-200)]/60 animate-pulse"
       />
     );
   }
@@ -182,7 +182,7 @@ export default function AuthHeader() {
               }}
               className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-[var(--color-ink-800)] hover:bg-[var(--color-sand-50)] disabled:opacity-60"
             >
-              <span className="grid place-items-center w-8 h-8 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-ink-700)]">
+              <span className="grid place-items-center w-8 h-8 rounded-lg border border-[var(--hairline)] bg-white text-[var(--color-ink-700)]">
                 {signingOut ? <SmallSpinner /> : <SignOutIcon />}
               </span>
               <span className="flex-1 text-left">
@@ -220,7 +220,7 @@ function MenuLink({
       onClick={onSelect}
       className="flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-[var(--color-ink-800)] hover:bg-[var(--color-sand-50)]"
     >
-      <span className="grid place-items-center w-8 h-8 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-brand-700)]">
+      <span className="grid place-items-center w-8 h-8 rounded-lg border border-[var(--hairline)] bg-white text-[var(--color-ink-900)]">
         {icon}
       </span>
       <span className="flex-1">
@@ -267,7 +267,7 @@ function Avatar({
   return (
     <span
       aria-hidden
-      className={`grid place-items-center rounded-full bg-gradient-to-br from-[var(--color-brand-500)] to-[var(--color-brand-700)] text-white font-bold ${ringClass}`}
+      className={`grid place-items-center rounded-full bg-[var(--color-ink-900)] text-white font-bold ${ringClass}`}
       style={{
         width: size,
         height: size,

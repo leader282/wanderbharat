@@ -12,6 +12,7 @@ export default async function Home() {
   return (
     <>
       <Hero />
+      <TrustStrip />
       <Destinations items={destinations} />
       <HowItWorks />
       <ClosingCTA />
@@ -25,22 +26,23 @@ export default async function Home() {
 
 function Hero() {
   return (
-    <section className="pt-10 md:pt-16">
-      <div className="grid gap-12 md:grid-cols-[1.15fr_0.85fr] items-center">
+    <section className="pt-12 md:pt-20">
+      <div className="grid items-center gap-12 md:grid-cols-[1.1fr_0.9fr]">
         <div className="animate-fadeUp">
-          <p className="eyebrow">Trip planner · India</p>
-          <h1 className="mt-3 text-5xl md:text-[3.5rem] leading-[1.04] font-black text-[var(--color-ink-900)]">
-            India, planned <br />
-            <span className="bg-gradient-to-r from-[var(--color-brand-500)] to-[var(--color-brand-700)] bg-clip-text text-transparent">
+          <p className="eyebrow">Intelligent trip planner · India</p>
+          <h1 className="mt-4 text-[2.6rem] sm:text-5xl md:text-[3.5rem] font-bold leading-[1.04] tracking-tight text-[var(--color-ink-900)]">
+            India, planned
+            <br className="hidden sm:block" />{" "}
+            <span className="bg-[linear-gradient(120deg,var(--color-brand-700),var(--color-brand-500))] bg-clip-text text-transparent">
               the way you travel.
             </span>
           </h1>
-          <p className="mt-6 text-lg md:text-xl text-[var(--color-ink-700)] max-w-xl leading-relaxed">
+          <p className="mt-6 max-w-xl text-[1.05rem] md:text-lg leading-relaxed text-[var(--color-ink-600)]">
             Tell us how long you have and how fast you like to move. We&apos;ll
             hand you a day-by-day plan that actually fits, plus a budget that
             feels justified — no endless blog tabs, no guesswork.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/plan" className="btn-primary">
               Plan my trip
               <ArrowRight />
@@ -50,14 +52,14 @@ function Hero() {
             </Link>
           </div>
 
-          <dl className="mt-12 grid grid-cols-3 gap-6 max-w-md">
+          <dl className="mt-12 grid max-w-lg grid-cols-3 gap-x-6 gap-y-2 border-t border-[var(--hairline)] pt-6">
             <HeroStat value="10+" label="cities mapped" />
             <HeroStat value="1–30" label="day itineraries" />
             <HeroStat value="0" label="generic tours" />
           </dl>
         </div>
 
-        <HeroArt />
+        <HeroPreview />
       </div>
     </section>
   );
@@ -66,76 +68,196 @@ function Hero() {
 function HeroStat({ value, label }: { value: string; label: string }) {
   return (
     <div>
-      <div className="text-3xl font-black text-[var(--color-ink-900)]">{value}</div>
-      <div className="text-xs uppercase tracking-widest text-[var(--color-ink-500)] mt-1">
+      <div className="text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-ink-900)]">
+        {value}
+      </div>
+      <div className="mt-1 text-[0.7rem] font-medium uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
         {label}
       </div>
     </div>
   );
 }
 
-function HeroArt() {
+/**
+ * Editorial hero visual. Replaces the previous Rajasthan-coded
+ * palace/dunes SVG with an abstract pan-India map preview that signals
+ * the product without ethnic motifs:
+ *
+ *   - a calm, soft surface
+ *   - a faint India outline as a confidence cue
+ *   - a few route nodes connected by a smooth path
+ *   - a floating "preview" card showing what the planner produces
+ *
+ * Designed to read as "premium travel intelligence product", not poster.
+ */
+function HeroPreview() {
   return (
     <div className="relative aspect-[5/6] md:aspect-[4/5] animate-fadeUp">
-      <div className="absolute inset-0 rounded-[1.5rem] bg-gradient-to-br from-[var(--color-brand-300)] via-[var(--color-brand-500)] to-[var(--color-brand-900)] shadow-xl" />
+      <div
+        aria-hidden
+        className="absolute inset-0 rounded-[1.5rem] bg-[radial-gradient(120%_120%_at_0%_0%,rgba(184,136,31,0.08),transparent_55%),radial-gradient(120%_120%_at_100%_100%,rgba(15,118,112,0.07),transparent_55%),linear-gradient(180deg,#fbf9f3_0%,#f3efe5_100%)] border border-[var(--hairline)] shadow-[0_1px_2px_rgba(20,17,13,0.04),0_30px_60px_-30px_rgba(20,17,13,0.18)]"
+      />
+
       <svg
         viewBox="0 0 400 500"
-        className="absolute inset-0 w-full h-full"
+        className="absolute inset-0 h-full w-full"
         preserveAspectRatio="xMidYMid slice"
         aria-hidden
       >
         <defs>
-          <radialGradient id="sun" cx="50%" cy="30%" r="40%">
-            <stop offset="0%" stopColor="#fff3d6" />
-            <stop offset="60%" stopColor="#fff3d6" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#fff3d6" stopOpacity="0" />
+          <linearGradient id="route" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#14110d" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="#14110d" stopOpacity="0.35" />
+          </linearGradient>
+          <radialGradient id="glow" cx="50%" cy="35%" r="55%">
+            <stop offset="0%" stopColor="#b8881f" stopOpacity="0.12" />
+            <stop offset="100%" stopColor="#b8881f" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <rect width="400" height="500" fill="url(#sun)" />
-        {/* dunes / silhouettes */}
+        <rect width="400" height="500" fill="url(#glow)" />
+
+        {/* Stylised India silhouette — abstract, low contrast, no ethnic motifs */}
+        <g
+          transform="translate(110,75) scale(0.62)"
+          fill="none"
+          stroke="rgba(20,17,13,0.10)"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        >
+          <path d="M180 0 L240 35 L290 80 L325 130 L355 180 L370 230 L355 280 L320 335 L270 390 L220 445 L185 500 L150 540 L120 540 L100 510 L90 470 L70 425 L40 380 L25 330 L20 280 L25 230 L40 180 L60 135 L85 95 L120 55 L150 25 Z" />
+          {/* faint hatching inside */}
+          <path d="M70 200 L300 200" opacity="0.35" />
+          <path d="M50 280 L320 280" opacity="0.25" />
+          <path d="M70 360 L260 360" opacity="0.2" />
+        </g>
+
+        {/* route line */}
         <path
-          d="M0,380 C80,340 140,400 220,360 C290,330 340,390 400,360 L400,500 L0,500 Z"
-          fill="rgba(26,23,20,0.18)"
+          d="M120 130 C 200 160, 240 230, 220 310 S 250 420, 300 410"
+          fill="none"
+          stroke="url(#route)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray="0"
         />
         <path
-          d="M0,420 C100,380 180,440 260,410 C320,390 360,430 400,410 L400,500 L0,500 Z"
-          fill="rgba(26,23,20,0.28)"
+          d="M120 130 C 200 160, 240 230, 220 310 S 250 420, 300 410"
+          fill="none"
+          stroke="rgba(184,136,31,0.45)"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeDasharray="3 5"
         />
-        {/* palace silhouette */}
-        <g fill="rgba(26,23,20,0.42)" transform="translate(230,280)">
-          <rect x="0" y="20" width="120" height="80" />
-          <rect x="0" y="100" width="120" height="40" />
-          <path d="M0,20 L20,0 L40,20 Z" />
-          <path d="M40,20 L60,0 L80,20 Z" />
-          <path d="M80,20 L100,0 L120,20 Z" />
-          <rect x="15" y="60" width="12" height="40" fill="rgba(251,246,234,0.25)" />
-          <rect x="54" y="60" width="12" height="40" fill="rgba(251,246,234,0.25)" />
-          <rect x="93" y="60" width="12" height="40" fill="rgba(251,246,234,0.25)" />
-        </g>
-        {/* small dome */}
-        <g fill="rgba(26,23,20,0.5)" transform="translate(80,320)">
-          <path d="M0,40 C0,20 20,0 40,0 C60,0 80,20 80,40 Z" />
-          <rect x="0" y="40" width="80" height="40" />
-          <rect x="30" y="-12" width="20" height="14" />
-          <rect x="36" y="-20" width="8" height="10" />
-        </g>
+
+        {/* route nodes */}
+        <RouteNode cx={120} cy={130} label="A" />
+        <RouteNode cx={235} cy={235} label="B" />
+        <RouteNode cx={220} cy={335} label="C" />
+        <RouteNode cx={300} cy={410} label="D" emphasis />
       </svg>
 
-      <div className="absolute left-4 right-4 bottom-4 card-solid p-4 flex items-center gap-3">
-        <span className="grid place-items-center w-10 h-10 rounded-full bg-[var(--color-brand-500)] text-white">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
-            <circle cx="12" cy="10" r="3" />
-          </svg>
-        </span>
-        <div>
-          <p className="font-bold text-sm leading-tight">Jaipur → Udaipur → Jodhpur</p>
-          <p className="text-xs text-[var(--color-ink-500)]">
-            A balanced 7-day loop · 18 hours of travel
-          </p>
+      {/* Floating preview card — feels like a real product surface */}
+      <div className="absolute left-4 right-4 bottom-4 sm:left-5 sm:right-5 sm:bottom-5 card-glass p-4">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--color-ink-900)] text-white">
+            <PinIcon />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[0.62rem] font-bold uppercase tracking-[0.2em] text-[var(--color-brand-700)]">
+                Sample plan
+              </span>
+              <span
+                aria-hidden
+                className="h-1 w-1 rounded-full bg-[var(--color-ink-400)]"
+              />
+              <span className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
+                7 days
+              </span>
+            </div>
+            <p className="mt-1.5 truncate text-sm font-bold text-[var(--color-ink-900)]">
+              Mumbai → Hampi → Goa → Kochi
+            </p>
+            <p className="mt-0.5 text-xs text-[var(--color-ink-500)]">
+              Balanced pace · ~14 h on the road · justified budget
+            </p>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function RouteNode({
+  cx,
+  cy,
+  label,
+  emphasis,
+}: {
+  cx: number;
+  cy: number;
+  label: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <g>
+      {emphasis && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r="14"
+          fill="rgba(184,136,31,0.18)"
+          stroke="none"
+        />
+      )}
+      <circle cx={cx} cy={cy} r="7" fill="white" stroke="#14110d" strokeWidth="2" />
+      <text
+        x={cx}
+        y={cy + 3}
+        textAnchor="middle"
+        fontSize="7"
+        fontWeight="700"
+        fill="#14110d"
+        fontFamily="Inter, system-ui, sans-serif"
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function TrustStrip() {
+  const items = [
+    { label: "Map-aware planner" },
+    { label: "Real drive times" },
+    { label: "Justified budgets" },
+    { label: "Day-by-day schedule" },
+    { label: "Pace-aware routing" },
+  ];
+  return (
+    <section className="mt-16 md:mt-24">
+      <p className="text-center text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-[var(--color-ink-500)]">
+        What this planner gets right
+      </p>
+      <ul className="mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-2.5 text-sm">
+        {items.map((it, i) => (
+          <li key={it.label} className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--hairline)] bg-white/70 px-3.5 py-1.5 font-medium text-[var(--color-ink-700)]">
+              <CheckMini />
+              {it.label}
+            </span>
+            {i < items.length - 1 && (
+              <span
+                aria-hidden
+                className="hidden h-1 w-1 rounded-full bg-[var(--color-ink-400)] sm:inline-block"
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -188,26 +310,35 @@ interface Destination {
 function Destinations({ items }: { items: Destination[] }) {
   return (
     <section id="destinations" className="mt-24 md:mt-32 scroll-mt-24">
-      <div className="flex items-end justify-between gap-6 flex-wrap">
-        <div>
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div className="max-w-xl">
           <p className="eyebrow">Where to go</p>
-          <h2 className="mt-2 text-3xl md:text-4xl font-black">
+          <h2 className="mt-3 text-3xl md:text-[2.5rem] font-bold leading-[1.1] tracking-tight text-[var(--color-ink-900)]">
             Destinations we know inside-out
           </h2>
-          <p className="mt-2 text-[var(--color-ink-500)] max-w-xl">
+          <p className="mt-3 text-[var(--color-ink-600)]">
             Curated regions with mapped cities, drive times, and hand-picked
-            highlights.
+            highlights — ready to assemble into a real plan.
           </p>
         </div>
-        <Link href="/plan" className="text-sm font-semibold text-[var(--color-brand-700)]">
-          Plan for any region →
+        <Link
+          href="/plan"
+          className="group inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink-800)] transition-colors hover:text-[var(--color-ink-900)]"
+        >
+          Plan for any region
+          <span
+            aria-hidden
+            className="transition-transform group-hover:translate-x-0.5"
+          >
+            <ArrowRight />
+          </span>
         </Link>
       </div>
 
       {items.length === 0 ? (
         <DestinationsEmpty />
       ) : (
-        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((r) => (
             <DestinationCard key={`${r.country}-${r.region}`} dest={r} />
           ))}
@@ -222,41 +353,42 @@ function DestinationCard({ dest }: { dest: Destination }) {
   return (
     <Link
       href={`/plan?region=${encodeURIComponent(dest.region)}`}
-      className="card p-6 group flex flex-col justify-between hover:-translate-y-0.5 transition-transform"
+      className="group card flex flex-col justify-between p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--hairline-strong)] hover:shadow-[var(--shadow-lift)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-500)]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-sand-50)]"
     >
       <div>
         <div className="flex items-center gap-2">
           <span className="chip" aria-hidden>
             {dest.country ? titleCase(dest.country) : "India"}
           </span>
-          <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-ink-500)]">
+          <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
             {dest.cities.length} cities
           </span>
         </div>
-        <h3 className="mt-4 text-2xl font-black capitalize">
+        <h3 className="mt-5 text-2xl font-bold capitalize tracking-tight text-[var(--color-ink-900)]">
           {titleCase(dest.region)}
         </h3>
-        <p className="mt-1 text-sm text-[var(--color-ink-500)]">
+        <p className="mt-1.5 text-sm text-[var(--color-ink-500)]">
           {summariseTags(dest.cities)}
         </p>
       </div>
-      <ul className="mt-5 flex flex-wrap gap-1.5">
+      <ul className="mt-6 flex flex-wrap gap-1.5">
         {preview.map((c) => (
           <li
             key={c.id}
-            className="text-xs font-semibold px-2.5 py-1 rounded-md bg-[var(--color-sand-100)] text-[var(--color-ink-700)]"
+            className="rounded-md border border-[var(--hairline)] bg-[var(--color-sand-50)] px-2.5 py-1 text-xs font-semibold text-[var(--color-ink-700)]"
           >
             {c.name}
           </li>
         ))}
         {dest.cities.length > preview.length && (
-          <li className="text-xs font-semibold px-2.5 py-1 text-[var(--color-ink-500)]">
+          <li className="px-2.5 py-1 text-xs font-semibold text-[var(--color-ink-500)]">
             +{dest.cities.length - preview.length} more
           </li>
         )}
       </ul>
-      <p className="mt-6 text-sm font-semibold text-[var(--color-brand-700)] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-1">
-        Start planning <ArrowRight />
+      <p className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink-900)] transition-transform group-hover:translate-x-0.5">
+        Start planning
+        <ArrowRight />
       </p>
     </Link>
   );
@@ -264,13 +396,15 @@ function DestinationCard({ dest }: { dest: Destination }) {
 
 function DestinationsEmpty() {
   return (
-    <div className="mt-8 card p-10 text-center">
-      <p className="text-lg font-bold">Fresh destinations coming soon.</p>
-      <p className="mt-2 text-[var(--color-ink-500)] max-w-md mx-auto">
+    <div className="mt-10 card p-10 text-center">
+      <p className="text-lg font-bold text-[var(--color-ink-900)]">
+        Fresh destinations coming soon.
+      </p>
+      <p className="mt-2 mx-auto max-w-md text-[var(--color-ink-500)]">
         We&apos;re finalising the first set of itineraries. Check back
         shortly — or jump in and start a plan, we&apos;ll handle the rest.
       </p>
-      <Link href="/plan" className="btn-primary mt-6 inline-flex">
+      <Link href="/plan" className="btn-primary mt-7 inline-flex">
         Start a plan
         <ArrowRight />
       </Link>
@@ -310,23 +444,32 @@ function HowItWorks() {
 
   return (
     <section id="how-it-works" className="mt-24 md:mt-32 scroll-mt-24">
-      <p className="eyebrow">How it works</p>
-      <h2 className="mt-2 text-3xl md:text-4xl font-black max-w-2xl">
-        From a blank page to a ready-to-travel itinerary in under a minute.
-      </h2>
+      <div className="max-w-2xl">
+        <p className="eyebrow">How it works</p>
+        <h2 className="mt-3 text-3xl md:text-[2.5rem] font-bold leading-[1.1] tracking-tight text-[var(--color-ink-900)]">
+          From a blank page to a ready-to-travel itinerary in under a minute.
+        </h2>
+      </div>
 
-      <ol className="mt-10 grid gap-6 md:grid-cols-3">
+      <ol className="mt-10 grid gap-5 md:grid-cols-3">
         {steps.map((s, i) => (
-          <li key={i} className="card p-6 flex flex-col gap-4">
-            <span className="grid place-items-center w-10 h-10 rounded-lg bg-[var(--color-sand-100)] text-[var(--color-brand-700)]">
-              <span className="block w-5 h-5">{s.icon}</span>
+          <li
+            key={i}
+            className="card flex flex-col gap-5 p-6 transition-shadow hover:shadow-[var(--shadow-lift)]"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--color-ink-900)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+              <span className="block h-5 w-5">{s.icon}</span>
             </span>
             <div>
-              <p className="text-xs font-bold text-[var(--color-ink-500)] tracking-widest uppercase">
-                Step {i + 1}
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-700)]">
+                Step {String(i + 1).padStart(2, "0")}
               </p>
-              <h3 className="mt-1 text-xl font-bold">{s.title}</h3>
-              <p className="mt-2 text-[var(--color-ink-500)]">{s.body}</p>
+              <h3 className="mt-1.5 text-xl font-bold text-[var(--color-ink-900)]">
+                {s.title}
+              </h3>
+              <p className="mt-2 leading-relaxed text-[var(--color-ink-500)]">
+                {s.body}
+              </p>
             </div>
           </li>
         ))}
@@ -344,9 +487,11 @@ function HowItWorks() {
 
 function Bullet({ title, body }: { title: string; body: string }) {
   return (
-    <div className="p-5 rounded-xl border border-[rgba(26,23,20,0.06)] bg-white/60">
-      <p className="font-bold">{title}</p>
-      <p className="mt-1 text-sm text-[var(--color-ink-500)]">{body}</p>
+    <div className="rounded-2xl border border-[var(--hairline)] bg-white/70 p-5">
+      <p className="font-bold text-[var(--color-ink-900)]">{title}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-ink-500)]">
+        {body}
+      </p>
     </div>
   );
 }
@@ -354,28 +499,39 @@ function Bullet({ title, body }: { title: string; body: string }) {
 function ClosingCTA() {
   return (
     <section className="mt-24 md:mt-32">
-      <div className="relative overflow-hidden rounded-[1.75rem] p-10 md:p-14 bg-gradient-to-br from-[var(--color-brand-500)] via-[var(--color-brand-600)] to-[var(--color-brand-900)] text-white shadow-xl">
-        <div className="absolute inset-0 opacity-30 pointer-events-none">
-          <svg viewBox="0 0 800 300" className="w-full h-full" preserveAspectRatio="xMidYMid slice" aria-hidden>
-            <path d="M0,220 C150,180 300,240 450,210 C600,180 720,230 800,210 L800,300 L0,300 Z" fill="rgba(0,0,0,0.25)" />
-            <path d="M0,250 C150,220 320,270 470,250 C620,230 720,260 800,250 L800,300 L0,300 Z" fill="rgba(0,0,0,0.25)" />
-          </svg>
-        </div>
+      <div className="relative overflow-hidden rounded-[1.75rem] border border-[var(--color-ink-900)] bg-[radial-gradient(120%_120%_at_0%_0%,rgba(184,136,31,0.18),transparent_50%),radial-gradient(120%_120%_at_100%_100%,rgba(15,118,112,0.16),transparent_50%),linear-gradient(180deg,#1a1714_0%,#0a0805_100%)] p-10 md:p-14 text-white shadow-[0_30px_60px_-25px_rgba(20,17,13,0.45)]">
+        <span
+          aria-hidden
+          className="absolute left-10 top-0 h-[2px] w-16 bg-[var(--color-brand-500)] opacity-90 md:left-14"
+        />
+
         <div className="relative max-w-2xl">
-          <h2 className="text-3xl md:text-4xl font-black leading-tight">
-            Ready when you are.
-          </h2>
-          <p className="mt-3 text-white/85 text-lg">
-            Your next trip deserves more than a Google Doc of links. Build a
-            proper itinerary in a minute.
+          <p className="text-[0.68rem] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-300)]">
+            Ready when you are
           </p>
-          <Link
-            href="/plan"
-            className="mt-7 inline-flex items-center gap-2 rounded-xl bg-white text-[var(--color-ink-900)] px-5 py-3 font-bold shadow-lg hover:shadow-xl transition-shadow"
-          >
-            Plan my trip
-            <ArrowRight />
-          </Link>
+          <h2 className="mt-4 text-3xl md:text-[2.6rem] font-bold leading-[1.1] tracking-tight">
+            Build a proper itinerary in a minute.
+          </h2>
+          <p className="mt-4 max-w-xl text-base md:text-[1.05rem] leading-relaxed text-white/75">
+            Your next trip deserves more than a Google Doc of links. Get a
+            day-by-day plan that fits your pace, with a budget that&apos;s
+            actually defensible.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              href="/plan"
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-[var(--color-ink-900)] shadow-[0_10px_24px_-12px_rgba(255,255,255,0.4)] transition-transform hover:-translate-y-0.5"
+            >
+              Plan my trip
+              <ArrowRight />
+            </Link>
+            <Link
+              href="#how-it-works"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white/85 transition-colors hover:border-white/40 hover:text-white"
+            >
+              See how it works
+            </Link>
+          </div>
         </div>
       </div>
     </section>
@@ -399,6 +555,44 @@ function ArrowRight() {
     >
       <path d="M5 12h14" />
       <path d="m13 5 7 7-7 7" />
+    </svg>
+  );
+}
+
+function CheckMini() {
+  return (
+    <svg
+      aria-hidden
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-[var(--color-moss-600)]"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
     </svg>
   );
 }
