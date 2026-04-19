@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Itinerary } from "@/types/domain";
+import type { Itinerary, ItineraryMapData } from "@/types/domain";
 import {
   handleDeleteItinerary,
   handleGetItinerary,
@@ -30,15 +30,28 @@ function makeItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
   };
 }
 
+function makeMapData(): ItineraryMapData {
+  return {
+    markers: [],
+    legs: [],
+    missing_geometry_count: 0,
+  };
+}
+
 test("handleGetItinerary returns the itinerary when it exists", async () => {
   const response = await handleGetItinerary("it_test", {
     getItinerary: async () => makeItinerary(),
     deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
   });
 
   assert.equal(response.status, 200);
-  const payload = (await response.json()) as { itinerary: Itinerary };
+  const payload = (await response.json()) as {
+    itinerary: Itinerary;
+    map: ItineraryMapData;
+  };
   assert.equal(payload.itinerary.id, "it_test");
+  assert.equal(payload.map.missing_geometry_count, 0);
 });
 
 test("handleDeleteItinerary requires an authenticated user", async () => {
@@ -49,6 +62,7 @@ test("handleDeleteItinerary requires an authenticated user", async () => {
     deleteItinerary: async () => {
       deleteCalls += 1;
     },
+    getItineraryMapData: async () => makeMapData(),
     resolveCurrentUser: async () => null,
   });
 
@@ -64,6 +78,7 @@ test("handleDeleteItinerary rejects users who do not own the itinerary", async (
     deleteItinerary: async () => {
       deleteCalls += 1;
     },
+    getItineraryMapData: async () => makeMapData(),
     resolveCurrentUser: async () => ({
       uid: "uid_owner",
       email: "owner@example.com",
@@ -84,6 +99,7 @@ test("handleDeleteItinerary returns 404 for unknown itineraries", async () => {
     deleteItinerary: async () => {
       deleteCalls += 1;
     },
+    getItineraryMapData: async () => makeMapData(),
     resolveCurrentUser: async () => ({
       uid: "uid_owner",
       email: "owner@example.com",
@@ -104,6 +120,7 @@ test("handleDeleteItinerary deletes itineraries owned by the current user", asyn
     deleteItinerary: async (id) => {
       deletedId = id;
     },
+    getItineraryMapData: async () => makeMapData(),
     resolveCurrentUser: async () => ({
       uid: "uid_owner",
       email: "owner@example.com",

@@ -17,8 +17,7 @@ import { chunk } from "@/lib/utils/concurrency";
  * - {@link haversineKm} — zero-dependency great-circle distance fallback.
  */
 
-const ROUTES_URL =
-  "https://routes.googleapis.com/directions/v2:computeRoutes";
+const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 const ROUTE_MATRIX_URL =
   "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
 
@@ -28,6 +27,7 @@ const ROUTE_MATRIX_TILE = 25;
 export interface TravelLeg {
   distance_km: number;
   travel_time_hours: number;
+  encoded_polyline?: string;
 }
 
 export interface GetTravelTimeOptions {
@@ -103,7 +103,8 @@ export async function getTravelTime(
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "routes.distanceMeters,routes.duration",
+      "X-Goog-FieldMask":
+        "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline",
     },
     body: JSON.stringify(body),
   });
@@ -116,7 +117,11 @@ export async function getTravelTime(
   }
 
   const json = (await res.json()) as {
-    routes?: Array<{ distanceMeters?: number; duration?: string }>;
+    routes?: Array<{
+      distanceMeters?: number;
+      duration?: string;
+      polyline?: { encodedPolyline?: string };
+    }>;
   };
   const route = json.routes?.[0];
   if (!route?.distanceMeters || !route.duration) return null;
@@ -125,6 +130,7 @@ export async function getTravelTime(
   return {
     distance_km: route.distanceMeters / 1000,
     travel_time_hours: seconds / 3600,
+    encoded_polyline: route.polyline?.encodedPolyline,
   };
 }
 
@@ -194,7 +200,9 @@ async function fetchMatrixTile(args: {
   destinations: Coordinates[];
 }): Promise<TravelMatrixCell[]> {
   const body = {
-    origins: args.origins.map((c) => ({ waypoint: { location: coordsToLatLng(c) } })),
+    origins: args.origins.map((c) => ({
+      waypoint: { location: coordsToLatLng(c) },
+    })),
     destinations: args.destinations.map((c) => ({
       waypoint: { location: coordsToLatLng(c) },
     })),
@@ -254,7 +262,8 @@ async function fetchMatrixTile(args: {
       leg: reachable
         ? {
             distance_km: (row.distanceMeters ?? 0) / 1000,
-            travel_time_hours: parseDurationSeconds(row.duration ?? "0s") / 3600,
+            travel_time_hours:
+              parseDurationSeconds(row.duration ?? "0s") / 3600,
           }
         : null,
     });

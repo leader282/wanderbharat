@@ -87,7 +87,13 @@ test("getTravelTime parses a Routes API response into km and hours", async (t) =
   globalThis.fetch = (async () =>
     new Response(
       JSON.stringify({
-        routes: [{ distanceMeters: 392800, duration: "24300s" }],
+        routes: [
+          {
+            distanceMeters: 392800,
+            duration: "24300s",
+            polyline: { encodedPolyline: "encoded-route" },
+          },
+        ],
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     )) as typeof fetch;
@@ -102,6 +108,7 @@ test("getTravelTime parses a Routes API response into km and hours", async (t) =
   assert.ok(result);
   assert.equal(result?.distance_km, 392.8);
   assert.equal(result?.travel_time_hours, 6.75);
+  assert.equal(result?.encoded_polyline, "encoded-route");
 });
 
 test("getTravelTime returns null when the Routes API has no routes", async (t) => {

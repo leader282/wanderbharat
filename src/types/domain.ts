@@ -22,11 +22,7 @@ export const NODE_TYPES = [
 export type NodeType = (typeof NODE_TYPES)[number];
 
 /** Edge transport modes. Future: "bus", "ferry", "metro", etc. */
-export const TRANSPORT_MODES = [
-  "road",
-  "train",
-  "flight",
-] as const;
+export const TRANSPORT_MODES = ["road", "train", "flight"] as const;
 export type TransportMode = (typeof TRANSPORT_MODES)[number];
 
 /**
@@ -34,11 +30,7 @@ export type TransportMode = (typeof TRANSPORT_MODES)[number];
  * per-day constraints via {@link TravelStyleConfig}. Add new values here and
  * in the config map; engine code never branches on a specific value.
  */
-export const TRAVEL_STYLES = [
-  "relaxed",
-  "balanced",
-  "adventurous",
-] as const;
+export const TRAVEL_STYLES = ["relaxed", "balanced", "adventurous"] as const;
 export type TravelStyle = (typeof TRAVEL_STYLES)[number];
 
 export const ACCOMMODATION_CATEGORIES = [
@@ -49,8 +41,7 @@ export const ACCOMMODATION_CATEGORIES = [
   "heritage",
   "resort",
 ] as const;
-export type AccommodationCategory =
-  (typeof ACCOMMODATION_CATEGORIES)[number];
+export type AccommodationCategory = (typeof ACCOMMODATION_CATEGORIES)[number];
 
 export const ACCOMMODATION_PREFERENCES = [
   "auto",
@@ -145,6 +136,16 @@ export interface EdgeMetadata {
   road_quality?: "poor" | "average" | "good" | "excellent";
   /** Base price per person for train/flight; future dynamic pricing hook. */
   base_price?: number;
+  /** Upstream provider used to resolve this edge (e.g. Google Routes). */
+  provider?: string;
+  /** Unix epoch millis when live routing last refreshed this edge. */
+  resolved_at?: number;
+  /** Encoded polyline suitable for map rendering without another API call. */
+  encoded_polyline?: string;
+  /** Derived travel cost cached by the matrix resolver for scoring/UI. */
+  estimated_cost?: number;
+  /** Per-mode fatigue multiplier cached by the matrix resolver. */
+  fatigue_factor?: number;
   /** Free-form extras. */
   [key: string]: unknown;
 }
@@ -322,6 +323,55 @@ export interface Itinerary {
   created_at: number;
   /** Optional warnings surfaced by the constraint engine. */
   warnings?: string[];
+}
+
+export const ITINERARY_MAP_MARKER_KINDS = [
+  "stop",
+  "stay",
+  "attraction",
+] as const;
+export type ItineraryMapMarkerKind =
+  (typeof ITINERARY_MAP_MARKER_KINDS)[number];
+
+export interface ItineraryMapMarker {
+  id: string;
+  kind: ItineraryMapMarkerKind;
+  title: string;
+  subtitle?: string;
+  position: Coordinates;
+  /** Zero-based day indexes this marker should appear for. */
+  day_indices: number[];
+  node_id?: string;
+  google_place_id?: string;
+  /** Stable ordering for stop markers along the route. */
+  stop_order?: number;
+}
+
+export interface ItineraryMapLeg {
+  id: string;
+  day_index: number;
+  from_node_id: string;
+  to_node_id: string;
+  from_name: string;
+  to_name: string;
+  from_position: Coordinates;
+  to_position: Coordinates;
+  transport_mode: TransportMode;
+  distance_km: number;
+  travel_time_hours: number;
+  encoded_polyline?: string;
+  has_geometry: boolean;
+}
+
+export interface ItineraryMapData {
+  markers: ItineraryMapMarker[];
+  legs: ItineraryMapLeg[];
+  missing_geometry_count: number;
+}
+
+export interface ItineraryDetail {
+  itinerary: Itinerary;
+  map: ItineraryMapData;
 }
 
 // ============================================================================

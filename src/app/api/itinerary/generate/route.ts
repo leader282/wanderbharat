@@ -9,6 +9,7 @@ import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
 import { getByNode } from "@/lib/repositories/accommodationRepository";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
+import { precacheItineraryRouteGeometry } from "@/lib/services/itineraryMapService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ interface GenerateRouteDependencies {
   loadEngineContextForPlan: typeof loadEngineContextForPlan;
   generateItinerary: typeof generateItinerary;
   saveItinerary: typeof saveItinerary;
+  precacheItineraryRouteGeometry?: typeof precacheItineraryRouteGeometry;
   planAccommodations: (
     input: Parameters<typeof runAccommodationPlanner>[0],
   ) => ReturnType<typeof runAccommodationPlanner>;
@@ -33,6 +35,7 @@ const defaultDependencies: GenerateRouteDependencies = {
   loadEngineContextForPlan,
   generateItinerary,
   saveItinerary,
+  precacheItineraryRouteGeometry,
   planAccommodations: async (input) =>
     runAccommodationPlanner(input, {
       getByNode,
@@ -136,6 +139,15 @@ export async function handleGenerateItinerary(
       },
       { status: 500 },
     );
+  }
+
+  const precacheRouteGeometry =
+    deps.precacheItineraryRouteGeometry ?? precacheItineraryRouteGeometry;
+  try {
+    await precacheRouteGeometry(itinerary, ctx.nodes);
+  } catch {
+    // Geometry caching is additive only; itinerary generation should still
+    // succeed even if Google routing is unavailable for map polylines.
   }
 
   try {
