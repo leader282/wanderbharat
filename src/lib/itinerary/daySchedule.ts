@@ -77,6 +77,18 @@ export interface BuildDayScheduleArgs {
   day: ItineraryDay;
   /** "HH:MM" 24-hour. Falls back to DEFAULT_DAY_START on missing/invalid. */
   startTime?: string;
+  /**
+   * Optional hard cap on the total wall-clock span for the day, measured from
+   * `startTime`. The engine passes the travel-style maximum here when checking
+   * whether operating hours still leave a feasible plan.
+   */
+  maxDaySpanHours?: number;
+}
+
+export interface DayScheduleResult {
+  blocks: ScheduleBlock[];
+  isFeasible: boolean;
+  unscheduledActivities: ItineraryActivity[];
 }
 
 /**
@@ -99,27 +111,38 @@ export interface BuildDayScheduleArgs {
  * day starts after the lunch window or has no activities, no lunch is
  * inserted.
  */
-export function buildDaySchedule({
+export function buildDaySchedule(args: BuildDayScheduleArgs): ScheduleBlock[] {
+  return buildDayScheduleResult(args).blocks;
+}
+
+export function buildDayScheduleResult({
   day,
   startTime,
-}: BuildDayScheduleArgs): ScheduleBlock[] {
+  maxDaySpanHours,
+}: BuildDayScheduleArgs): DayScheduleResult {
   const blocks: ScheduleBlock[] = [];
   let cursor = parseTimeToMinutes(startTime) ?? parseTimeToMinutes(DEFAULT_DAY_START)!;
+  const latestEndMin =
+    maxDaySpanHours !== undefined
+      ? cursor + hoursToMinutes(maxDaySpanHours)
+      : undefined;
   let lunchPlaced = false;
+  const unscheduledActivities: ItineraryActivity[] = [];
 
   if (day.travel) {
     const durationMin = hoursToMinutes(day.travel.travel_time_hours);
     if (durationMin > 0) {
+      const endMin = cursor + durationMin;
       blocks.push({
         kind: "travel",
         startMin: cursor,
-        endMin: cursor + durationMin,
+        endMin,
         durationMin,
         transportMode: day.travel.transport_mode,
         distanceKm: day.travel.distance_km,
         toName: day.base_node_name,
       });
-      cursor += durationMin;
+      cursor = endMin;
     }
   }
 
@@ -131,40 +154,68 @@ export function buildDaySchedule({
     const durationMin = hoursToMinutes(activity.duration_hours);
     if (durationMin <= 0) continue;
 
+    let nextCursor = cursor;
     if (activitiesScheduled === 0 && hadTravelBlock) {
-      cursor += SCHEDULE_RULES.postTravelBufferMin;
+      nextCursor += SCHEDULE_RULES.postTravelBufferMin;
     } else if (activitiesScheduled > 0) {
-      cursor += SCHEDULE_RULES.betweenActivitiesBufferMin;
+      nextCursor += SCHEDULE_RULES.betweenActivitiesBufferMin;
     }
+
+    let activityStart = earliestActivityStart(nextCursor, activity);
 
     if (
       !lunchPlaced &&
-      cursor >= SCHEDULE_RULES.lunchWindow.startMin &&
-      cursor <= SCHEDULE_RULES.lunchWindow.endMin
+      activityStart >= SCHEDULE_RULES.lunchWindow.startMin &&
+      activityStart <= SCHEDULE_RULES.lunchWindow.endMin
     ) {
-      blocks.push({
-        kind: "meal",
-        startMin: cursor,
-        endMin: cursor + SCHEDULE_RULES.lunchDurationMin,
-        durationMin: SCHEDULE_RULES.lunchDurationMin,
-        label: "Lunch",
-      });
-      cursor += SCHEDULE_RULES.lunchDurationMin;
-      lunchPlaced = true;
+      const afterLunchStart = earliestActivityStart(
+        activityStart + SCHEDULE_RULES.lunchDurationMin,
+        activity,
+      );
+      if (
+        fitsActivityWindow(activity, afterLunchStart, durationMin, latestEndMin)
+      ) {
+        blocks.push({
+          kind: "meal",
+          startMin: activityStart,
+          endMin: activityStart + SCHEDULE_RULES.lunchDurationMin,
+          durationMin: SCHEDULE_RULES.lunchDurationMin,
+          label: "Lunch",
+        });
+        lunchPlaced = true;
+        nextCursor = activityStart + SCHEDULE_RULES.lunchDurationMin;
+        activityStart = earliestActivityStart(nextCursor, activity);
+      }
+    }
+
+    if (!fitsActivityWindow(activity, activityStart, durationMin, latestEndMin)) {
+      unscheduledActivities.push(activity);
+      continue;
     }
 
     blocks.push({
       kind: "activity",
-      startMin: cursor,
-      endMin: cursor + durationMin,
+      startMin: activityStart,
+      endMin: activityStart + durationMin,
       durationMin,
       activity,
     });
-    cursor += durationMin;
+    cursor = activityStart + durationMin;
     activitiesScheduled += 1;
   }
 
-  return blocks;
+  return {
+    blocks,
+    isFeasible:
+      unscheduledActivities.length === 0 &&
+      (latestEndMin === undefined ||
+        blocks.every((block) => block.endMin <= latestEndMin)),
+    unscheduledActivities,
+  };
+}
+
+export function isDayScheduleFeasible(args: BuildDayScheduleArgs): boolean {
+  return buildDayScheduleResult(args).isFeasible;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +282,28 @@ function parseTimeToMinutes(value: string | undefined): number | null {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function earliestActivityStart(
+  cursor: number,
+  activity: ItineraryActivity,
+): number {
+  const openingTime = parseTimeToMinutes(activity.opening_time);
+  if (openingTime === null) return cursor;
+  return Math.max(cursor, openingTime);
+}
+
+function fitsActivityWindow(
+  activity: ItineraryActivity,
+  startMin: number,
+  durationMin: number,
+  latestEndMin?: number,
+): boolean {
+  const endMin = startMin + durationMin;
+  const closingTime = parseTimeToMinutes(activity.closing_time);
+  if (closingTime !== null && endMin > closingTime) return false;
+  if (latestEndMin !== undefined && endMin > latestEndMin) return false;
+  return true;
 }
 
 function hoursToMinutes(hours: number): number {

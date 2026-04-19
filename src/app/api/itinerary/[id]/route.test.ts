@@ -18,6 +18,7 @@ function makeItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 50000 },
+      travellers: { adults: 2, children: 0 },
       transport_modes: ["road"],
     },
     nodes: ["node_start", "node_end"],

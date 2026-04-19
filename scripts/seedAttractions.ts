@@ -143,6 +143,36 @@ function estimateHoursFromTypes(types: string[]): number {
   return 2;
 }
 
+function estimateOperatingWindow(types: string[]): {
+  opening_time: string;
+  closing_time: string;
+} {
+  if (
+    types.some((t) =>
+      ["museum", "art_gallery", "tourist_attraction"].includes(t),
+    )
+  ) {
+    return { opening_time: "09:00", closing_time: "18:00" };
+  }
+  if (types.some((t) => ["park", "natural_feature"].includes(t))) {
+    return { opening_time: "06:00", closing_time: "18:30" };
+  }
+  if (types.some((t) => ["zoo", "amusement_park"].includes(t))) {
+    return { opening_time: "09:00", closing_time: "17:30" };
+  }
+  if (
+    types.some((t) =>
+      ["hindu_temple", "mosque", "church"].includes(t),
+    )
+  ) {
+    return { opening_time: "06:00", closing_time: "20:00" };
+  }
+  if (types.some((t) => ["restaurant", "cafe"].includes(t))) {
+    return { opening_time: "11:00", closing_time: "22:00" };
+  }
+  return { opening_time: "09:00", closing_time: "18:00" };
+}
+
 function buildAttractionMetadata(place: {
   formatted_address?: string;
   types?: string[];
@@ -150,11 +180,13 @@ function buildAttractionMetadata(place: {
   rating?: number;
   user_ratings_total?: number;
 }) {
+  const operatingWindow = estimateOperatingWindow(place.types ?? []);
   return {
     ...(place.formatted_address
       ? { description: place.formatted_address }
       : {}),
     recommended_hours: estimateHoursFromTypes(place.types ?? []),
+    ...operatingWindow,
     google_place_id: place.google_place_id,
     ...(typeof place.rating === "number" ? { rating: place.rating } : {}),
     ...(typeof place.user_ratings_total === "number"

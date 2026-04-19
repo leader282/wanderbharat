@@ -21,6 +21,12 @@ import {
   type ScheduleBlock,
 } from "@/lib/itinerary/daySchedule";
 import {
+  formatClockTimeLabel,
+  formatTravellerParty,
+  makeMoneyFormatter,
+  titleCaseWords,
+} from "@/lib/itinerary/presentation";
+import {
   getDisplayRouteStops,
   getDistinctDestinationCount,
   getRouteEndpoints,
@@ -71,7 +77,8 @@ export default async function ItineraryPage({
       <Summary itinerary={itinerary} stats={stats} />
       <ItineraryBudgetPanel
         estimatedCost={itinerary.estimated_cost}
-        budget={itinerary.preferences.budget}
+        requestedBudget={itinerary.preferences.budget}
+        travellers={itinerary.preferences.travellers}
         breakdown={itinerary.budget_breakdown}
       />
       <MapSection itinerary={itinerary} mapData={mapData} />
@@ -211,9 +218,9 @@ function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
 
   return (
     <header className="mt-6">
-      <p className="eyebrow">{titleCase(itinerary.region)} itinerary</p>
+      <p className="eyebrow">{titleCaseWords(itinerary.region)} itinerary</p>
       <h1 className="mt-3 text-4xl md:text-[3rem] font-bold leading-[1.06] tracking-tight text-[var(--color-ink-900)]">
-        Your {itinerary.days}-day trip through {titleCase(itinerary.region)}.
+        Your {itinerary.days}-day trip through {titleCaseWords(itinerary.region)}.
       </h1>
       <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[var(--color-ink-600)]">
         {summary}
@@ -225,27 +232,30 @@ function Hero({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
 // ---------------------------------------------------------------------------
 
 function Summary({ itinerary, stats }: { itinerary: Itinerary; stats: Stats }) {
+  const currency = itinerary.preferences.budget.currency ?? "INR";
+  const formatMoney = makeMoneyFormatter(currency);
+  const travellerLabel = formatTravellerParty(itinerary.preferences.travellers);
   return (
     <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Stat
-        label="Estimated cost"
-        value={inr(itinerary.estimated_cost)}
-        sub={`within ${inr(itinerary.preferences.budget.min)}–${inr(itinerary.preferences.budget.max)}`}
+        label="Total trip budget"
+        value={formatMoney(itinerary.preferences.budget.max)}
+        sub={`Estimated total cost ${formatMoney(itinerary.estimated_cost)}`}
+      />
+      <Stat
+        label="Travellers"
+        value={travellerLabel}
+        sub={`${itinerary.days}-day trip`}
       />
       <Stat
         label="Destinations"
         value={String(stats.destinationCount)}
-        sub={`${itinerary.days} days`}
+        sub={`${itinerary.days} days planned`}
       />
       <Stat
         label="Time on the road"
         value={`${roundHours(stats.totalTravelHours)} h`}
-        sub={`across ${itinerary.days} days`}
-      />
-      <Stat
-        label="Time exploring"
-        value={`${roundHours(stats.totalActivityHours)} h`}
-        sub={titleCase(itinerary.preferences.travel_style) + " pace"}
+        sub={`${roundHours(stats.totalActivityHours)} h exploring`}
       />
     </div>
   );
@@ -364,7 +374,7 @@ function Timeline({
   currency: string;
   startTime: string | undefined;
 }) {
-  const startLabel = formatStartHint(startTime);
+  const startLabel = formatClockTimeLabel(startTime);
 
   return (
     <div className="mt-14">
@@ -487,7 +497,7 @@ function ScheduleRow({
           </div>
           <p className="text-sm text-[var(--color-ink-500)] mt-1">
             {Math.round(block.distanceKm)} km by{" "}
-            {titleCase(block.transportMode)}
+            {titleCaseWords(block.transportMode)}
           </p>
         </div>
       </li>
@@ -538,7 +548,7 @@ function ScheduleRow({
                 key={t}
                 className="text-[0.68rem] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white border border-[rgba(26,23,20,0.08)] text-[var(--color-ink-500)]"
               >
-                {titleCase(t)}
+                {titleCaseWords(t)}
               </span>
             ))}
           </p>
@@ -582,8 +592,8 @@ function Footnote() {
       <div>
         <p className="font-bold">Want to tweak something?</p>
         <p className="text-sm text-[var(--color-ink-500)]">
-          Start over with a different pace or starting city, or try another
-          budget above.
+          Start over with a different pace or starting city, or compare this
+          same route against another total budget above.
         </p>
       </div>
       <Link href="/plan" className="btn-primary">
@@ -716,30 +726,10 @@ function ArrowLeft() {
   );
 }
 
-function formatStartHint(value: string | undefined): string {
-  const raw =
-    value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "09:00";
-  const [h, m] = raw.split(":").map(Number);
-  const period = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
-}
-
 function roundHours(n: number): string {
   if (!Number.isFinite(n)) return "0";
   if (n < 1) return n.toFixed(1);
   return (Math.round(n * 2) / 2).toFixed(1).replace(/\.0$/, "");
-}
-
-function inr(n: number): string {
-  return `₹${Number(n || 0).toLocaleString("en-IN")}`;
-}
-
-function titleCase(s: string): string {
-  return s
-    .split(/[_\s-]+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 function paceAdjective(style: string): string {

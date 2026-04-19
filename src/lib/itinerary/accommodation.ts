@@ -5,6 +5,7 @@ import type {
   ItineraryDay,
   PreferenceTag,
   StayAssignment,
+  TravellerComposition,
   TravelStyle,
 } from "@/types/domain";
 import {
@@ -15,8 +16,9 @@ import {
 } from "@/lib/itinerary/accommodationConstraints";
 import {
   scoreAccommodation,
-  sortScoredAccommodations,
 } from "@/lib/itinerary/accommodationScoring";
+import { formatTravellerParty } from "@/lib/itinerary/presentation";
+import { selectOptimalRoomAllocation } from "@/lib/itinerary/roomAllocation";
 import { deriveStayBlocks, totalStayNights } from "@/lib/itinerary/stayBlocks";
 
 export interface AccommodationPlanningDependencies {
@@ -26,6 +28,7 @@ export interface AccommodationPlanningDependencies {
 export interface AccommodationPlanningInput {
   days: ItineraryDay[];
   budget: BudgetRange;
+  travellers: TravellerComposition;
   travelStyle: TravelStyle;
   accommodationPreference?: AccommodationPreference;
   interests?: PreferenceTag[];
@@ -67,18 +70,55 @@ export async function planAccommodations(
         allowedCategories,
         minRating,
       });
-      const inBudgetMatches = filterAccommodationsForStay(baseMatches, {
-        nodeId: block.nodeId,
-        activeOnly: true,
-        allowedCategories,
-        nightlyBudget,
-        minRating,
-      });
+      const feasibleMatches = baseMatches
+        .map((accommodation) => {
+          const roomAllocation = selectOptimalRoomAllocation({
+            accommodation,
+            travellers: input.travellers,
+            nights: block.nights,
+          });
+          if (!roomAllocation) return null;
+          const nightlyCost = roomAllocation.rooms.reduce(
+            (sum, room) => sum + room.nightlyCost,
+            0,
+          );
+          return {
+            accommodation,
+            roomAllocation,
+            nightlyCost: roundCurrency(nightlyCost),
+          };
+        })
+        .filter(
+          (
+            match,
+          ): match is {
+            accommodation: Accommodation;
+            roomAllocation: NonNullable<StayAssignment["roomAllocation"]>;
+            nightlyCost: number;
+          } => Boolean(match),
+        );
+      const inBudgetMatches = feasibleMatches.filter(
+        (match) => match.nightlyCost <= nightlyBudget.max,
+      );
 
       const selectionPool =
-        inBudgetMatches.length > 0 ? inBudgetMatches : baseMatches;
+        inBudgetMatches.length > 0 ? inBudgetMatches : feasibleMatches;
 
       if (selectionPool.length === 0) {
+        if (baseMatches.length > 0 && feasibleMatches.length === 0) {
+          return {
+            stay: {
+              nodeId: block.nodeId,
+              startDay: block.startDay,
+              endDay: block.endDay,
+              nights: block.nights,
+              accommodationId: null,
+              nightlyCost: 0,
+              totalCost: 0,
+            },
+            warning: `No room configuration in ${block.nodeName} could fit ${formatTravellerParty(input.travellers)}.`,
+          };
+        }
         return {
           stay: {
             nodeId: block.nodeId,
@@ -93,17 +133,33 @@ export async function planAccommodations(
         };
       }
 
-      const scored = sortScoredAccommodations(
-        selectionPool.map((accommodation) =>
-          scoreAccommodation(accommodation, {
-            travelStyle: input.travelStyle,
-            accommodationPreference,
-            nightlyBudget,
-            interests: input.interests,
-          }),
-        ),
-      );
-      const best = scored[0]?.accommodation;
+      // Lowest feasible room-allocation cost wins. Existing accommodation scoring
+      // only acts as a deterministic tie-breaker when two properties land at the
+      // same nightly total for the traveller party.
+      const ranked = [...selectionPool].sort((left, right) => {
+        const nightlyDiff = left.nightlyCost - right.nightlyCost;
+        if (Math.abs(nightlyDiff) > 1e-9) return nightlyDiff;
+
+        const leftScore = scoreAccommodation(left.accommodation, {
+          travelStyle: input.travelStyle,
+          accommodationPreference,
+          nightlyBudget,
+          interests: input.interests,
+          effectiveNightlyCost: left.nightlyCost,
+        }).score;
+        const rightScore = scoreAccommodation(right.accommodation, {
+          travelStyle: input.travelStyle,
+          accommodationPreference,
+          nightlyBudget,
+          interests: input.interests,
+          effectiveNightlyCost: right.nightlyCost,
+        }).score;
+        const scoreDiff = rightScore - leftScore;
+        if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+
+        return left.accommodation.id.localeCompare(right.accommodation.id);
+      });
+      const best = ranked[0];
 
       if (!best) {
         return {
@@ -131,9 +187,10 @@ export async function planAccommodations(
           startDay: block.startDay,
           endDay: block.endDay,
           nights: block.nights,
-          accommodationId: best.id,
-          nightlyCost: roundCurrency(best.pricePerNight),
-          totalCost: roundCurrency(best.pricePerNight * block.nights),
+          accommodationId: best.accommodation.id,
+          nightlyCost: best.nightlyCost,
+          totalCost: roundCurrency(best.nightlyCost * block.nights),
+          roomAllocation: best.roomAllocation,
         },
         warning,
       };
@@ -166,3 +223,4 @@ function dedupeWarnings(warnings: string[]): string[] {
 function roundCurrency(value: number): number {
   return Number(Math.max(0, value).toFixed(2));
 }
+

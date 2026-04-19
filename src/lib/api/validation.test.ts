@@ -11,6 +11,7 @@ const baseBody = {
   preferences: {
     travel_style: "balanced" as const,
     budget: { min: 15000, max: 45000, currency: "INR" },
+    travellers: { adults: 2, children: 1 },
     interests: ["heritage", "food"],
     transport_modes: ["road" as const],
   },
@@ -37,10 +38,37 @@ test("generateItinerarySchema accepts an accommodation preference override", () 
     ...baseBody,
     preferences: {
       ...baseBody.preferences,
+      accommodation_preference: "premium",
+    },
+  });
+  assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal(result.data.preferences.accommodation_preference, "premium");
+});
+
+test("generateItinerarySchema accepts the legacy accommodationPreference alias", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
       accommodationPreference: "premium",
     },
   });
   assert.equal(result.success, true);
+  if (!result.success) return;
+  assert.equal(result.data.preferences.accommodation_preference, "premium");
+});
+
+test("generateItinerarySchema rejects mismatched accommodation preference aliases", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      accommodation_preference: "premium",
+      accommodationPreference: "budget",
+    },
+  });
+  assert.equal(result.success, false);
 });
 
 test("generateItinerarySchema accepts a minimal request without optional fields", () => {
@@ -51,6 +79,7 @@ test("generateItinerarySchema accepts a minimal request without optional fields"
     preferences: {
       travel_style: "relaxed",
       budget: { min: 0, max: 10000 },
+      travellers: { adults: 1, children: 0 },
     },
   });
 
@@ -85,8 +114,8 @@ test("generateItinerarySchema rejects a negative day count", () => {
   assert.equal(result.success, false);
 });
 
-test("generateItinerarySchema rejects a trip longer than the 30-day cap", () => {
-  const result = generateItinerarySchema.safeParse({ ...baseBody, days: 31 });
+test("generateItinerarySchema rejects a trip longer than the 7-day cap", () => {
+  const result = generateItinerarySchema.safeParse({ ...baseBody, days: 8 });
   assert.equal(result.success, false);
 });
 
@@ -116,7 +145,7 @@ test("generateItinerarySchema rejects an unknown accommodation preference", () =
     ...baseBody,
     preferences: {
       ...baseBody.preferences,
-      accommodationPreference: "ultra-luxury",
+      accommodation_preference: "ultra-luxury",
     },
   });
   assert.equal(result.success, false);
@@ -126,6 +155,28 @@ test("generateItinerarySchema rejects negative budget values", () => {
   const result = generateItinerarySchema.safeParse({
     ...baseBody,
     preferences: { ...baseBody.preferences, budget: { min: -1, max: 1000 } },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema requires at least one adult traveller", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: { adults: 0, children: 2 },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema requires at least one transport mode when provided", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      transport_modes: [],
+    },
   });
   assert.equal(result.success, false);
 });
@@ -162,6 +213,14 @@ test("generateItinerarySchema accepts up to 10 regions", () => {
   const result = generateItinerarySchema.safeParse({
     ...baseBody,
     regions: ten,
+  });
+  assert.equal(result.success, true);
+});
+
+test("generateItinerarySchema accepts optional requested city ids", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    requested_city_ids: ["node_udaipur", "node_jodhpur"],
   });
   assert.equal(result.success, true);
 });

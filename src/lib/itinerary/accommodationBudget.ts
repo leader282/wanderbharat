@@ -21,7 +21,7 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   itinerary: Itinerary;
   stays: StayAssignment[];
   warnings?: string[];
-  requestedBudget?: Pick<BudgetRange, "currency">;
+  requestedBudget?: BudgetRange;
 }): Itinerary {
   const existingLineItems = args.itinerary.budget_breakdown?.line_items ?? [];
   const travelLineItems = existingLineItems.filter((item) => item.kind === "travel");
@@ -40,8 +40,8 @@ export function integrateAccommodationPlanIntoItinerary(args: {
     ...(args.itinerary.warnings ?? []),
     ...(args.warnings ?? []),
   ]);
-  const currency =
-    args.requestedBudget?.currency ?? args.itinerary.preferences.budget.currency;
+  const requestedBudget = args.requestedBudget ?? args.itinerary.preferences.budget;
+  const currency = requestedBudget.currency ?? args.itinerary.preferences.budget.currency;
   const derivedBudget = deriveOptimalBudget(totalTripCost, currency);
   const budgetBreakdown: ItineraryBudgetBreakdown = {
     line_items: sortBudgetLineItems([...stayLineItems, ...travelLineItems]),
@@ -49,6 +49,8 @@ export function integrateAccommodationPlanIntoItinerary(args: {
     travelSubtotal,
     nightlyAverage,
     totalTripCost,
+    requestedBudget,
+    recommendedBudget: derivedBudget,
     warnings: warnings.length > 0 ? warnings : undefined,
   };
 
@@ -56,10 +58,6 @@ export function integrateAccommodationPlanIntoItinerary(args: {
     ...args.itinerary,
     stays: args.stays,
     estimated_cost: Math.round(totalTripCost),
-    preferences: {
-      ...args.itinerary.preferences,
-      budget: derivedBudget,
-    },
     budget_breakdown: budgetBreakdown,
     warnings: warnings.length > 0 ? warnings : undefined,
   };

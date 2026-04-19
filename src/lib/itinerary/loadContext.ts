@@ -19,6 +19,7 @@ export interface PlanContextRequest {
   regions: string[];
   start_node_id: string;
   end_node_id?: string;
+  requested_city_ids?: string[];
   days: number;
   modes: TransportMode[];
   travel_style: "relaxed" | "balanced" | "adventurous";
@@ -38,8 +39,15 @@ export async function loadEngineContextForPlan(
 
   // 1. Resolve start/end first so we can derive a planning radius.
   const endId = req.end_node_id ?? req.start_node_id;
+  const pinnedIds = Array.from(
+    new Set([
+      req.start_node_id,
+      endId,
+      ...(req.requested_city_ids ?? []),
+    ]),
+  );
   const pinned = await getNodes(
-    endId === req.start_node_id ? [req.start_node_id] : [req.start_node_id, endId],
+    pinnedIds,
   );
   if (pinned.length === 0) {
     throw new Error(`Start node "${req.start_node_id}" not found.`);
@@ -65,6 +73,12 @@ export async function loadEngineContextForPlan(
     .map((entry) => entry.city);
 
   const cityIds = new Set<string>(inRange.map((c) => c.id));
+  const explicitlyRequestedCities = pinned.filter(
+    (node) => node.type === "city" && regions.includes(node.region),
+  );
+  for (const city of explicitlyRequestedCities) {
+    cityIds.add(city.id);
+  }
   cityIds.add(start.id);
   cityIds.add(endId);
 
@@ -72,7 +86,8 @@ export async function loadEngineContextForPlan(
   //    lacks a direct "parent in [...]" cheap query, so fan out in batches
   //    of 10 via the repo's multi-get pattern.
   const attractions: GraphNode[] = [];
-  for (const city of inRange) {
+  const selectedCities = dedupeById([...inRange, ...explicitlyRequestedCities]);
+  for (const city of selectedCities) {
     attractions.push(
       ...(await findNodes({
         regions,
@@ -95,7 +110,7 @@ export async function loadEngineContextForPlan(
   //    limits `in` to 10 ids so we fan out in batches.
   const edges = await loadEdgesForCities(Array.from(cityIds), regions);
 
-  const nodes = dedupeById([...pinned, ...inRange, ...attractions]);
+  const nodes = dedupeById([...pinned, ...selectedCities, ...attractions]);
 
   return {
     nodes,

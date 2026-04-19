@@ -73,6 +73,7 @@ function makeItinerary(): Itinerary {
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 50000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
       transport_modes: ["road"],
     },
     nodes: ["city_start", "city_end"],

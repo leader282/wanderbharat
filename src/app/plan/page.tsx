@@ -12,8 +12,8 @@ export default function PlanPage() {
         Tell us about your trip.
       </h1>
       <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[var(--color-ink-600)]">
-        A few quick choices and we&apos;ll build a day-by-day plan that fits
-        your pace and the map, then recommend a budget that feels justified.
+        A few quick choices and we&apos;ll build a day-by-day plan that fits your
+        pace, your group, and your total trip budget.
       </p>
 
       <div className="mt-10">

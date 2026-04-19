@@ -11,6 +11,7 @@ export interface AccommodationScoreContext {
   accommodationPreference?: AccommodationPreference;
   nightlyBudget?: NightlyBudgetRange;
   interests?: PreferenceTag[];
+  effectiveNightlyCost?: number;
 }
 
 export interface ScoredAccommodation {
@@ -67,7 +68,7 @@ export function scoreAccommodation(
 ): ScoredAccommodation {
   const rating = scoreRating(accommodation.rating, accommodation.reviewCount);
   const value = scoreValue(
-    accommodation.pricePerNight,
+    context.effectiveNightlyCost ?? accommodation.pricePerNight,
     context.nightlyBudget,
     context.accommodationPreference ?? "auto",
   );

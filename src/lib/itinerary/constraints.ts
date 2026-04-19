@@ -6,6 +6,10 @@ import type {
   TransportMode,
 } from "@/types/domain";
 import type { TravelStyleConfig } from "@/lib/config/travelStyle";
+import {
+  MAX_TRIP_DAYS,
+  normaliseTravellers,
+} from "@/lib/itinerary/planningLimits";
 import { maxDailyHoursFor } from "@/lib/config/transportMode";
 
 /**
@@ -29,10 +33,28 @@ export function validateInput(
   if (!input.start_node?.trim()) {
     return makeError("invalid_input", "Starting location is required.");
   }
-  if (!Number.isFinite(input.days) || input.days < 1 || input.days > 30) {
+  if (
+    !Number.isFinite(input.days) ||
+    input.days < 1 ||
+    input.days > MAX_TRIP_DAYS
+  ) {
     return makeError(
       "invalid_input",
-      "Trip length must be between 1 and 30 days.",
+      `Trip length must be between 1 and ${MAX_TRIP_DAYS} days.`,
+    );
+  }
+  if (
+    input.requested_city_ids?.some((cityId) => !cityId?.trim())
+  ) {
+    return makeError(
+      "invalid_input",
+      "Requested cities must be valid node ids.",
+    );
+  }
+  if (input.preferences.transport_modes?.length === 0) {
+    return makeError(
+      "invalid_input",
+      "At least one transport mode is required.",
     );
   }
   const { min, max } = input.preferences.budget;
@@ -40,6 +62,13 @@ export function validateInput(
     return makeError(
       "invalid_input",
       "Budget range must be a valid non-negative min ≤ max.",
+    );
+  }
+  const travellers = normaliseTravellers(input.preferences.travellers);
+  if (travellers.adults < 1 || travellers.children < 0) {
+    return makeError(
+      "invalid_input",
+      "At least one adult traveller is required.",
     );
   }
   return null;
@@ -81,7 +110,7 @@ export function validateDayPlan(
       return makeError(
         "total_time_exceeded",
         `Day ${d.day_index + 1} is ${total.toFixed(1)}h long (limit ${cfg.maxTotalHoursPerDay}h).`,
-        "Drop a destination or pick a more relaxed travel style.",
+        "Drop a stop, pick a faster travel style, or add another day.",
         { day_index: d.day_index, total_hours: total },
       );
     }
@@ -127,7 +156,66 @@ export function noFeasibleRoute(): ConstraintError {
   return makeError(
     "no_feasible_route",
     "No feasible route found under the current travel-style constraints.",
-    "Increase trip length, relax the travel style, or pick a closer start city.",
+    "Try a different start city, fewer requested stops, or a longer trip.",
+  );
+}
+
+export function requestedCitiesUncovered(args: {
+  missingCityIds: string[];
+  missingCityNames: string[];
+  currentDays: number;
+  requiredDays?: number;
+  maxTripDays?: number;
+}): ConstraintError {
+  const maxTripDays = args.maxTripDays ?? MAX_TRIP_DAYS;
+  const missingNames =
+    args.missingCityNames.length > 0 ? args.missingCityNames : args.missingCityIds;
+  const label =
+    missingNames.length === 1
+      ? missingNames[0]
+      : `${missingNames.slice(0, -1).join(", ")} and ${
+          missingNames[missingNames.length - 1]
+        }`;
+  const requiredDays = args.requiredDays;
+  const additionalDays =
+    requiredDays && requiredDays > args.currentDays
+      ? requiredDays - args.currentDays
+      : undefined;
+  const feasibleWithinCap =
+    requiredDays !== undefined && requiredDays <= maxTripDays;
+
+  if (feasibleWithinCap && additionalDays !== undefined) {
+    return makeError(
+      "requested_cities_uncovered",
+      `We couldn't cover ${label} in ${args.currentDays} days. Add ${additionalDays} ${additionalDays === 1 ? "day" : "days"} to make room.`,
+      `Try a ${requiredDays}-day trip to include every requested city.`,
+      {
+        missing_city_ids: args.missingCityIds,
+        missing_city_names: missingNames,
+        current_days: args.currentDays,
+        required_days: requiredDays,
+        additional_days_needed: additionalDays,
+        max_trip_days: maxTripDays,
+        feasible_within_cap: true,
+      },
+    );
+  }
+
+  return makeError(
+    "requested_cities_uncovered",
+    `We couldn't cover ${label} within the ${maxTripDays}-day trip cap.`,
+    requiredDays
+      ? `You would need at least ${requiredDays} days to include every requested city.`
+      : `Try fewer requested cities or a different starting point.`,
+    {
+      missing_city_ids: args.missingCityIds,
+      missing_city_names: missingNames,
+      current_days: args.currentDays,
+      required_days: requiredDays,
+      additional_days_needed: additionalDays,
+      max_trip_days: maxTripDays,
+      feasible_within_cap: false,
+    },
   );
 }
 

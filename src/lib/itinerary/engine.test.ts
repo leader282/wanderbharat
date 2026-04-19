@@ -120,6 +120,7 @@ test("generateItinerary chooses the lower-travel route and preserves exact day c
       preferences: {
         travel_style: "adventurous",
         budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
         interests: ["heritage"],
         transport_modes: ["road"],
       },
@@ -199,6 +200,7 @@ test("generateItinerary can prioritise covering more cities over lower travel ti
       preferences: {
         travel_style: "adventurous",
         budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
         transport_modes: ["road"],
       },
     },
@@ -223,6 +225,7 @@ test("generateItinerary can prioritise covering more cities over lower travel ti
       preferences: {
         travel_style: "adventurous",
         budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
         transport_modes: ["road"],
         prioritize_city_coverage: true,
       },
@@ -311,6 +314,7 @@ test("generateItinerary does not prune a higher-coverage branch too early", asyn
       preferences: {
         travel_style: "adventurous",
         budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
         transport_modes: ["road"],
         prioritize_city_coverage: true,
       },
@@ -330,6 +334,128 @@ test("generateItinerary does not prune a higher-coverage branch too early", asyn
   ]);
 });
 
+test("generateItinerary includes explicitly requested cities when they are feasible", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const nearby = makeCity({ id: "node_nearby", name: "Nearby" });
+  const requested = makeCity({ id: "node_requested", name: "Requested" });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      days: 2,
+      requested_city_ids: [requested.id],
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, nearby, requested],
+      [
+        makeRoadEdge({ from: start.id, to: nearby.id, hours: 0.5 }),
+        makeRoadEdge({ from: nearby.id, to: start.id, hours: 0.5 }),
+        makeRoadEdge({ from: start.id, to: requested.id, hours: 1.5 }),
+        makeRoadEdge({ from: requested.id, to: start.id, hours: 1.5 }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.ok(result.itinerary.nodes.includes(requested.id));
+});
+
+test("generateItinerary reports how many extra days requested cities would need", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const ajmer = makeCity({ id: "node_ajmer", name: "Ajmer" });
+  const pushkar = makeCity({ id: "node_pushkar", name: "Pushkar" });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      days: 2,
+      requested_city_ids: [ajmer.id, pushkar.id],
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, ajmer, pushkar],
+      [
+        makeRoadEdge({ from: start.id, to: ajmer.id, hours: 1 }),
+        makeRoadEdge({ from: ajmer.id, to: pushkar.id, hours: 1 }),
+        makeRoadEdge({ from: pushkar.id, to: start.id, hours: 1 }),
+        makeRoadEdge({ from: ajmer.id, to: start.id, hours: 1 }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "requested_cities_uncovered");
+  assert.equal(
+    (result.error.details as { additional_days_needed: number })
+      .additional_days_needed,
+    1,
+  );
+});
+
+test("generateItinerary reports when requested cities are impossible inside the 7-day cap", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const ajmer = makeCity({ id: "node_ajmer", name: "Ajmer", recommendedHours: 30 });
+  const pushkar = makeCity({
+    id: "node_pushkar",
+    name: "Pushkar",
+    recommendedHours: 30,
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      days: 5,
+      requested_city_ids: [ajmer.id, pushkar.id],
+      preferences: {
+        travel_style: "relaxed",
+        budget: { min: 0, max: 50000 },
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, ajmer, pushkar],
+      [
+        makeRoadEdge({ from: start.id, to: ajmer.id, hours: 1 }),
+        makeRoadEdge({ from: ajmer.id, to: pushkar.id, hours: 1 }),
+        makeRoadEdge({ from: pushkar.id, to: start.id, hours: 1 }),
+        makeRoadEdge({ from: ajmer.id, to: start.id, hours: 1 }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  assert.equal(result.error.reason, "requested_cities_uncovered");
+  assert.equal(
+    (result.error.details as { feasible_within_cap: boolean })
+      .feasible_within_cap,
+    false,
+  );
+});
+
 test("generateItinerary rejects an unknown end node", async () => {
   const start = makeCity({ id: "node_start", name: "Start" });
 
@@ -342,6 +468,7 @@ test("generateItinerary rejects an unknown end node", async () => {
       preferences: {
         travel_style: "balanced",
         budget: { min: 0, max: 20000 },
+        travellers: { adults: 1, children: 0 },
       },
     },
     makeContext([start], []),
@@ -376,6 +503,7 @@ test("generateItinerary rejects itineraries below the requested budget floor", a
       preferences: {
         travel_style: "adventurous",
         budget: { min: 10000, max: 20000 },
+        travellers: { adults: 2, children: 1 },
         transport_modes: ["road"],
       },
     },
@@ -390,6 +518,44 @@ test("generateItinerary rejects itineraries below the requested budget floor", a
   if (result.ok) return;
 
   assert.equal(result.error.reason, "budget_too_low");
+});
+
+test("generateItinerary defers max-budget validation until stay allocations are applied", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    dailyCost: 3200,
+  });
+  const end = makeCity({
+    id: "node_end",
+    name: "End",
+    dailyCost: 3600,
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 8000 },
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.ok(result.itinerary.estimated_cost > 8000);
 });
 
 test("generateItinerary derives a recommended budget and breakdown from the selected route", async () => {
@@ -413,6 +579,7 @@ test("generateItinerary derives a recommended budget and breakdown from the sele
       preferences: {
         travel_style: "balanced",
         budget: makeAutoBudget("INR"),
+        travellers: { adults: 2, children: 0 },
         transport_modes: ["road"],
       },
     },
@@ -426,16 +593,21 @@ test("generateItinerary derives a recommended budget and breakdown from the sele
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
+  assert.equal(result.itinerary.preferences.budget.max, makeAutoBudget("INR").max);
+  assert.equal(result.itinerary.preferences.budget.currency, "INR");
+  assert.ok(result.itinerary.budget_breakdown);
   assert.equal(
-    result.itinerary.preferences.budget.min,
+    result.itinerary.budget_breakdown?.requestedBudget?.max,
+    makeAutoBudget("INR").max,
+  );
+  assert.equal(
+    result.itinerary.budget_breakdown?.recommendedBudget?.min,
     result.itinerary.estimated_cost,
   );
   assert.ok(
-    result.itinerary.preferences.budget.max >
-      result.itinerary.preferences.budget.min,
+    (result.itinerary.budget_breakdown?.recommendedBudget?.max ?? 0) >
+      (result.itinerary.budget_breakdown?.recommendedBudget?.min ?? 0),
   );
-  assert.equal(result.itinerary.preferences.budget.currency, "INR");
-  assert.ok(result.itinerary.budget_breakdown);
   assert.ok((result.itinerary.budget_breakdown?.line_items.length ?? 0) >= 2);
   assert.ok(
     result.itinerary.budget_breakdown?.line_items.some(
@@ -463,6 +635,7 @@ test("generateItinerary treats an infeasible final leg as no feasible route", as
       preferences: {
         travel_style: "adventurous",
         budget: { min: 0, max: 40000 },
+        travellers: { adults: 1, children: 0 },
         transport_modes: ["road"],
       },
     },
@@ -501,6 +674,7 @@ test("generateItinerary enforces minHoursPerStop through exact day allocation", 
       preferences: {
         travel_style: "relaxed",
         budget: { min: 0, max: 40000 },
+        travellers: { adults: 1, children: 0 },
         transport_modes: ["road"],
       },
     },

@@ -4,8 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import SignInButton from "@/components/SignInButton";
+import { presentGenerateItineraryError } from "@/lib/api/generateItineraryError";
 import { useAuth } from "@/lib/auth/AuthProvider";
-import { makeAutoBudget } from "@/lib/itinerary/budget";
+import {
+  formatClockTimeLabel,
+  titleCaseWords,
+} from "@/lib/itinerary/presentation";
+import {
+  normalisePlanFormNumberInput,
+  parsePlanFormNumberInput,
+  type PlanFormNumberValue,
+} from "@/lib/planFormNumberFields";
 import {
   ACCOMMODATION_PREFERENCES,
   TRANSPORT_MODES,
@@ -28,9 +37,13 @@ interface RegionOption {
 interface FormState {
   region: string;
   start_node: string;
+  requested_city_ids: string[];
+  adults: PlanFormNumberValue;
+  children: PlanFormNumberValue;
+  total_budget: PlanFormNumberValue;
   days: number;
   travel_style: TravelStyle;
-  accommodationPreference: AccommodationPreference;
+  accommodation_preference: AccommodationPreference;
   interests: string[];
   transport_modes: TransportMode[];
   prioritize_city_coverage: boolean;
@@ -102,9 +115,13 @@ const ACCOMMODATION_COPY: Record<
 const INITIAL_STATE: FormState = {
   region: "",
   start_node: "",
+  requested_city_ids: [],
+  adults: 1,
+  children: 0,
+  total_budget: 30000,
   days: 5,
   travel_style: "balanced",
-  accommodationPreference: "auto",
+  accommodation_preference: "auto",
   interests: ["heritage"],
   transport_modes: ["road"],
   prioritize_city_coverage: false,
@@ -188,7 +205,15 @@ export default function PlanForm() {
                   return overlap.length > 0 ? overlap : regionDefaults;
                 })()
               : s.transport_modes;
-          return { ...s, start_node: nextStart, transport_modes: nextModes };
+          const nextRequested = s.requested_city_ids.filter(
+            (cityId) => cityId !== nextStart && list.some((city) => city.id === cityId),
+          );
+          return {
+            ...s,
+            start_node: nextStart,
+            requested_city_ids: nextRequested,
+            transport_modes: nextModes,
+          };
         });
       } finally {
         if (!cancelled) setLoadingCities(false);
@@ -204,7 +229,14 @@ export default function PlanForm() {
     () =>
       !!state.region &&
       !!state.start_node &&
-      state.days >= 1,
+      state.days >= 1 &&
+      typeof state.total_budget === "number" &&
+      state.total_budget > 0 &&
+      typeof state.adults === "number" &&
+      state.adults >= 1 &&
+      typeof state.children === "number" &&
+      state.children >= 0 &&
+      state.transport_modes.length > 0,
     [state],
   );
 
@@ -216,6 +248,39 @@ export default function PlanForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const adults = normalisePlanFormNumberInput(state.adults, {
+      min: 1,
+      max: 20,
+      fallback: 1,
+    });
+    const children = normalisePlanFormNumberInput(state.children, {
+      min: 0,
+      max: 20,
+      fallback: 0,
+    });
+    const totalBudget = normalisePlanFormNumberInput(state.total_budget, {
+      min: 0,
+      fallback: 0,
+    });
+
+    if (
+      !state.region ||
+      !state.start_node ||
+      state.days < 1 ||
+      totalBudget <= 0 ||
+      adults < 1 ||
+      children < 0 ||
+      state.transport_modes.length === 0
+    ) {
+      setState((s) => ({
+        ...s,
+        adults,
+        children,
+        total_budget: totalBudget,
+      }));
+      return;
+    }
+
     setError(null);
     setSubmitting(true);
     try {
@@ -234,11 +299,16 @@ export default function PlanForm() {
         body: JSON.stringify({
           regions: [state.region],
           start_node: state.start_node,
+          requested_city_ids: state.requested_city_ids,
           days: state.days,
           preferences: {
             travel_style: state.travel_style,
-            budget: makeAutoBudget(currency),
-            accommodationPreference: state.accommodationPreference,
+            budget: { min: 0, max: totalBudget, currency },
+            travellers: {
+              adults,
+              children,
+            },
+            accommodation_preference: state.accommodation_preference,
             interests: state.interests,
             transport_modes: state.transport_modes,
             prioritize_city_coverage: state.prioritize_city_coverage,
@@ -248,7 +318,7 @@ export default function PlanForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(friendlyError(data, res.status));
+        setError(presentGenerateItineraryError(data, res.status));
         return;
       }
       const id = data?.itinerary?.id;
@@ -266,9 +336,15 @@ export default function PlanForm() {
     }
   }
 
-  function toggle<T extends string>(list: T[], value: T): T[] {
+  function toggleSelection<T extends string>(
+    list: T[],
+    value: T,
+    minimumSelected = 0,
+  ): T[] {
     return list.includes(value)
-      ? list.filter((v) => v !== value)
+      ? list.length > minimumSelected
+        ? list.filter((v) => v !== value)
+        : list
       : [...list, value];
   }
 
@@ -295,8 +371,8 @@ export default function PlanForm() {
             >
               {regions.map((r) => (
                 <option key={r.region} value={r.region}>
-                  {titleCase(r.region)}
-                  {r.country ? ` · ${titleCase(r.country)}` : ""}
+                  {titleCaseWords(r.region)}
+                  {r.country ? ` · ${titleCaseWords(r.country)}` : ""}
                 </option>
               ))}
             </select>
@@ -306,7 +382,13 @@ export default function PlanForm() {
             <select
               value={state.start_node}
               onChange={(e) =>
-                setState((s) => ({ ...s, start_node: e.target.value }))
+                setState((s) => ({
+                  ...s,
+                  start_node: e.target.value,
+                  requested_city_ids: s.requested_city_ids.filter(
+                    (cityId) => cityId !== e.target.value,
+                  ),
+                }))
               }
               className="input"
               disabled={loadingCities || cities.length === 0}
@@ -324,6 +406,154 @@ export default function PlanForm() {
             </select>
           </Field>
         </div>
+
+        <Field
+          label="Optional extra cities"
+          hint="We’ll try to include every city you pick."
+        >
+          <div className="flex flex-wrap gap-2">
+            {cities.filter((city) => city.id !== state.start_node).length > 0 ? (
+              cities
+                .filter((city) => city.id !== state.start_node)
+                .map((city) => (
+                  <button
+                    key={city.id}
+                    type="button"
+                    className="chip"
+                    aria-pressed={state.requested_city_ids.includes(city.id)}
+                    onClick={() =>
+                      setState((s) => ({
+                        ...s,
+                        requested_city_ids: toggleSelection(
+                          s.requested_city_ids,
+                          city.id,
+                        ),
+                      }))
+                    }
+                  >
+                    {city.name}
+                  </button>
+                ))
+            ) : loadingCities ? (
+              <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
+                Loading the extra cities you can request for this trip.
+              </p>
+            ) : !state.start_node ? (
+              <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
+                Choose a starting city first to request extra stops.
+              </p>
+            ) : (
+              <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
+                No additional cities are available in this region yet.
+              </p>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-[var(--color-ink-500)]">
+            If every requested city can&apos;t fit, we&apos;ll tell you which ones
+            were left out and how many extra days would be needed, up to 7 days.
+          </p>
+        </Field>
+      </Section>
+
+      <Section
+        title="Who&apos;s travelling & what&apos;s the budget?"
+        subtitle="We use your group size for room selection and budget checks."
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Adults">
+            <input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              inputMode="numeric"
+              value={state.adults}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  adults: parsePlanFormNumberInput(e.target.value, {
+                    min: 0,
+                    max: 20,
+                  }),
+                }))
+              }
+              onBlur={() =>
+                setState((s) => ({
+                  ...s,
+                  adults: normalisePlanFormNumberInput(s.adults, {
+                    min: 1,
+                    max: 20,
+                    fallback: 1,
+                  }),
+                }))
+              }
+              className="input"
+            />
+          </Field>
+
+          <Field label="Children">
+            <input
+              type="number"
+              min={0}
+              max={20}
+              step={1}
+              inputMode="numeric"
+              value={state.children}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  children: parsePlanFormNumberInput(e.target.value, {
+                    min: 0,
+                    max: 20,
+                  }),
+                }))
+              }
+              onBlur={() =>
+                setState((s) => ({
+                  ...s,
+                  children: normalisePlanFormNumberInput(s.children, {
+                    min: 0,
+                    max: 20,
+                    fallback: 0,
+                  }),
+                }))
+              }
+              className="input"
+            />
+          </Field>
+
+          <Field label={`Total trip budget (${currency})`}>
+            <input
+              type="number"
+              min={0}
+              step={500}
+              inputMode="numeric"
+              value={state.total_budget}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  total_budget: parsePlanFormNumberInput(e.target.value, {
+                    min: 0,
+                  }),
+                }))
+              }
+              onBlur={() =>
+                setState((s) => ({
+                  ...s,
+                  total_budget: normalisePlanFormNumberInput(s.total_budget, {
+                    min: 0,
+                    fallback: 0,
+                  }),
+                }))
+              }
+              className="input"
+            />
+          </Field>
+        </div>
+        <p className="text-sm text-[var(--color-ink-500)]">
+          We treat this as your total trip budget for the full group, not a
+          per-person number.
+        </p>
       </Section>
 
       {/* ----- duration + pace ----- */}
@@ -400,7 +630,7 @@ export default function PlanForm() {
                               : "text-[var(--color-ink-500)]"
                           }`}
                         >
-                          {formatStartTimeLabel(opt.id)}
+                          {formatClockTimeLabel(opt.id)}
                         </span>
                       </p>
                       <p className="tile-sub mt-1 text-xs leading-snug">
@@ -449,7 +679,7 @@ export default function PlanForm() {
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {ACCOMMODATION_PREFERENCES.map((preference) => {
               const copy = ACCOMMODATION_COPY[preference];
-              const active = state.accommodationPreference === preference;
+              const active = state.accommodation_preference === preference;
 
               return (
                 <button
@@ -458,7 +688,7 @@ export default function PlanForm() {
                   onClick={() =>
                     setState((s) => ({
                       ...s,
-                      accommodationPreference: preference,
+                      accommodation_preference: preference,
                     }))
                   }
                   aria-pressed={active}
@@ -478,7 +708,7 @@ export default function PlanForm() {
       {/* ----- transport ----- */}
       <Section
         title="How do you want to get around?"
-        subtitle="We&apos;ll calculate a justified per-person budget once we map the route."
+        subtitle="We&apos;ll test the route and room plan against your total trip budget."
       >
         <Field label="How do you want to travel?">
           <div className="flex flex-wrap gap-2">
@@ -491,14 +721,22 @@ export default function PlanForm() {
                 onClick={() =>
                   setState((s) => ({
                     ...s,
-                    transport_modes: toggle(s.transport_modes, mode),
+                    transport_modes: toggleSelection(
+                      s.transport_modes,
+                      mode,
+                      1,
+                    ),
                   }))
                 }
               >
-                {titleCase(mode)}
+                {titleCaseWords(mode)}
               </button>
             ))}
           </div>
+          <p className="mt-2 text-xs text-[var(--color-ink-500)]">
+            Keep at least one transport mode selected so the planner always has a
+            workable travel option.
+          </p>
         </Field>
       </Section>
 
@@ -517,7 +755,7 @@ export default function PlanForm() {
               onClick={() =>
                 setState((s) => ({
                   ...s,
-                  interests: toggle(s.interests, opt.id),
+                  interests: toggleSelection(s.interests, opt.id),
                 }))
               }
             >
@@ -789,61 +1027,3 @@ function ArrowRight() {
   );
 }
 
-function titleCase(s: string): string {
-  return s
-    .split(/[_\s-]+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-function formatStartTimeLabel(value: string): string {
-  const [h, m] = value.split(":").map(Number);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return value;
-  const period = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
-}
-
-/**
- * Turn backend error codes into user-facing copy. Never surface raw
- * `constraint_violation` keys or stack traces.
- */
-function friendlyError(
-  payload: unknown,
-  status: number,
-): string {
-  const data = (payload ?? {}) as {
-    error?: string;
-    reason?: string;
-    message?: string;
-    suggestion?: string;
-  };
-
-  const reasonMap: Record<string, string> = {
-    travel_time_exceeded:
-      "This trip needs more time on the road than your travel style allows. Try a more adventurous pace, or add a day or two.",
-    total_time_exceeded:
-      "A day in this plan runs too long. Try a more relaxed pace, or add a day.",
-    budget_too_low:
-      "This plan comes in below your minimum budget. Try lowering the minimum, adding a destination, or extending the trip.",
-    budget_exceeded:
-      "This trip is pushing past your budget. Try raising the upper limit, or trimming a day.",
-    no_feasible_route:
-      "We couldn't build a route from that city under these settings. Try a different start, a longer trip, or a slower pace.",
-    insufficient_nodes:
-      "There aren't enough destinations in this region yet to plan the trip you described.",
-    invalid_input:
-      "Please double-check your choices and try again.",
-  };
-
-  if (data.reason && reasonMap[data.reason]) {
-    return [reasonMap[data.reason], data.suggestion].filter(Boolean).join(" ");
-  }
-
-  if (status === 404) return "We couldn't find that itinerary.";
-  if (status >= 500) {
-    return "Something went wrong on our end. Please try again in a moment.";
-  }
-  if (data.message) return data.message;
-  return "We couldn't build that itinerary. Please adjust your choices and try again.";
-}

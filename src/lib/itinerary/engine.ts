@@ -29,11 +29,18 @@ import {
 import {
   insufficientNodes,
   noFeasibleRoute,
+  requestedCitiesUncovered,
   validateBudget,
   validateDayPlan,
   validateInput,
 } from "@/lib/itinerary/constraints";
 import { deriveOptimalBudget } from "@/lib/itinerary/budget";
+import {
+  MAX_TRIP_DAYS,
+  normaliseTravellers,
+  totalTravellers,
+} from "@/lib/itinerary/planningLimits";
+import { isDayScheduleFeasible } from "@/lib/itinerary/daySchedule";
 
 /**
  * The itinerary engine orchestrates two phases:
@@ -78,6 +85,9 @@ interface RouteSearchInput {
   maxVisitCount: number;
   modes: TransportMode[];
   tuning: EngineTuning;
+  requestedNodeIds: Set<string>;
+  preferredStartTime?: string;
+  travellersCount: number;
 }
 
 interface RouteSelection {
@@ -93,6 +103,7 @@ interface RouteSelection {
   experienceScore: number;
   fatiguePenalty: number;
   isFallbackStay: boolean;
+  requestedCoverageCount: number;
 }
 
 type StayRole = "visit" | "destination" | "return_home" | "staycation";
@@ -137,6 +148,37 @@ export async function generateItinerary(
   const cfg = getTravelStyleConfig(input.preferences.travel_style);
   const modes = normaliseModes(input.preferences.transport_modes);
   const allowedRegions = new Set<string>(input.regions);
+  const travellers = normaliseTravellers(input.preferences.travellers);
+  const travellersCount = totalTravellers(travellers);
+  const requestedNodeIds = new Set<string>();
+
+  for (const cityId of input.requested_city_ids ?? []) {
+    if (!cityId || cityId === start.id || cityId === end.id) continue;
+    const requestedNode = graph.getNode(cityId);
+    if (!requestedNode) {
+      return {
+        ok: false,
+        error: invalidInput(`Requested city "${cityId}" not found.`),
+      };
+    }
+    if (requestedNode.type !== "city") {
+      return {
+        ok: false,
+        error: invalidInput(
+          `Requested city "${requestedNode.name}" is not a plannable city node.`,
+        ),
+      };
+    }
+    if (!allowedRegions.has(requestedNode.region)) {
+      return {
+        ok: false,
+        error: invalidInput(
+          `Requested city "${requestedNode.name}" is outside the selected planning regions.`,
+        ),
+      };
+    }
+    requestedNodeIds.add(requestedNode.id);
+  }
 
   const candidates = graph
     .allNodes()
@@ -173,7 +215,8 @@ export async function generateItinerary(
     maxVisitCount,
     tuning,
   );
-  const pool = scored.slice(0, poolSize);
+  const requestedPool = scored.filter((entry) => requestedNodeIds.has(entry.node.id));
+  const pool = uniqueScoredNodes([...scored.slice(0, poolSize), ...requestedPool]);
   const nodesById = new Map<string, GraphNode>();
   for (const node of ctx.nodes) nodesById.set(node.id, node);
 
@@ -204,28 +247,80 @@ export async function generateItinerary(
     maxVisitCount,
     modes,
     tuning,
+    requestedNodeIds,
+    preferredStartTime: input.preferences.preferred_start_time,
+    travellersCount,
   });
 
   if (!selected) return { ok: false, error: noFeasibleRoute() };
 
+  const missingRequestedCityIds = Array.from(requestedNodeIds).filter(
+    (cityId) => !selected.order.some((node) => node.id === cityId),
+  );
+  if (missingRequestedCityIds.length > 0) {
+    const requiredDays = estimateRequiredDaysForRequestedCities({
+      currentDays: input.days,
+      maxDays: MAX_TRIP_DAYS,
+      base: {
+        start,
+        end,
+        candidates: pool.map((entry) => entry.node),
+        cfg,
+        preferences: input.preferences,
+        matrix,
+        nodesById,
+        attractionsByCity: ctx.attractionsByCity,
+        scoredById: new Map(scored.map((entry) => [entry.node.id, entry.score])),
+        maxVisitCount,
+        modes,
+        tuning,
+        requestedNodeIds,
+        preferredStartTime: input.preferences.preferred_start_time,
+        travellersCount,
+      },
+    });
+
+    return {
+      ok: false,
+      error: requestedCitiesUncovered({
+        missingCityIds: missingRequestedCityIds,
+        missingCityNames: missingRequestedCityIds.map(
+          (cityId) => nodesById.get(cityId)?.name ?? cityId,
+        ),
+        currentDays: input.days,
+        requiredDays,
+        maxTripDays: MAX_TRIP_DAYS,
+      }),
+    };
+  }
+
   const dayPlanError = validateDayPlan(selected.dayPlan, cfg, modes);
   if (dayPlanError) return { ok: false, error: dayPlanError };
 
-  const budgetError = validateBudget(
-    selected.estimatedCost,
-    input.preferences.budget,
-  );
-  if (budgetError) return { ok: false, error: budgetError };
+  if (selected.estimatedCost < input.preferences.budget.min) {
+    const budgetFloorError = validateBudget(selected.estimatedCost, {
+      min: input.preferences.budget.min,
+      max: Number.POSITIVE_INFINITY,
+    });
+    if (budgetFloorError) return { ok: false, error: budgetFloorError };
+  }
 
+  // The route search uses rough per-city stay estimates to rank candidates, but
+  // the hard max-budget gate needs to wait until accommodation planning has
+  // replaced those placeholders with room-aware totals.
   const derivedBudget = deriveOptimalBudget(
     selected.estimatedCost,
     input.preferences.budget.currency,
   );
+  const budgetReferenceMax =
+    input.preferences.budget.max > 0
+      ? input.preferences.budget.max
+      : derivedBudget.max;
 
   const score = scoreItinerary({
     destinationScores: selected.destinationScores,
     budgetUtilisation: clamp(
-      selected.estimatedCost / Math.max(1, derivedBudget.max),
+      selected.estimatedCost / Math.max(1, budgetReferenceMax),
       0,
       1.25,
     ),
@@ -246,7 +341,7 @@ export async function generateItinerary(
     days: input.days,
     preferences: {
       ...input.preferences,
-      budget: derivedBudget,
+      travellers,
     },
     nodes: buildNodeSequence(
       start.id,
@@ -258,6 +353,8 @@ export async function generateItinerary(
     estimated_cost: Math.round(selected.estimatedCost),
     budget_breakdown: {
       line_items: selected.budgetLineItems,
+      requestedBudget: input.preferences.budget,
+      recommendedBudget: derivedBudget,
     },
     score: Number(score.toFixed(3)),
     created_at: now,
@@ -351,7 +448,7 @@ function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
   };
 
   dfs(opts.start, 0);
-  return bestFeasible ?? bestOverall;
+  return opts.requestedNodeIds.size > 0 ? bestOverall : bestFeasible ?? bestOverall;
 }
 
 function shouldPruneByTravelHours(args: {
@@ -362,6 +459,7 @@ function shouldPruneByTravelHours(args: {
   opts: RouteSearchInput;
 }): boolean {
   const { bestFeasible } = args;
+  if (args.opts.requestedNodeIds.size > 0) return false;
   if (!bestFeasible || bestFeasible.isFallbackStay) return false;
   if (args.travelHours <= bestFeasible.totalTravelHours + 0.01) return false;
   if (!args.prioritizeCityCoverage) return true;
@@ -386,6 +484,7 @@ function evaluateRoute(
     attractionsByCity: opts.attractionsByCity,
     scoredById: opts.scoredById,
     tuning: opts.tuning,
+    preferredStartTime: opts.preferredStartTime,
   });
   if (!dayPlan) return null;
 
@@ -393,6 +492,7 @@ function evaluateRoute(
     dayPlan,
     nodesById: opts.nodesById,
     matrix: opts.matrix,
+    travellersCount: opts.travellersCount,
   });
 
   const destinationScores = buildDestinationScores(order, opts);
@@ -431,6 +531,7 @@ function evaluateRoute(
       order.length === 0 &&
       opts.start.id === opts.end.id &&
       opts.candidates.length > 0,
+    requestedCoverageCount: countRequestedCoverage(order, opts.requestedNodeIds),
   };
 }
 
@@ -444,6 +545,7 @@ function buildDayPlanForRoute(args: {
   attractionsByCity?: Map<string, GraphNode[]>;
   scoredById: Map<string, number>;
   tuning: EngineTuning;
+  preferredStartTime?: string;
 }): ItineraryDay[] | null {
   const stays = buildStaySpecs({
     start: args.start,
@@ -488,6 +590,8 @@ function buildDayPlanForRoute(args: {
       arrivalTravelHours: stay.arrivalLeg?.travel_time_hours ?? 0,
       forceNonEmpty: stay.role !== "return_home",
       tuning: args.tuning,
+      startTime: args.preferredStartTime,
+      maxTotalHoursPerDay: args.cfg.maxTotalHoursPerDay,
     });
 
     for (let dayOffset = 0; dayOffset < dayCaps.length; dayOffset += 1) {
@@ -788,8 +892,30 @@ function distributeStopActivities(args: {
   arrivalTravelHours: number;
   forceNonEmpty: boolean;
   tuning: EngineTuning;
+  startTime?: string;
+  maxTotalHoursPerDay: number;
 }): ItineraryActivity[][] {
   const orderedAttractions = [...args.attractions].sort((left, right) => {
+    const leftClosing = parseClockValue(
+      left.metadata.closing_time as string | undefined,
+      Number.POSITIVE_INFINITY,
+    );
+    const rightClosing = parseClockValue(
+      right.metadata.closing_time as string | undefined,
+      Number.POSITIVE_INFINITY,
+    );
+    if (leftClosing !== rightClosing) return leftClosing - rightClosing;
+
+    const leftOpening = parseClockValue(
+      left.metadata.opening_time as string | undefined,
+      0,
+    );
+    const rightOpening = parseClockValue(
+      right.metadata.opening_time as string | undefined,
+      0,
+    );
+    if (leftOpening !== rightOpening) return leftOpening - rightOpening;
+
     const hoursDiff =
       Number(
         right.metadata.recommended_hours ?? args.tuning.defaultAttractionHours,
@@ -802,17 +928,18 @@ function distributeStopActivities(args: {
   });
 
   const plan = args.dayCaps.map(() => [] as ItineraryActivity[]);
+  const remainingAttractions = [...orderedAttractions];
   let remainingTarget = args.targetHours;
-  let attractionIndex = 0;
 
   for (let dayIndex = 0; dayIndex < args.dayCaps.length; dayIndex += 1) {
     let remainingCapacity = args.dayCaps[dayIndex];
 
     while (remainingCapacity > 0.75 && remainingTarget > 0.25) {
-      const attraction = orderedAttractions[attractionIndex];
       const maxBlock = Math.min(remainingCapacity, remainingTarget);
+      let placedAttraction = false;
 
-      if (attraction) {
+      for (let i = 0; i < remainingAttractions.length; i += 1) {
+        const attraction = remainingAttractions[i];
         const duration = Math.max(
           1,
           Math.min(
@@ -823,21 +950,50 @@ function distributeStopActivities(args: {
             maxBlock,
           ),
         );
-        plan[dayIndex].push(toActivity(attraction, duration));
+        const candidate = toActivity(attraction, duration);
+        if (
+          !canScheduleActivitiesForDay({
+            base: args.base,
+            dayIndex,
+            activities: [...plan[dayIndex], candidate],
+            arrivalTravelHours: dayIndex === 0 ? args.arrivalTravelHours : 0,
+            startTime: args.startTime,
+            maxTotalHoursPerDay: args.maxTotalHoursPerDay,
+          })
+        ) {
+          continue;
+        }
+
+        plan[dayIndex].push(candidate);
         remainingCapacity -= duration;
         remainingTarget -= duration;
-        attractionIndex += 1;
-        continue;
+        remainingAttractions.splice(i, 1);
+        placedAttraction = true;
+        break;
       }
 
+      if (placedAttraction) continue;
+
       const duration = Math.max(1, maxBlock);
-      plan[dayIndex].push(
-        makeExploreActivity(
-          args.base,
-          duration,
-          dayIndex === 0 && args.arrivalTravelHours > 0,
-        ),
+      const filler = makeExploreActivity(
+        args.base,
+        duration,
+        dayIndex === 0 && args.arrivalTravelHours > 0,
       );
+      if (
+        !canScheduleActivitiesForDay({
+          base: args.base,
+          dayIndex,
+          activities: [...plan[dayIndex], filler],
+          arrivalTravelHours: dayIndex === 0 ? args.arrivalTravelHours : 0,
+          startTime: args.startTime,
+          maxTotalHoursPerDay: args.maxTotalHoursPerDay,
+        })
+      ) {
+        break;
+      }
+
+      plan[dayIndex].push(filler);
       remainingCapacity -= duration;
       remainingTarget -= duration;
     }
@@ -872,6 +1028,8 @@ function toActivity(node: GraphNode, duration: number): ItineraryActivity {
     duration_hours: Number(duration.toFixed(2)),
     tags: node.tags,
     description: node.metadata.description as string | undefined,
+    opening_time: node.metadata.opening_time as string | undefined,
+    closing_time: node.metadata.closing_time as string | undefined,
   };
 }
 
@@ -888,6 +1046,92 @@ function makeExploreActivity(
     tags: base.tags,
     description: base.metadata.description as string | undefined,
   };
+}
+
+function canScheduleActivitiesForDay(args: {
+  base: GraphNode;
+  dayIndex: number;
+  activities: ItineraryActivity[];
+  arrivalTravelHours: number;
+  startTime?: string;
+  maxTotalHoursPerDay: number;
+}): boolean {
+  const totalActivityHours = sum(
+    args.activities.map((activity) => activity.duration_hours),
+  );
+
+  return isDayScheduleFeasible({
+    startTime: args.startTime,
+    maxDaySpanHours: args.maxTotalHoursPerDay,
+    day: {
+      day_index: args.dayIndex,
+      base_node_id: args.base.id,
+      base_node_name: args.base.name,
+      travel:
+        args.arrivalTravelHours > 0
+          ? {
+              from_node_id: args.base.id,
+              to_node_id: args.base.id,
+              transport_mode: "road",
+              distance_km: 0,
+              travel_time_hours: args.arrivalTravelHours,
+            }
+          : undefined,
+      activities: args.activities,
+      total_activity_hours: Number(totalActivityHours.toFixed(2)),
+      total_travel_hours: Number(args.arrivalTravelHours.toFixed(2)),
+    },
+  });
+}
+
+function countRequestedCoverage(
+  order: GraphNode[],
+  requestedNodeIds: Set<string>,
+): number {
+  if (requestedNodeIds.size === 0) return 0;
+  return order.reduce(
+    (count, node) => count + (requestedNodeIds.has(node.id) ? 1 : 0),
+    0,
+  );
+}
+
+function estimateRequiredDaysForRequestedCities(args: {
+  currentDays: number;
+  maxDays: number;
+  base: Omit<RouteSearchInput, "days">;
+}): number | undefined {
+  for (
+    let candidateDays = Math.max(args.currentDays + 1, 1);
+    candidateDays <= args.maxDays;
+    candidateDays += 1
+  ) {
+    const selection = selectOptimalRoute({
+      ...args.base,
+      days: candidateDays,
+      maxVisitCount: computeMaxVisitCount({
+        days: candidateDays,
+        candidateCount: args.base.candidates.length,
+        cfg: args.base.cfg,
+        hasFixedEnd: args.base.end.id !== args.base.start.id,
+      }),
+    });
+    if (!selection) continue;
+    const covered = countRequestedCoverage(
+      selection.order,
+      args.base.requestedNodeIds,
+    );
+    if (covered === args.base.requestedNodeIds.size) {
+      return candidateDays;
+    }
+  }
+
+  return undefined;
+}
+
+function parseClockValue(value: string | undefined, fallback: number): number {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value ?? "");
+  if (!match) return fallback;
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function buildDestinationScores(
@@ -980,6 +1224,10 @@ function compareRoutes(
   right: RouteSelection,
   prioritizeCityCoverage = false,
 ): number {
+  if (left.requestedCoverageCount !== right.requestedCoverageCount) {
+    return right.requestedCoverageCount - left.requestedCoverageCount;
+  }
+
   if (left.isFallbackStay !== right.isFallbackStay) {
     return left.isFallbackStay ? 1 : -1;
   }
@@ -1029,6 +1277,7 @@ function estimateCost(args: {
   dayPlan: ItineraryDay[];
   nodesById: Map<string, GraphNode>;
   matrix: TravelMatrix;
+  travellersCount: number;
 }): {
   totalCost: number;
   lineItems: ItineraryBudgetLineItem[];
@@ -1038,7 +1287,8 @@ function estimateCost(args: {
 
   for (const day of args.dayPlan) {
     const node = args.nodesById.get(day.base_node_id);
-    const stayCost = Number(node?.metadata.avg_daily_cost ?? 0);
+    const stayCost =
+      Number(node?.metadata.avg_daily_cost ?? 0) * args.travellersCount;
     if (stayCost > 0) {
       lineItems.push({
         id: `stay_${day.day_index}_${day.base_node_id}`,
@@ -1060,7 +1310,9 @@ function estimateCost(args: {
     const base = Number(leg?.metadata?.base_price ?? 0);
     const fallback =
       day.travel.distance_km * defaultPerKmCost(day.travel.transport_mode);
-    const travelCost = explicit > 0 ? explicit : base > 0 ? base : fallback;
+    const travelCostPerTraveller =
+      explicit > 0 ? explicit : base > 0 ? base : fallback;
+    const travelCost = travelCostPerTraveller * args.travellersCount;
     const fromName =
       args.nodesById.get(day.travel.from_node_id)?.name ?? "Previous stop";
     const toName =
@@ -1212,6 +1464,21 @@ function uniqueNodes(nodes: GraphNode[]): GraphNode[] {
     if (seen.has(node.id)) continue;
     seen.add(node.id);
     out.push(node);
+  }
+
+  return out;
+}
+
+function uniqueScoredNodes(
+  entries: Array<{ node: GraphNode; score: number }>,
+): Array<{ node: GraphNode; score: number }> {
+  const seen = new Set<string>();
+  const out: Array<{ node: GraphNode; score: number }> = [];
+
+  for (const entry of entries) {
+    if (seen.has(entry.node.id)) continue;
+    seen.add(entry.node.id);
+    out.push(entry);
   }
 
   return out;

@@ -97,6 +97,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
     {
       days,
       budget: { min: 0, max: 30000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
       travelStyle: "balanced",
       accommodationPreference: "midrange",
       interests: ["heritage"],
@@ -107,6 +108,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
     {
       days,
       budget: { min: 0, max: 30000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
       travelStyle: "balanced",
       accommodationPreference: "midrange",
       interests: ["heritage"],
@@ -129,7 +131,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
         startDay: 0,
         endDay: 1,
         nights: 2,
-        accommodationId: "acc_jaipur_heritage",
+        accommodationId: "acc_jaipur_budget",
       },
       {
         nodeId: "node_udaipur",
@@ -143,7 +145,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
         startDay: 3,
         endDay: 3,
         nights: 1,
-        accommodationId: "acc_jaipur_heritage",
+        accommodationId: "acc_jaipur_budget",
       },
     ],
   );
@@ -158,6 +160,7 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
         makeDay(1, "node_mount_abu", "Mount Abu"),
       ],
       budget: { min: 0, max: 3000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
       travelStyle: "relaxed",
       accommodationPreference: "premium",
     },
@@ -212,4 +215,59 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
     "Only over-budget accommodations were available in Ajmer; selected the best deterministic fallback.",
     "No active accommodations matched the travel-style filters for Mount Abu.",
   ]);
+});
+
+test("planAccommodations filters out room mixes that cannot fit the traveller party", async () => {
+  const result = await planAccommodations(
+    {
+      days: [makeDay(0, "node_jodhpur", "Jodhpur")],
+      budget: { min: 0, max: 12000, currency: "INR" },
+      travellers: { adults: 2, children: 2 },
+      travelStyle: "balanced",
+      accommodationPreference: "midrange",
+    },
+    {
+      getByNode: async (nodeId) => [
+        makeAccommodation({
+          id: "acc_too_small",
+          nodeId,
+          name: "Compact Inn",
+          category: "budget",
+          pricePerNight: 1800,
+          roomTypes: [
+            {
+              id: "compact-double",
+              name: "Compact Double",
+              pricePerNight: 1800,
+              maxAdults: 2,
+              maxChildren: 0,
+              maxOccupancy: 2,
+            },
+          ],
+        }),
+        makeAccommodation({
+          id: "acc_family",
+          nodeId,
+          name: "Family Courtyard",
+          category: "midrange",
+          pricePerNight: 3200,
+          roomTypes: [
+            {
+              id: "family-suite",
+              name: "Family Suite",
+              pricePerNight: 3200,
+              maxAdults: 2,
+              maxChildren: 2,
+              maxOccupancy: 4,
+            },
+          ],
+        }),
+      ],
+    },
+  );
+
+  assert.equal(result.stays[0]?.accommodationId, "acc_family");
+  assert.equal(result.stays[0]?.roomAllocation?.totalRooms, 1);
+  assert.equal(result.stays[0]?.roomAllocation?.rooms[0]?.roomTypeName, "Family Suite");
+  assert.deepEqual(result.warnings, []);
 });

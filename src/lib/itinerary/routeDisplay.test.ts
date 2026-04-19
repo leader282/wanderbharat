@@ -21,6 +21,7 @@ function makeItinerary(
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 20000, currency: "INR" },
+      travellers: { adults: 1, children: 0 },
       transport_modes: ["road"],
     },
     stays: [],
