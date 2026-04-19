@@ -29,6 +29,13 @@ export default function ItineraryBudgetPanel({
   const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
   const buffer = Math.max(0, budget.max - estimatedCost);
   const lineItems = breakdown?.line_items ?? EMPTY_LINE_ITEMS;
+  const lodgingSubtotal =
+    breakdown?.lodgingSubtotal ?? sumByKind(lineItems, "stay");
+  const travelSubtotal =
+    breakdown?.travelSubtotal ?? sumByKind(lineItems, "travel");
+  const nightlyAverage = breakdown?.nightlyAverage ?? 0;
+  const totalTripCost = breakdown?.totalTripCost ?? estimatedCost;
+  const breakdownWarnings = breakdown?.warnings ?? [];
   const biggestDrivers = useMemo(
     () => topBudgetDrivers(lineItems, 3),
     [lineItems],
@@ -61,9 +68,10 @@ export default function ItineraryBudgetPanel({
             Why this budget feels justified
           </h2>
           <p className="mt-2 text-[var(--color-ink-500)] max-w-2xl">
-            We estimate this route at {formatMoney(estimatedCost)} per person,
-            then add {formatMoney(buffer)} of headroom on top so the recommended
-            budget still feels realistic when stays and transport move around.
+            We estimate this route and stay plan at {formatMoney(totalTripCost)}{" "}
+            per person, then add {formatMoney(buffer)} of headroom on top so the
+            recommended budget still feels realistic when stays and transport
+            move around.
           </p>
         </div>
 
@@ -71,6 +79,26 @@ export default function ItineraryBudgetPanel({
           Per person
         </span>
       </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <BudgetStat label="Lodging subtotal" value={formatMoney(lodgingSubtotal)} />
+        <BudgetStat label="Travel subtotal" value={formatMoney(travelSubtotal)} />
+        <BudgetStat label="Average nightly rate" value={formatMoney(nightlyAverage)} />
+        <BudgetStat label="Total trip cost" value={formatMoney(totalTripCost)} />
+      </div>
+
+      {breakdownWarnings.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-900">
+            Accommodation notes
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-amber-900">
+            {breakdownWarnings.map((warning) => (
+              <li key={warning}>- {warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
@@ -175,6 +203,19 @@ export default function ItineraryBudgetPanel({
   );
 }
 
+function BudgetStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[rgba(26,23,20,0.08)] bg-[var(--color-sand-50)] px-4 py-3">
+      <p className="text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-black text-[var(--color-ink-900)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function messageForAssessment(
   assessment: ReturnType<typeof assessBudgetRequest>,
   args: {
@@ -246,4 +287,13 @@ function makeMoneyFormatter(currency: string) {
     return (value: number) =>
       `${currency} ${Math.round(Math.max(0, Number(value) || 0)).toLocaleString("en-IN")}`;
   }
+}
+
+function sumByKind(
+  lineItems: ItineraryBudgetLineItem[],
+  kind: ItineraryBudgetLineItem["kind"],
+): number {
+  return lineItems
+    .filter((item) => item.kind === kind)
+    .reduce((sum, item) => sum + item.amount, 0);
 }

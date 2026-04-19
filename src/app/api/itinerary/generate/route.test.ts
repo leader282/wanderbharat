@@ -26,8 +26,44 @@ function makeItinerary(): Itinerary {
       transport_modes: ["road"],
     },
     nodes: ["node_start", "node_end"],
-    day_plan: [],
-    estimated_cost: 12000,
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "node_start",
+        base_node_name: "Start",
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 0,
+      },
+      {
+        day_index: 1,
+        base_node_id: "node_end",
+        base_node_name: "End",
+        travel: {
+          from_node_id: "node_start",
+          to_node_id: "node_end",
+          transport_mode: "road",
+          distance_km: 120,
+          travel_time_hours: 2,
+        },
+        activities: [],
+        total_activity_hours: 3,
+        total_travel_hours: 2,
+      },
+    ],
+    stays: [],
+    estimated_cost: 3500,
+    budget_breakdown: {
+      line_items: [
+        {
+          id: "travel_1",
+          day_index: 1,
+          kind: "travel",
+          label: "Start to End by Road",
+          amount: 1500,
+        },
+      ],
+    },
     score: 0.77,
     created_at: 1700000000000,
   };
@@ -57,6 +93,7 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
       ok: true as const,
       itinerary: makeItinerary(),
     }),
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
     saveItinerary: async (itinerary) => {
       savedId = itinerary.id;
     },
@@ -85,6 +122,7 @@ test("handleGenerateItinerary returns 422 without persisting failed plans", asyn
         message: "No feasible route found.",
       },
     }),
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
     saveItinerary: async () => {
       saveCalls += 1;
     },
@@ -112,6 +150,7 @@ test("handleGenerateItinerary attaches the verified user_id to the itinerary inp
           itinerary: { ...makeItinerary(), user_id: input.user_id ?? null },
         };
       },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
       saveItinerary: async (itinerary) => {
         savedUserId = itinerary.user_id;
       },
@@ -123,4 +162,58 @@ test("handleGenerateItinerary attaches the verified user_id to the itinerary inp
   // Client-supplied user_id is overridden with the verified one.
   assert.equal(observedUserId, "uid_authed");
   assert.equal(savedUserId, "uid_authed");
+});
+
+test("handleGenerateItinerary integrates stay assignments into the persisted itinerary", async () => {
+  let savedItinerary: Itinerary | undefined;
+
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => ({
+      nodes: [],
+      edges: [],
+    }),
+    generateItinerary: async () => ({
+      ok: true as const,
+      itinerary: makeItinerary(),
+    }),
+    planAccommodations: async () => ({
+      stays: [
+        {
+          nodeId: "node_start",
+          startDay: 0,
+          endDay: 0,
+          nights: 1,
+          accommodationId: "acc_start",
+          nightlyCost: 2200,
+          totalCost: 2200,
+        },
+        {
+          nodeId: "node_end",
+          startDay: 1,
+          endDay: 1,
+          nights: 1,
+          accommodationId: null,
+          nightlyCost: 0,
+          totalCost: 0,
+        },
+      ],
+      warnings: [
+        "No active accommodations matched the travel-style filters for End.",
+      ],
+    }),
+    saveItinerary: async (itinerary) => {
+      savedItinerary = itinerary;
+    },
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 201);
+  const payload = (await response.json()) as { itinerary: Itinerary };
+  assert.equal(payload.itinerary.stays.length, 2);
+  assert.equal(payload.itinerary.estimated_cost, 3700);
+  assert.equal(payload.itinerary.budget_breakdown?.lodgingSubtotal, 2200);
+  assert.equal(savedItinerary?.stays[0]?.accommodationId, "acc_start");
+  assert.deepEqual(savedItinerary?.warnings, [
+    "No active accommodations matched the travel-style filters for End.",
+  ]);
 });

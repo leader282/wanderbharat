@@ -39,6 +39,7 @@ test("stripUndefinedDeep removes Firestore-invalid undefined fields", () => {
         total_travel_hours: 0,
       },
     ],
+    stays: [],
     estimated_cost: 16000,
     score: 0.9,
     created_at: 1700000000000,

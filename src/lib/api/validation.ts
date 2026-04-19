@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { TRANSPORT_MODES, TRAVEL_STYLES } from "@/types/domain";
+import {
+  ACCOMMODATION_PREFERENCES,
+  TRANSPORT_MODES,
+  TRAVEL_STYLES,
+} from "@/types/domain";
 
 export const generateItinerarySchema = z.object({
   /**
@@ -25,6 +29,11 @@ export const generateItinerarySchema = z.object({
     interests: z.array(z.string()).optional(),
     transport_modes: z.array(z.enum(TRANSPORT_MODES)).optional(),
     prioritize_city_coverage: z.boolean().optional(),
+    accommodationPreference: z.enum(ACCOMMODATION_PREFERENCES).optional(),
+    preferred_start_time: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Must be 'HH:MM' (24-hour).")
+      .optional(),
   }),
 });
 

@@ -32,6 +32,17 @@ test("generateItinerarySchema accepts city-coverage prioritisation", () => {
   assert.equal(result.success, true);
 });
 
+test("generateItinerarySchema accepts an accommodation preference override", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      accommodationPreference: "premium",
+    },
+  });
+  assert.equal(result.success, true);
+});
+
 test("generateItinerarySchema accepts a minimal request without optional fields", () => {
   const result = generateItinerarySchema.safeParse({
     regions: ["rajasthan"],
@@ -100,6 +111,17 @@ test("generateItinerarySchema rejects an unknown transport mode", () => {
   assert.equal(result.success, false);
 });
 
+test("generateItinerarySchema rejects an unknown accommodation preference", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      accommodationPreference: "ultra-luxury",
+    },
+  });
+  assert.equal(result.success, false);
+});
+
 test("generateItinerarySchema rejects negative budget values", () => {
   const result = generateItinerarySchema.safeParse({
     ...baseBody,
@@ -115,6 +137,24 @@ test("generateItinerarySchema rejects more than 10 regions", () => {
     regions: tooMany,
   });
   assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema accepts a valid HH:MM preferred_start_time", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: { ...baseBody.preferences, preferred_start_time: "07:30" },
+  });
+  assert.equal(result.success, true);
+});
+
+test("generateItinerarySchema rejects a malformed preferred_start_time", () => {
+  for (const bad of ["7:30", "25:00", "noon", "07-30", "07:60"]) {
+    const result = generateItinerarySchema.safeParse({
+      ...baseBody,
+      preferences: { ...baseBody.preferences, preferred_start_time: bad },
+    });
+    assert.equal(result.success, false, `expected ${bad} to be rejected`);
+  }
 });
 
 test("generateItinerarySchema accepts up to 10 regions", () => {

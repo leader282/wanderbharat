@@ -23,6 +23,7 @@ function makeItinerary(
       budget: { min: 0, max: 20000, currency: "INR" },
       transport_modes: ["road"],
     },
+    stays: [],
     estimated_cost: 12000,
     score: 0.7,
     created_at: 1700000000000,

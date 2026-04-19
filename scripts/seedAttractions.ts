@@ -73,13 +73,7 @@ async function main() {
         region: dataset.region,
         country: dataset.country,
         tags: inferTags(p.types ?? [], q.city_tags ?? []),
-        metadata: {
-          description: p.formatted_address,
-          recommended_hours: estimateHoursFromTypes(p.types ?? []),
-          google_place_id: p.google_place_id,
-          rating: p.rating,
-          user_ratings_total: p.user_ratings_total,
-        },
+        metadata: buildAttractionMetadata(p),
         location: p.location,
         parent_node_id: q.city_id,
         source: "google_places" as const,
@@ -147,6 +141,26 @@ function estimateHoursFromTypes(types: string[]): number {
   if (types.some((t) => t === "zoo" || t === "amusement_park")) return 3.5;
   if (types.some((t) => t === "restaurant" || t === "cafe")) return 1.5;
   return 2;
+}
+
+function buildAttractionMetadata(place: {
+  formatted_address?: string;
+  types?: string[];
+  google_place_id: string;
+  rating?: number;
+  user_ratings_total?: number;
+}) {
+  return {
+    ...(place.formatted_address
+      ? { description: place.formatted_address }
+      : {}),
+    recommended_hours: estimateHoursFromTypes(place.types ?? []),
+    google_place_id: place.google_place_id,
+    ...(typeof place.rating === "number" ? { rating: place.rating } : {}),
+    ...(typeof place.user_ratings_total === "number"
+      ? { user_ratings_total: place.user_ratings_total }
+      : {}),
+  };
 }
 
 main().catch((err) => {

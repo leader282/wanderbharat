@@ -3,8 +3,11 @@ import { NextResponse } from "next/server";
 import { generateItinerarySchema } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
+import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
+import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
+import { getByNode } from "@/lib/repositories/accommodationRepository";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 
 export const runtime = "nodejs";
@@ -15,6 +18,9 @@ interface GenerateRouteDependencies {
   loadEngineContextForPlan: typeof loadEngineContextForPlan;
   generateItinerary: typeof generateItinerary;
   saveItinerary: typeof saveItinerary;
+  planAccommodations: (
+    input: Parameters<typeof runAccommodationPlanner>[0],
+  ) => ReturnType<typeof runAccommodationPlanner>;
   /**
    * Resolve the authenticated user (if any) for this request. Defaults
    * to checking the session cookie, then the `Authorization: Bearer
@@ -27,6 +33,10 @@ const defaultDependencies: GenerateRouteDependencies = {
   loadEngineContextForPlan,
   generateItinerary,
   saveItinerary,
+  planAccommodations: async (input) =>
+    runAccommodationPlanner(input, {
+      getByNode,
+    }),
   resolveUserId: defaultResolveUserId,
 };
 
@@ -103,20 +113,45 @@ export async function handleGenerateItinerary(
     return NextResponse.json(result.error, { status: 422 });
   }
 
+  let itinerary = result.itinerary;
   try {
-    await deps.saveItinerary(result.itinerary);
+    const accommodationPlan = await deps.planAccommodations({
+      days: itinerary.day_plan,
+      budget: parsed.data.preferences.budget,
+      travelStyle: input.preferences.travel_style,
+      accommodationPreference: input.preferences.accommodationPreference,
+      interests: input.preferences.interests,
+    });
+    itinerary = integrateAccommodationPlanIntoItinerary({
+      itinerary,
+      stays: accommodationPlan.stays,
+      warnings: accommodationPlan.warnings,
+      requestedBudget: parsed.data.preferences.budget,
+    });
   } catch (err) {
     return NextResponse.json(
       {
-        error: "persistence_failed",
+        error: "internal_error",
         message: (err as Error).message,
-        itinerary: result.itinerary,
       },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({ itinerary: result.itinerary }, { status: 201 });
+  try {
+    await deps.saveItinerary(itinerary);
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: "persistence_failed",
+        message: (err as Error).message,
+        itinerary,
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ itinerary }, { status: 201 });
 }
 
 export async function POST(request: Request) {

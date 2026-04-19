@@ -8,6 +8,7 @@
 export const COLLECTIONS = {
   nodes: "nodes",
   edges: "edges",
+  accommodations: "accommodations",
   itineraries: "itineraries",
   users: "users",
   regions: "regions",
