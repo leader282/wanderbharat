@@ -30,10 +30,7 @@ async function main() {
   const args = parseArgs();
   const dryRun = Boolean(args["dry-run"]);
   const useGoogle = Boolean(args["use-google"]);
-  const concurrency = Math.max(
-    1,
-    Math.min(32, Number(args.concurrency ?? 8)),
-  );
+  const concurrency = Math.max(1, Math.min(32, Number(args.concurrency ?? 8)));
   const regions = resolveRegions(args);
 
   console.log(
@@ -83,9 +80,7 @@ async function enrichWithGoogle(
   const { getTravelTime } = await import("@/lib/services/distanceService");
   const { getNodes } = await import("@/lib/repositories/nodeRepository");
 
-  const nodeIds = Array.from(
-    new Set(edges.flatMap((e) => [e.from, e.to])),
-  );
+  const nodeIds = Array.from(new Set(edges.flatMap((e) => [e.from, e.to])));
   const nodes = await getNodes(nodeIds);
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
@@ -105,10 +100,19 @@ async function enrichWithGoogle(
         mode: e.type,
       });
       if (leg) {
+        const resolvedAt = Date.now();
         return {
           ...e,
           distance_km: Number(leg.distance_km.toFixed(1)),
           travel_time_hours: Number(leg.travel_time_hours.toFixed(2)),
+          metadata: {
+            ...(e.metadata ?? {}),
+            provider: "google_routes",
+            resolved_at: resolvedAt,
+            ...(leg.encoded_polyline
+              ? { encoded_polyline: leg.encoded_polyline }
+              : {}),
+          },
         };
       }
     } catch (err) {

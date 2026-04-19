@@ -103,7 +103,9 @@ NEXT_PUBLIC_FIREBASE_DATABASE_ID=            # optional named DB id
 FIREBASE_SERVICE_ACCOUNT_JSON={...}          # or SERVICE_ACCOUNT_PATH=/path/to/key.json
 FIREBASE_PROJECT_ID=...
 
-GOOGLE_MAPS_API_KEY=...                      # Places + Routes APIs
+GOOGLE_MAPS_API_KEY=...                      # server: Places + Routes APIs
+NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=... # browser: Maps JavaScript API
+NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=...          # optional; falls back to DEMO_MAP_ID locally
 ```
 
 ### 3. Seed Firestore
@@ -129,11 +131,11 @@ npm run seed:attractions  -- --region himachal --per-city 8     # needs GOOGLE_M
 
 Region selection (one of these is required on every seed/purge script):
 
-| Flag                       | Meaning                                                |
-| -------------------------- | ------------------------------------------------------ |
-| `--all`                    | Every `scripts/data/<slug>.ts` on disk (auto-detected) |
-| `--regions a,b,c`          | Comma-separated explicit list                          |
-| `--region <slug>`          | Single slug (also accepts a comma list)                |
+| Flag              | Meaning                                                |
+| ----------------- | ------------------------------------------------------ |
+| `--all`           | Every `scripts/data/<slug>.ts` on disk (auto-detected) |
+| `--regions a,b,c` | Comma-separated explicit list                          |
+| `--region <slug>` | Single slug (also accepts a comma list)                |
 
 To add a new region:
 
@@ -208,7 +210,12 @@ full `nodes` scan.
   "default_currency": "INR",
   "default_locale": "en-IN",
   "default_transport_modes": ["road", "train"],
-  "bbox": { "min_lat": 24.59, "min_lng": 70.91, "max_lat": 28.02, "max_lng": 76.50 },
+  "bbox": {
+    "min_lat": 24.59,
+    "min_lng": 70.91,
+    "max_lat": 28.02,
+    "max_lng": 76.5
+  },
   "updated_at": 1732000000000
 }
 ```
@@ -240,7 +247,7 @@ full `nodes` scan.
 ## How the engine works
 
 1. **Load graph** — `loadEngineContextForPlan({ regions, start_node_id, days,
-   modes, travel_style })` pulls only the cities, attractions, and edges
+modes, travel_style })` pulls only the cities, attractions, and edges
    reachable within the trip's planning radius. The radius is derived from
    the fastest allowed mode × `maxTravelHoursPerDay × days × 1.5`, so
    large regions don't blow up the matrix.
@@ -293,6 +300,7 @@ for trip-list filtering. Additional entries widen the candidate pool
 for cross-region trips.
 
 Responses:
+
 - `201 Created` — `{ itinerary: Itinerary }`
 - `400` — `{ error: "invalid_input", ... }`
 - `422` — `{ error: "constraint_violation", reason, message, suggestion }`
@@ -300,7 +308,10 @@ Responses:
 
 ### `GET /api/itinerary/:id`
 
-Returns `{ itinerary }` or `404`.
+Returns `{ itinerary, map }` or `404`. `map` is the
+`ItineraryMapData` DTO consumed by the itinerary page's Google Map —
+stop/stay/attraction markers plus pre-decoded travel-leg polylines
+where route geometry has been cached.
 
 ### `POST /api/auth/session`
 
@@ -367,19 +378,19 @@ a dependency-injection seam (`fetchTravelTime`, `persistEdges`,
 
 What's covered:
 
-| Module                                         | Test file                                                |
-| ---------------------------------------------- | -------------------------------------------------------- |
-| `lib/api/validation.ts`                        | `validation.test.ts`                                     |
-| `lib/itinerary/engine.ts`                      | `engine.test.ts`                                         |
-| `lib/itinerary/constraints.ts`                 | `constraints.test.ts`                                    |
-| `lib/itinerary/scoring.ts`                     | `scoring.test.ts`                                        |
-| `lib/itinerary/graph.ts`                       | `graph.test.ts`                                          |
-| `lib/itinerary/travelMatrix.ts`                | `travelMatrix.test.ts` + `buildTravelMatrix.test.ts`     |
-| `lib/services/distanceService.ts`              | `distanceService.test.ts` (mocks `globalThis.fetch`)     |
-| `lib/utils/concurrency.ts`                     | `concurrency.test.ts`                                    |
-| `lib/config/{transportMode,travelStyle,engineTuning}.ts` | one `*.test.ts` per file                       |
-| `lib/repositories/itineraryRepository.ts`      | `itineraryRepository.test.ts`                            |
-| `app/api/itinerary/generate/route.ts`          | `route.test.ts`                                          |
+| Module                                                   | Test file                                            |
+| -------------------------------------------------------- | ---------------------------------------------------- |
+| `lib/api/validation.ts`                                  | `validation.test.ts`                                 |
+| `lib/itinerary/engine.ts`                                | `engine.test.ts`                                     |
+| `lib/itinerary/constraints.ts`                           | `constraints.test.ts`                                |
+| `lib/itinerary/scoring.ts`                               | `scoring.test.ts`                                    |
+| `lib/itinerary/graph.ts`                                 | `graph.test.ts`                                      |
+| `lib/itinerary/travelMatrix.ts`                          | `travelMatrix.test.ts` + `buildTravelMatrix.test.ts` |
+| `lib/services/distanceService.ts`                        | `distanceService.test.ts` (mocks `globalThis.fetch`) |
+| `lib/utils/concurrency.ts`                               | `concurrency.test.ts`                                |
+| `lib/config/{transportMode,travelStyle,engineTuning}.ts` | one `*.test.ts` per file                             |
+| `lib/repositories/itineraryRepository.ts`                | `itineraryRepository.test.ts`                        |
+| `app/api/itinerary/generate/route.ts`                    | `route.test.ts`                                      |
 
 Adding a new module? Drop a `<module>.test.ts` next to it and the runner will
 pick it up.
@@ -417,7 +428,18 @@ PRs for GitHub Actions versions, so the CI itself stays patched.
      at a local file that doesn't exist in the build container).
    - `FIREBASE_PROJECT_ID` — usually the same as
      `NEXT_PUBLIC_FIREBASE_PROJECT_ID`.
-   - `GOOGLE_MAPS_API_KEY` — server-only, restricted to Routes + Places APIs.
+
+- `GOOGLE_MAPS_API_KEY` — server-only, restricted to Routes + Places APIs.
+- `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` — shipped to the browser for
+  the Maps JavaScript API on the itinerary page. Use a **separate** key
+  from the server one and lock it down in Google Cloud Console with HTTP
+  referrer restrictions (your prod + preview + localhost domains) and an
+  API restriction to the Maps JavaScript API only. Without this, anyone
+  can scrape the key out of the bundle and exhaust your quota.
+- `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` — optional but recommended once you move
+  to Advanced Markers. The app falls back to Google’s `DEMO_MAP_ID` for
+  local/dev, but production should use a project-owned map ID.
+
 3. Pull env vars locally with the Vercel CLI when you need parity:
 
    ```bash

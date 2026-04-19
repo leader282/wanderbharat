@@ -248,7 +248,11 @@ function createResolvedEdge(args: {
   from: GraphNode;
   to: GraphNode;
   mode: TransportMode;
-  leg: { distance_km: number; travel_time_hours: number };
+  leg: {
+    distance_km: number;
+    travel_time_hours: number;
+    encoded_polyline?: string;
+  };
   regions: string[];
   now?: () => number;
 }): GraphEdge {
@@ -269,6 +273,9 @@ function createResolvedEdge(args: {
     metadata: {
       provider: "google_routes",
       resolved_at: resolvedAt,
+      ...(args.leg.encoded_polyline
+        ? { encoded_polyline: args.leg.encoded_polyline }
+        : {}),
     },
   };
 }

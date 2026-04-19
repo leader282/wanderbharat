@@ -5,10 +5,12 @@ import DayStayBlock, {
   type DayStayContext,
   type ItineraryStayEntry,
 } from "@/components/DayStayBlock";
+import ItineraryMap from "@/components/ItineraryMap";
 import ItineraryBudgetPanel from "@/components/ItineraryBudgetPanel";
 import type {
   Itinerary,
   ItineraryDay,
+  ItineraryMapData,
   StayAssignment,
   TransportMode,
 } from "@/types/domain";
@@ -25,6 +27,7 @@ import {
 } from "@/lib/itinerary/routeDisplay";
 import { getAccommodations } from "@/lib/repositories/accommodationRepository";
 import { getItinerary } from "@/lib/repositories/itineraryRepository";
+import { getItineraryMapData } from "@/lib/services/itineraryMapService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +44,14 @@ export default async function ItineraryPage({
   const stayAccommodationIds = itinerary.stays
     .map((stay) => stay.accommodationId)
     .filter((id): id is string => Boolean(id));
-  const accommodations = await getAccommodations(stayAccommodationIds);
+  const accommodationsPromise = getAccommodations(stayAccommodationIds);
+  const mapDataPromise = getItineraryMapData(itinerary, {
+    getAccommodations: async () => accommodationsPromise,
+  });
+  const [accommodations, mapData] = await Promise.all([
+    accommodationsPromise,
+    mapDataPromise,
+  ]);
   const stats = deriveStats(itinerary);
   const stayEntries = buildStayEntries(itinerary, accommodations);
   const stayByDayIndex = buildStayByDayIndex(stayEntries);
@@ -64,6 +74,7 @@ export default async function ItineraryPage({
         budget={itinerary.preferences.budget}
         breakdown={itinerary.budget_breakdown}
       />
+      <MapSection itinerary={itinerary} mapData={mapData} />
       <RouteOverview itinerary={itinerary} />
       <Timeline
         itinerary={itinerary}
@@ -119,7 +130,7 @@ function buildStayEntries(
     stay,
     cityName: resolveStayCityName(itinerary.day_plan, stay),
     accommodation: stay.accommodationId
-      ? accommodationsById.get(stay.accommodationId) ?? null
+      ? (accommodationsById.get(stay.accommodationId) ?? null)
       : null,
   }));
 }
@@ -141,14 +152,49 @@ function buildStayByDayIndex(
   return map;
 }
 
-function resolveStayCityName(days: ItineraryDay[], stay: StayAssignment): string {
+function resolveStayCityName(
+  days: ItineraryDay[],
+  stay: StayAssignment,
+): string {
   const exactDay = days.find(
-    (day) => day.day_index === stay.startDay && day.base_node_id === stay.nodeId,
+    (day) =>
+      day.day_index === stay.startDay && day.base_node_id === stay.nodeId,
   );
   if (exactDay) return exactDay.base_node_name;
 
   const fallback = days.find((day) => day.base_node_id === stay.nodeId);
   return fallback?.base_node_name ?? stay.nodeId;
+}
+
+// ---------------------------------------------------------------------------
+
+function MapSection({
+  itinerary,
+  mapData,
+}: {
+  itinerary: Itinerary;
+  mapData: ItineraryMapData;
+}) {
+  const dayOptions = itinerary.day_plan.map((day) => ({
+    day_index: day.day_index,
+    label: `Day ${day.day_index + 1}`,
+  }));
+
+  return (
+    <div className="mt-10">
+      <p className="eyebrow">Map</p>
+      <h2 className="mt-2 text-2xl md:text-3xl font-black">
+        See the route on a real map
+      </h2>
+      <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
+        View your travel legs, city stops, accommodation pins, and day-specific
+        attractions without leaving the itinerary.
+      </p>
+      <div className="mt-5">
+        <ItineraryMap data={mapData} dayOptions={dayOptions} />
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +447,9 @@ function DayCard({
         </ul>
       )}
 
-      {stayContext && <DayStayBlock context={stayContext} currency={currency} />}
+      {stayContext && (
+        <DayStayBlock context={stayContext} currency={currency} />
+      )}
     </div>
   );
 }
@@ -662,7 +710,8 @@ function ArrowLeft() {
 }
 
 function formatStartHint(value: string | undefined): string {
-  const raw = value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "09:00";
+  const raw =
+    value && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : "09:00";
   const [h, m] = raw.split(":").map(Number);
   const period = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;

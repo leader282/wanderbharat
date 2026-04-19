@@ -5,6 +5,8 @@ import {
   deleteItinerary,
   getItinerary,
 } from "@/lib/repositories/itineraryRepository";
+import { getItineraryMapData } from "@/lib/services/itineraryMapService";
+import type { ItineraryDetail } from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,17 +14,26 @@ export const dynamic = "force-dynamic";
 interface ItineraryRouteDependencies {
   getItinerary: typeof getItinerary;
   deleteItinerary: typeof deleteItinerary;
-  resolveCurrentUser?: () => Promise<Awaited<ReturnType<typeof getCurrentUser>>>;
+  getItineraryMapData: typeof getItineraryMapData;
+  resolveCurrentUser?: () => Promise<
+    Awaited<ReturnType<typeof getCurrentUser>>
+  >;
 }
 
 const defaultDependencies: ItineraryRouteDependencies = {
   getItinerary,
   deleteItinerary,
+  getItineraryMapData,
   resolveCurrentUser: getCurrentUser,
 };
 
 /**
  * GET /api/itinerary/:id
+ *
+ * Returns {@link ItineraryDetail} (`{ itinerary, map }`). The `map` payload
+ * is map-render-ready: stop/stay/attraction markers and travel legs with
+ * pre-decoded polylines when geometry is cached. Falls back to a direct
+ * line on legs whose geometry is not yet cached.
  */
 export async function handleGetItinerary(
   id: string,
@@ -43,7 +54,9 @@ export async function handleGetItinerary(
         { status: 404 },
       );
     }
-    return NextResponse.json({ itinerary });
+    const map = await deps.getItineraryMapData(itinerary);
+    const payload: ItineraryDetail = { itinerary, map };
+    return NextResponse.json(payload);
   } catch (err) {
     return NextResponse.json(
       { error: "internal_error", message: (err as Error).message },
