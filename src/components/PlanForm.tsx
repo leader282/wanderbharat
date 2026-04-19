@@ -193,7 +193,7 @@ export default function PlanForm() {
         method: "POST",
         headers,
         body: JSON.stringify({
-          region: state.region,
+          regions: [state.region],
           start_node: state.start_node,
           days: state.days,
           preferences: {

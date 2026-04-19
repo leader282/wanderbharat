@@ -5,23 +5,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "region", "order": "ASCENDING" },
-        { "fieldPath": "type", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "nodes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "region", "order": "ASCENDING" },
-        { "fieldPath": "parent_node_id", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "nodes",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "region", "order": "ASCENDING" }
+        { "fieldPath": "parent_node_id", "order": "ASCENDING" }
       ]
     },
     {

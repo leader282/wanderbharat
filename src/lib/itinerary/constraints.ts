@@ -16,8 +16,15 @@ import { maxDailyHoursFor } from "@/lib/config/transportMode";
 export function validateInput(
   input: GenerateItineraryInput,
 ): ConstraintError | null {
-  if (!input.region?.trim()) {
-    return makeError("invalid_input", "Region is required.");
+  if (
+    !Array.isArray(input.regions) ||
+    input.regions.length === 0 ||
+    input.regions.some((r) => !r?.trim())
+  ) {
+    return makeError(
+      "invalid_input",
+      "At least one region is required.",
+    );
   }
   if (!input.start_node?.trim()) {
     return makeError("invalid_input", "Starting location is required.");

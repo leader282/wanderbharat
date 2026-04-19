@@ -4,7 +4,7 @@ import test from "node:test";
 import { generateItinerarySchema } from "@/lib/api/validation";
 
 const baseBody = {
-  region: "rajasthan",
+  regions: ["rajasthan"],
   start_node: "node_jaipur",
   end_node: "node_udaipur",
   days: 5,
@@ -34,7 +34,7 @@ test("generateItinerarySchema accepts city-coverage prioritisation", () => {
 
 test("generateItinerarySchema accepts a minimal request without optional fields", () => {
   const result = generateItinerarySchema.safeParse({
-    region: "rajasthan",
+    regions: ["rajasthan"],
     start_node: "node_jaipur",
     days: 3,
     preferences: {
@@ -49,8 +49,23 @@ test("generateItinerarySchema accepts a minimal request without optional fields"
   assert.equal(result.data.preferences.transport_modes, undefined);
 });
 
-test("generateItinerarySchema rejects an empty region", () => {
-  const result = generateItinerarySchema.safeParse({ ...baseBody, region: "" });
+test("generateItinerarySchema rejects an empty regions array", () => {
+  const result = generateItinerarySchema.safeParse({ ...baseBody, regions: [] });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects a region slug that's an empty string", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    regions: [""],
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects a missing regions field", () => {
+  const { regions: _regions, ...rest } = baseBody;
+  void _regions;
+  const result = generateItinerarySchema.safeParse(rest);
   assert.equal(result.success, false);
 });
 
@@ -93,7 +108,7 @@ test("generateItinerarySchema rejects negative budget values", () => {
   assert.equal(result.success, false);
 });
 
-test("generateItinerarySchema rejects more than 10 extra regions", () => {
+test("generateItinerarySchema rejects more than 10 regions", () => {
   const tooMany = Array.from({ length: 11 }, (_, i) => `region_${i}`);
   const result = generateItinerarySchema.safeParse({
     ...baseBody,
@@ -102,7 +117,7 @@ test("generateItinerarySchema rejects more than 10 extra regions", () => {
   assert.equal(result.success, false);
 });
 
-test("generateItinerarySchema accepts up to 10 extra regions", () => {
+test("generateItinerarySchema accepts up to 10 regions", () => {
   const ten = Array.from({ length: 10 }, (_, i) => `region_${i}`);
   const result = generateItinerarySchema.safeParse({
     ...baseBody,

@@ -4,20 +4,15 @@ import { generateItinerarySchema } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { generateItinerary } from "@/lib/itinerary/engine";
-import {
-  loadEngineContextForPlan,
-  loadEngineContextForRegion,
-} from "@/lib/itinerary/loadContext";
+import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface GenerateRouteDependencies {
-  /** @deprecated kept for tests that want to stub the entire region load. */
-  loadEngineContextForRegion: typeof loadEngineContextForRegion;
-  /** Planning-aware loader. Prefer this: it prunes by start/end/modes/days. */
-  loadEngineContextForPlan?: typeof loadEngineContextForPlan;
+  /** Planning-aware loader. Prunes by start/end/modes/days. */
+  loadEngineContextForPlan: typeof loadEngineContextForPlan;
   generateItinerary: typeof generateItinerary;
   saveItinerary: typeof saveItinerary;
   /**
@@ -29,7 +24,6 @@ interface GenerateRouteDependencies {
 }
 
 const defaultDependencies: GenerateRouteDependencies = {
-  loadEngineContextForRegion,
   loadEngineContextForPlan,
   generateItinerary,
   saveItinerary,
@@ -86,21 +80,14 @@ export async function handleGenerateItinerary(
 
   let ctx;
   try {
-    if (deps.loadEngineContextForPlan) {
-      ctx = await deps.loadEngineContextForPlan({
-        regions:
-          input.regions && input.regions.length > 0
-            ? input.regions
-            : [input.region],
-        start_node_id: input.start_node,
-        end_node_id: input.end_node,
-        days: input.days,
-        modes: input.preferences.transport_modes ?? ["road"],
-        travel_style: input.preferences.travel_style,
-      });
-    } else {
-      ctx = await deps.loadEngineContextForRegion(input.region);
-    }
+    ctx = await deps.loadEngineContextForPlan({
+      regions: input.regions,
+      start_node_id: input.start_node,
+      end_node_id: input.end_node,
+      days: input.days,
+      modes: input.preferences.transport_modes ?? ["road"],
+      travel_style: input.preferences.travel_style,
+    });
   } catch (err) {
     return NextResponse.json(
       {

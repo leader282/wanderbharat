@@ -7,13 +7,12 @@ import { findNodes, getNodes } from "@/lib/repositories/nodeRepository";
 import { haversineKm } from "@/lib/services/distanceService";
 
 /**
- * Fetch everything the engine needs for a planning run. Two flavours:
+ * Fetch everything the engine needs for a planning run.
  *
- * - {@link loadEngineContextForRegion} — legacy, loads the whole region.
- *   Fine for small seed regions (Rajasthan-sized, ~10 cities).
- * - {@link loadEngineContextForPlan} — planning-aware. Takes the request's
- *   start/end/days/modes and prunes candidates to nodes reachable within
- *   a radius that makes sense for the trip. Use this for large regions.
+ * The loader is planning-aware: it takes the request's start/end/days/modes
+ * and prunes candidates to nodes reachable within a radius derived from
+ * the trip envelope, so it scales to large regions without buffering the
+ * whole graph in memory.
  */
 
 export interface PlanContextRequest {
@@ -28,31 +27,6 @@ export interface PlanContextRequest {
 }
 
 const DEFAULT_MAX_CANDIDATES = 60;
-
-export async function loadEngineContextForRegion(
-  region: string,
-): Promise<EngineContext> {
-  const [cities, attractions, edges] = await Promise.all([
-    findNodes({ region, type: "city" }),
-    findNodes({ region, type: "attraction" }),
-    findEdges({ region }),
-  ]);
-
-  const attractionsByCity = new Map<string, GraphNode[]>();
-  for (const a of attractions) {
-    const parent = a.parent_node_id;
-    if (!parent) continue;
-    const list = attractionsByCity.get(parent) ?? [];
-    list.push(a);
-    attractionsByCity.set(parent, list);
-  }
-
-  return {
-    nodes: [...cities, ...attractions],
-    edges,
-    attractionsByCity,
-  };
-}
 
 export async function loadEngineContextForPlan(
   req: PlanContextRequest,

@@ -113,7 +113,7 @@ test("generateItinerary chooses the lower-travel route and preserves exact day c
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: end.id,
       days: 3,
@@ -193,7 +193,7 @@ test("generateItinerary can prioritise covering more cities over lower travel ti
 
   const withoutCoveragePriority = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       days: 3,
       preferences: {
@@ -217,7 +217,7 @@ test("generateItinerary can prioritise covering more cities over lower travel ti
 
   const withCoveragePriority = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       days: 3,
       preferences: {
@@ -305,7 +305,7 @@ test("generateItinerary does not prune a higher-coverage branch too early", asyn
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       days: 3,
       preferences: {
@@ -335,7 +335,7 @@ test("generateItinerary rejects an unknown end node", async () => {
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: "node_missing",
       days: 2,
@@ -369,7 +369,7 @@ test("generateItinerary rejects itineraries below the requested budget floor", a
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: end.id,
       days: 2,
@@ -406,7 +406,7 @@ test("generateItinerary derives a recommended budget and breakdown from the sele
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: end.id,
       days: 2,
@@ -456,7 +456,7 @@ test("generateItinerary treats an infeasible final leg as no feasible route", as
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: end.id,
       days: 2,
@@ -494,7 +494,7 @@ test("generateItinerary enforces minHoursPerStop through exact day allocation", 
 
   const result = await generateItinerary(
     {
-      region: "test-region",
+      regions: ["test-region"],
       start_node: start.id,
       end_node: end.id,
       days: 2,

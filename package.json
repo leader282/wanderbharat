@@ -2,7 +2,7 @@
   "name": "wanderbharat",
   "version": "0.1.0",
   "private": true,
-  "description": "Generic travel planning engine. Rajasthan is loaded as the seed dataset.",
+  "description": "Generic travel planning engine. Region datasets live under scripts/data/ and are loaded by slug.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,14 +15,16 @@
     "test:coverage": "node -e \"require('fs').mkdirSync('coverage',{recursive:true})\" && node --import tsx --test --experimental-test-coverage --test-coverage-exclude=\"**/*.test.ts\" --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
     "typecheck": "tsc --noEmit",
     "ci": "npm run lint && npm run typecheck && npm test",
+    "db:purge": "tsx scripts/purge.ts",
     "seed:nodes": "tsx scripts/seedNodes.ts",
     "seed:edges": "tsx scripts/seedEdges.ts",
     "seed:attractions": "tsx scripts/seedAttractions.ts",
-    "seed:all": "npm run seed:nodes && npm run seed:edges && npm run seed:attractions"
+    "seed:all": "tsx scripts/seedNodes.ts --all && tsx scripts/seedEdges.ts --all && tsx scripts/seedAttractions.ts --all"
   },
   "dependencies": {
     "firebase": "^12.12.0",
     "firebase-admin": "^13.6.0",
+    "firebase-tools": "^15.15.0",
     "next": "16.2.4",
     "react": "19.2.5",
     "react-dom": "19.2.5",
