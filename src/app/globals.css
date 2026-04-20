@@ -56,11 +56,9 @@
   --radius-card: 1rem;
   --radius-control: 0.625rem;
   --shadow-soft:
-    0 1px 2px rgba(20, 17, 13, 0.04),
-    0 8px 24px -14px rgba(20, 17, 13, 0.12);
+    0 1px 2px rgba(20, 17, 13, 0.04), 0 8px 24px -14px rgba(20, 17, 13, 0.12);
   --shadow-lift:
-    0 1px 2px rgba(20, 17, 13, 0.05),
-    0 12px 32px -16px rgba(20, 17, 13, 0.18);
+    0 1px 2px rgba(20, 17, 13, 0.05), 0 12px 32px -16px rgba(20, 17, 13, 0.18);
   --hairline: rgba(20, 17, 13, 0.08);
   --hairline-strong: rgba(20, 17, 13, 0.14);
 }
@@ -90,8 +88,15 @@ body {
     var(--color-sand-50);
   color: var(--color-ink-900);
   font-family:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: -0.005em;
@@ -444,6 +449,469 @@ h1 {
   animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Staggered reveal for timeline/progress children. Paired with an inline
+ * `animation-delay` via `--reveal-delay` on the element. */
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal-up {
+  animation: revealUp 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--reveal-delay, 0ms);
+}
+
+/* Collapsible pattern using grid-template-rows so height animates without
+ * needing JS measurement. Inner wrapper must carry min-height:0 / overflow. */
+.collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition:
+    grid-template-rows 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.14s ease-out;
+  opacity: 0;
+}
+.collapsible[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.collapsible > .collapsible-inner {
+  overflow: hidden;
+  min-height: 0;
+  contain: paint;
+}
+
+.itinerary-strip-shell {
+  position: relative;
+}
+.itinerary-strip-shell::before,
+.itinerary-strip-shell::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.25rem;
+  pointer-events: none;
+  z-index: 1;
+}
+.itinerary-strip-shell::before {
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(250, 248, 243, 0.96),
+    rgba(250, 248, 243, 0)
+  );
+}
+.itinerary-strip-shell::after {
+  right: 0;
+  background: linear-gradient(
+    270deg,
+    rgba(250, 248, 243, 0.96),
+    rgba(250, 248, 243, 0)
+  );
+}
+.itinerary-strip-shell-card::before {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.98),
+    rgba(255, 255, 255, 0)
+  );
+}
+.itinerary-strip-shell-card::after {
+  background: linear-gradient(
+    270deg,
+    rgba(255, 255, 255, 0.98),
+    rgba(255, 255, 255, 0)
+  );
+}
+.itinerary-horizontal-strip {
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.itinerary-horizontal-strip > * {
+  scroll-snap-align: center;
+}
+
+/* Section-nav pills used by the itinerary sticky quick-nav. */
+.nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 9999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-ink-600);
+  border: 1px solid transparent;
+  background: transparent;
+  transition:
+    color 0.16s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.22s ease;
+  white-space: nowrap;
+}
+.nav-pill:hover {
+  color: var(--color-ink-900);
+  background: rgba(255, 255, 255, 0.7);
+}
+.nav-pill[data-active="true"] {
+  background: var(--color-ink-900);
+  border-color: var(--color-ink-900);
+  color: white;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 8px 20px -16px rgba(20, 17, 13, 0.4);
+}
+.nav-pill:focus-visible {
+  outline: none;
+  border-color: var(--color-ink-700);
+  box-shadow: 0 0 0 3px rgba(184, 136, 31, 0.3);
+}
+
+/* Trip progress ribbon — horizontal journey node strip. */
+.progress-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.25rem 0.3rem;
+  color: var(--color-ink-600);
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+.progress-node:hover,
+.progress-node:focus-visible {
+  color: var(--color-ink-900);
+  transform: translateY(-1px);
+}
+.progress-node:focus-visible {
+  outline: none;
+}
+.progress-node .progress-dot {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  background: white;
+  color: var(--color-ink-900);
+  border: 1.5px solid var(--hairline-strong);
+  box-shadow: var(--shadow-soft);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.2s ease,
+    transform 0.18s ease;
+}
+.progress-node:hover .progress-dot,
+.progress-node:focus-visible .progress-dot {
+  border-color: var(--color-ink-900);
+  box-shadow:
+    0 2px 6px rgba(20, 17, 13, 0.12),
+    0 0 0 4px rgba(184, 136, 31, 0.18);
+}
+.progress-node[data-active="true"] .progress-dot {
+  background: var(--color-ink-900);
+  border-color: var(--color-ink-900);
+  color: white;
+  transform: scale(1.02);
+  box-shadow:
+    0 2px 6px rgba(20, 17, 13, 0.22),
+    0 0 0 4px rgba(184, 136, 31, 0.24);
+}
+.progress-node[data-endpoint="true"] .progress-dot {
+  background: var(--color-brand-500);
+  border-color: var(--color-brand-500);
+  color: white;
+}
+.progress-node[data-endpoint="true"][data-active="true"] .progress-dot {
+  box-shadow:
+    0 2px 6px rgba(20, 17, 13, 0.22),
+    0 0 0 4px rgba(184, 136, 31, 0.32);
+}
+.progress-connector {
+  flex: 1;
+  height: 2px;
+  margin: 0 0.35rem;
+  margin-top: 1.05rem;
+  border-top: 2px dashed rgba(20, 17, 13, 0.18);
+  min-width: 1.75rem;
+}
+
+/* Segment-specific icon chips inside the day timeline. */
+.segment-chip {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--hairline);
+  background: white;
+  color: var(--color-ink-800);
+  flex-shrink: 0;
+}
+.segment-chip[data-kind="travel"] {
+  background: linear-gradient(180deg, #ffffff, var(--color-sand-50));
+  color: var(--color-ink-900);
+}
+.segment-chip[data-kind="activity"] {
+  background: var(--color-sand-50);
+  color: var(--color-brand-700);
+}
+.segment-chip[data-kind="meal"] {
+  background: #fef9ec;
+  color: var(--color-brand-600);
+  border-color: rgba(184, 136, 31, 0.22);
+}
+.segment-chip[data-kind="stay"] {
+  background: #eef2fb;
+  color: var(--color-indigo-700);
+  border-color: rgba(61, 79, 140, 0.2);
+}
+
+.segment-row[data-kind="travel"] {
+  background: linear-gradient(
+    90deg,
+    rgba(20, 17, 13, 0.04),
+    rgba(20, 17, 13, 0)
+  );
+}
+
+/* Timeline rail — the spine of the journey. */
+.timeline-rail {
+  position: absolute;
+  left: -1.625rem;
+  top: 1.25rem;
+  bottom: -1.75rem;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(20, 17, 13, 0.22) 0%,
+    rgba(20, 17, 13, 0.12) 50%,
+    rgba(20, 17, 13, 0.04) 100%
+  );
+  border-radius: 2px;
+}
+
+/* Timeline node — tactile, contains the day number. */
+.timeline-node {
+  position: absolute;
+  left: -2.5rem;
+  top: 0.75rem;
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--color-ink-900);
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-900);
+  box-shadow:
+    0 1px 2px rgba(20, 17, 13, 0.06),
+    0 0 0 4px rgba(184, 136, 31, 0.14);
+  z-index: 1;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.2s ease,
+    transform 0.18s ease;
+}
+.timeline-node-number {
+  display: inline-block;
+  line-height: 1;
+}
+.timeline-node[data-transition="true"] {
+  border-color: var(--color-brand-500);
+  box-shadow:
+    0 1px 2px rgba(20, 17, 13, 0.06),
+    0 0 0 4px rgba(184, 136, 31, 0.22);
+}
+.timeline-node[data-open="true"] {
+  background: var(--color-ink-900);
+  color: #fff;
+  transform: scale(1.03);
+  box-shadow:
+    0 3px 10px rgba(20, 17, 13, 0.18),
+    0 0 0 4px rgba(184, 136, 31, 0.24);
+}
+.timeline-node[data-transition="true"][data-open="true"] {
+  background: var(--color-brand-500);
+  border-color: var(--color-brand-500);
+  color: var(--color-ink-900);
+}
+
+/* Travel-leg chip — sits between two day cards on the rail. */
+.timeline-travel-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem 0;
+  padding: 0.3rem 0.75rem 0.3rem 0.35rem;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.96),
+    var(--color-sand-50)
+  );
+  border: 1px solid var(--hairline);
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-ink-700);
+  box-shadow: 0 1px 2px rgba(20, 17, 13, 0.04);
+  max-width: 100%;
+}
+.timeline-travel-leg .travel-leg-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  color: var(--color-ink-800);
+  flex: 0 0 auto;
+}
+.timeline-travel-leg .travel-leg-route {
+  color: var(--color-ink-900);
+  font-weight: 700;
+}
+.timeline-travel-leg .travel-leg-dot {
+  color: var(--color-ink-400);
+  padding: 0 0.1rem;
+}
+
+/* Sticky mini progress indicator scoped to the timeline section. */
+.timeline-mini-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.9rem;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border: 1px solid var(--hairline);
+  border-radius: 9999px;
+  box-shadow: 0 6px 20px -12px rgba(20, 17, 13, 0.25);
+}
+.timeline-mini-progress .mini-day {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-ink-500);
+  white-space: nowrap;
+}
+.timeline-mini-progress .mini-day strong {
+  color: var(--color-ink-900);
+}
+.timeline-mini-progress .mini-city {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-ink-900);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.timeline-mini-progress .mini-bar {
+  position: relative;
+  flex: 1;
+  height: 4px;
+  min-width: 3rem;
+  border-radius: 9999px;
+  background: rgba(20, 17, 13, 0.08);
+  overflow: hidden;
+}
+.timeline-mini-progress .mini-bar-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-900),
+    var(--color-brand-500)
+  );
+  border-radius: 9999px;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Day card focus ring when opened — premium but restrained. */
+.timeline-day-card[data-open="true"] {
+  border-color: rgba(20, 17, 13, 0.18);
+  box-shadow:
+    0 10px 28px -22px rgba(20, 17, 13, 0.24),
+    0 0 0 1px rgba(184, 136, 31, 0.18);
+}
+
+@keyframes skeletonShimmer {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(110%);
+  }
+}
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    rgba(226, 220, 205, 0.6),
+    rgba(241, 237, 227, 0.88)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.72),
+    rgba(255, 255, 255, 0)
+  );
+  animation: skeletonShimmer 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+/* Progress bar for trip-at-a-glance summary (days completed of total). */
+.trip-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(20, 17, 13, 0.08);
+  overflow: hidden;
+}
+.trip-bar-fill {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-900),
+    var(--color-brand-500)
+  );
+  border-radius: 9999px;
+  transform-origin: left center;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* ---- Modal / dialog motion -------------------------------------------- */
 
 @keyframes fadeBackdrop {
@@ -485,11 +953,36 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-spin,
   .animate-fadeUp,
   .animate-fadeBackdrop,
   .animate-scaleIn,
-  .animate-sheetIn {
+  .animate-sheetIn,
+  .reveal-up {
     animation: none;
+  }
+  .collapsible,
+  .trip-bar-fill,
+  .progress-node,
+  .progress-node .progress-dot,
+  .nav-pill,
+  .timeline-node,
+  .timeline-mini-progress .mini-bar-fill,
+  .timeline-day-card {
+    transition: none;
+  }
+  .skeleton-block::after {
+    animation: none;
+    opacity: 0;
+  }
+  .timeline-node[data-open="true"] {
+    transform: none;
+  }
+  .progress-node[data-active="true"] .progress-dot {
+    transform: none;
+  }
+  .itinerary-horizontal-strip {
+    scroll-snap-type: none;
   }
   html,
   body {

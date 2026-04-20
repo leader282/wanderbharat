@@ -43,26 +43,24 @@ const MAP_READY_CHECK_LIMIT = 40;
 
 export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
   const [selectedDay, setSelectedDay] = useState<MapDayFilter>("all");
-  // On the server `google` is undefined → initial state is "idle". On the
-  // first cold page load the client also starts at "idle" (script hasn't
-  // loaded yet), so no hydration mismatch. On SPA navigation back to the
-  // same kind of page the Maps API may already be ready, so we can skip
-  // straight to "ready".
-  const [mapsState, setMapsState] = useState<MapsState>(() =>
-    hasMapsApiReady() ? "ready" : "idle",
-  );
+  const [mapsState, setMapsState] = useState<MapsState>("idle");
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
+  const activeDayFilter =
+    selectedDay === "all" ||
+    dayOptions.some((day) => day.day_index === selectedDay)
+      ? selectedDay
+      : "all";
 
   const visibleMarkers = useMemo(
-    () => filterMarkers(data.markers, selectedDay),
-    [data.markers, selectedDay],
+    () => filterMarkers(data.markers, activeDayFilter),
+    [activeDayFilter, data.markers],
   );
   const visibleLegs = useMemo(
-    () => filterLegs(data.legs, selectedDay),
-    [data.legs, selectedDay],
+    () => filterLegs(data.legs, activeDayFilter),
+    [activeDayFilter, data.legs],
   );
 
   // `next/script` can report loaded just before the marker constructors attach,
@@ -123,7 +121,8 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
     });
 
   useEffect(() => {
-    if (mapsState !== "ready" || !mapElementRef.current || mapRef.current) return;
+    if (mapsState !== "ready" || !mapElementRef.current || mapRef.current)
+      return;
 
     mapRef.current = new google.maps.Map(mapElementRef.current, {
       center: MAP_DEFAULT_CENTER,
@@ -149,19 +148,24 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
     const bounds = new google.maps.LatLngBounds();
 
     for (const leg of visibleLegs) {
-      const path = leg.encoded_polyline
-        ? decodePolyline(leg.encoded_polyline)
-        : [leg.from_position, leg.to_position];
+      const decodedPath = leg.encoded_polyline
+        ? decodePolylineSafely(leg.encoded_polyline)
+        : null;
+      const path =
+        decodedPath && decodedPath.length >= 2
+          ? decodedPath
+          : [leg.from_position, leg.to_position];
+      const hasResolvedGeometry = path === decodedPath;
       if (path.length < 2) continue;
 
       path.forEach((point) => bounds.extend(point));
       const polyline = new google.maps.Polyline({
         map,
         path,
-        geodesic: !leg.has_geometry,
-        strokeColor: transportColor(leg),
-        strokeOpacity: leg.has_geometry ? 0.92 : 0.45,
-        strokeWeight: selectedDay === "all" ? 4 : 5,
+        geodesic: !hasResolvedGeometry,
+        strokeColor: hasResolvedGeometry ? transportColor(leg) : "#9a9181",
+        strokeOpacity: hasResolvedGeometry ? 0.92 : 0.45,
+        strokeWeight: activeDayFilter === "all" ? 4 : 5,
       });
       polylinesRef.current.push(polyline);
     }
@@ -182,7 +186,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
     }
 
     fitMapToBounds(map, bounds);
-  }, [mapsState, visibleLegs, visibleMarkers, selectedDay]);
+  }, [activeDayFilter, mapsState, visibleLegs, visibleMarkers]);
 
   useEffect(
     () => () => {
@@ -234,13 +238,13 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
         <div>
           <p className="font-bold text-[var(--color-ink-900)]">Trip map</p>
           <p className="mt-1 text-sm text-[var(--color-ink-500)]">
-            Stops and stays are always shown. Attraction pins appear when you
-            switch to a specific day.
+            Entire-trip view shows every stop and stay. Switch to a specific day
+            to focus the route and reveal that day&apos;s attractions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <FilterButton
-            active={selectedDay === "all"}
+            active={activeDayFilter === "all"}
             onClick={() => setSelectedDay("all")}
           >
             Entire trip
@@ -248,7 +252,7 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
           {dayOptions.map((day) => (
             <FilterButton
               key={day.day_index}
-              active={selectedDay === day.day_index}
+              active={activeDayFilter === day.day_index}
               onClick={() => setSelectedDay(day.day_index)}
             >
               {day.label}
@@ -263,25 +267,32 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
           className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
         >
           Google Maps failed to load. Check the browser API key, allowed
-          referrers, whether the Maps JavaScript API is enabled, and whether
-          the configured map ID is valid.
+          referrers, whether the Maps JavaScript API is enabled, and whether the
+          configured map ID is valid.
         </div>
       ) : (
         <div className="mt-4">
-          <div
-            ref={mapElementRef}
-            role="region"
-            aria-label="Itinerary map"
-            aria-busy={mapsState !== "ready"}
-            className="h-[420px] w-full overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[linear-gradient(180deg,#f3efe5_0%,#eef1f4_100%)]"
-          />
+          <div className="relative overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[linear-gradient(180deg,#f3efe5_0%,#eef1f4_100%)]">
+            <div
+              ref={mapElementRef}
+              role="region"
+              aria-label="Itinerary map"
+              aria-busy={mapsState !== "ready"}
+              className={`h-[420px] w-full transition-opacity duration-300 ${
+                mapsState === "ready" ? "opacity-100" : "opacity-0"
+              }`}
+            />
+            {mapsState !== "ready" && <MapLoadingSkeleton />}
+          </div>
           {mapsState !== "ready" && (
             <p
               role="status"
               aria-live="polite"
               className="mt-3 text-sm text-[var(--color-ink-500)]"
             >
-              Loading Google Maps…
+              {mapsState === "loaded"
+                ? "Preparing the map…"
+                : "Loading Google Maps…"}
             </p>
           )}
         </div>
@@ -295,7 +306,10 @@ export default function ItineraryMap({ data, dayOptions }: ItineraryMapProps) {
           className="bg-[var(--color-ink-900)]"
           label="Stored route geometry"
         />
-        <LegendLine className="bg-[var(--color-ink-400)]" label="Direct fallback line" />
+        <LegendLine
+          className="bg-[var(--color-ink-400)]"
+          label="Direct fallback line"
+        />
       </div>
 
       {data.missing_geometry_count > 0 && (
@@ -331,6 +345,39 @@ function FilterButton({
     >
       {children}
     </button>
+  );
+}
+
+function MapLoadingSkeleton() {
+  return (
+    <div className="pointer-events-none absolute inset-0 p-4 md:p-5">
+      <div className="flex h-full flex-col justify-between">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="skeleton-block h-3 w-28 rounded-full" />
+            <div className="skeleton-block h-3 w-40 rounded-full" />
+          </div>
+          <div className="hidden gap-2 sm:flex">
+            <div className="skeleton-block h-9 w-20 rounded-full" />
+            <div className="skeleton-block h-9 w-16 rounded-full" />
+            <div className="skeleton-block h-9 w-16 rounded-full" />
+          </div>
+        </div>
+
+        <div className="rounded-[1.35rem] border border-white/65 bg-white/35 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-[2px]">
+          <div className="flex items-center gap-3">
+            <div className="skeleton-block h-3 w-3 rounded-full" />
+            <div className="skeleton-block h-[3px] flex-1 rounded-full" />
+            <div className="skeleton-block h-3 w-3 rounded-full" />
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            <div className="skeleton-block h-16 rounded-2xl" />
+            <div className="skeleton-block h-20 rounded-2xl" />
+            <div className="skeleton-block h-14 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -461,6 +508,17 @@ function hasMapsApiReady(): boolean {
     typeof google.maps.marker.AdvancedMarkerElement === "function" &&
     typeof google.maps.marker.PinElement === "function"
   );
+}
+
+function decodePolylineSafely(
+  encoded: string,
+): google.maps.LatLngLiteral[] | null {
+  try {
+    const decoded = decodePolyline(encoded);
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 function decodePolyline(encoded: string): google.maps.LatLngLiteral[] {
