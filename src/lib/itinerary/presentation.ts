@@ -52,3 +52,9 @@ export function formatClockTimeLabel(
   const hours12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hours12}:${minutes.toString().padStart(2, "0")} ${period}`;
 }
+
+export function formatRoundedHours(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  if (value < 1) return value.toFixed(1);
+  return (Math.round(value * 2) / 2).toFixed(1).replace(/\.0$/, "");
+}
