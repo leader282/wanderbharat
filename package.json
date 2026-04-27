@@ -23,7 +23,7 @@
     "seed:all": "tsx scripts/seedNodes.ts --all && tsx scripts/seedEdges.ts --all && tsx scripts/seedAttractions.ts --all && tsx scripts/seedAccommodations.ts --all"
   },
   "dependencies": {
-    "firebase": "^12.12.0",
+    "firebase": "^12.12.1",
     "firebase-admin": "^13.6.0",
     "firebase-tools": "^15.15.0",
     "next": "16.2.4",
