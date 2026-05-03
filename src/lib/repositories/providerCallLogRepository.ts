@@ -1,4 +1,8 @@
-import type { ProviderCallLog, ProviderCallStatus } from "@/lib/providers/hotels/types";
+import type {
+  ProviderCallLog,
+  ProviderCallStatus,
+  ProviderName,
+} from "@/lib/providers/hotels/types";
 import type { Query } from "firebase-admin/firestore";
 import { getAdminDb, withFirestoreDiagnostics } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/collections";
@@ -10,6 +14,7 @@ const PROVIDER_CALL_STATUSES = new Set<ProviderCallStatus>([
   "timeout",
   "disabled",
 ]);
+const PROVIDERS = new Set<ProviderName>(["liteapi", "google_places"]);
 
 export interface CreateProviderCallLogInput {
   id?: string;
@@ -96,9 +101,12 @@ function normaliseProviderCallLog(
   const status = PROVIDER_CALL_STATUSES.has(raw.status as ProviderCallStatus)
     ? (raw.status as ProviderCallStatus)
     : "error";
+  const provider = PROVIDERS.has(raw.provider as ProviderName)
+    ? (raw.provider as ProviderName)
+    : "liteapi";
   return {
     id: raw.id,
-    provider: raw.provider === "liteapi" ? "liteapi" : "liteapi",
+    provider,
     endpoint: normaliseString(raw.endpoint) ?? "",
     request_summary: normaliseRecord(raw.request_summary),
     status,

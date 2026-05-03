@@ -10,6 +10,12 @@ import type { Coordinates } from "@/types/domain";
 
 const PLACES_TEXT_SEARCH_URL =
   "https://places.googleapis.com/v1/places:searchText";
+const PLACES_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
+const PLACE_OPENING_HOURS_FIELD_MASK = [
+  "id",
+  "businessStatus",
+  "regularOpeningHours.periods",
+].join(",");
 
 export interface PlaceResult {
   google_place_id: string;
@@ -37,7 +43,30 @@ export interface FetchPlacesOptions {
   apiKey?: string;
 }
 
+export interface PlaceOpeningHoursPoint {
+  day?: number;
+  hour?: number;
+  minute?: number;
+}
+
+export interface PlaceOpeningHoursPeriod {
+  open?: PlaceOpeningHoursPoint;
+  close?: PlaceOpeningHoursPoint;
+}
+
+export interface PlaceOpeningHoursDetails {
+  google_place_id: string;
+  business_status?: string;
+  regular_opening_hours_periods: PlaceOpeningHoursPeriod[];
+}
+
+export interface FetchPlaceOpeningHoursOptions {
+  googlePlaceId: string;
+  apiKey?: string;
+}
+
 function requireKey(explicit?: string): string {
+  assertServerRuntime();
   const key = explicit ?? process.env.GOOGLE_MAPS_API_KEY;
   if (!key) {
     throw new Error(
@@ -45,6 +74,12 @@ function requireKey(explicit?: string): string {
     );
   }
   return key;
+}
+
+function assertServerRuntime(): void {
+  if (typeof window !== "undefined") {
+    throw new Error("Google Places API keys are server-only.");
+  }
 }
 
 /**
@@ -124,4 +159,81 @@ export async function fetchPlacesByQuery(
       types: p.types,
       photo_reference: p.photos?.[0]?.name,
     }));
+}
+
+export async function fetchPlaceOpeningHoursById(
+  optsOrPlaceId: string | FetchPlaceOpeningHoursOptions,
+): Promise<PlaceOpeningHoursDetails> {
+  const opts: FetchPlaceOpeningHoursOptions =
+    typeof optsOrPlaceId === "string"
+      ? { googlePlaceId: optsOrPlaceId }
+      : optsOrPlaceId;
+  const placeId = opts.googlePlaceId.trim();
+  if (!placeId) {
+    throw new Error("googlePlaceId is required.");
+  }
+
+  const apiKey = requireKey(opts.apiKey);
+  const res = await fetch(
+    `${PLACES_PLACE_DETAILS_URL}/${encodeURIComponent(placeId)}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": PLACE_OPENING_HOURS_FIELD_MASK,
+      },
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Places Details failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+
+  const json = (await res.json()) as {
+    id?: string;
+    businessStatus?: string;
+    regularOpeningHours?: {
+      periods?: Array<{
+        open?: { day?: number; hour?: number; minute?: number };
+        close?: { day?: number; hour?: number; minute?: number };
+      }>;
+    };
+  };
+
+  const periods = Array.isArray(json.regularOpeningHours?.periods)
+    ? json.regularOpeningHours!.periods!.map((period) => ({
+        open: normalisePeriodPoint(period.open),
+        close: normalisePeriodPoint(period.close),
+      }))
+    : [];
+
+  return {
+    google_place_id:
+      typeof json.id === "string" && json.id.trim().length > 0
+        ? json.id
+        : placeId,
+    business_status:
+      typeof json.businessStatus === "string" && json.businessStatus.trim()
+        ? json.businessStatus
+        : undefined,
+    regular_opening_hours_periods: periods,
+  };
+}
+
+function normalisePeriodPoint(
+  point: { day?: number; hour?: number; minute?: number } | undefined,
+): PlaceOpeningHoursPoint | undefined {
+  if (!point || typeof point !== "object") {
+    return undefined;
+  }
+
+  return {
+    day: Number.isFinite(point.day) ? Number(point.day) : undefined,
+    hour: Number.isFinite(point.hour) ? Number(point.hour) : undefined,
+    minute: Number.isFinite(point.minute) ? Number(point.minute) : undefined,
+  };
 }

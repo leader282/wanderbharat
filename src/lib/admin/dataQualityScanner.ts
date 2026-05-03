@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type {
   DataQualityEntityType,
   DataQualityIssue,
@@ -11,6 +9,7 @@ import type {
 import { findEdges } from "@/lib/repositories/edgeRepository";
 import { findNodes } from "@/lib/repositories/nodeRepository";
 import {
+  buildDataQualityIssueId,
   createIssue,
   listOpenIssues,
   resolveIssue,
@@ -347,19 +346,7 @@ function buildIssueId(
   entityType: DataQualityEntityType,
   entityId: string,
 ): string {
-  const normalizedEntity = sanitizeForId(entityId);
-  const digest = createHash("sha1")
-    .update(`${code}|${entityType}|${entityId}`)
-    .digest("hex")
-    .slice(0, 12);
-  return `dqi_${code}_${normalizedEntity}_${digest}`;
-}
-
-function sanitizeForId(value: string): string {
-  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
-  const trimmed = normalized.replace(/^_+|_+$/g, "");
-  if (trimmed.length === 0) return "unknown";
-  return trimmed.slice(0, 48);
+  return buildDataQualityIssueId(code, entityType, entityId);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Firestore } from "firebase-admin/firestore";
 
 import type {
@@ -39,6 +41,19 @@ export interface CreateDataQualityIssueInput {
   message: string;
   details?: Record<string, unknown>;
   created_at?: number;
+}
+
+export function buildDataQualityIssueId(
+  code: DataQualityIssueCode,
+  entityType: DataQualityEntityType,
+  entityId: string,
+): string {
+  const normalizedEntity = sanitizeForId(entityId);
+  const digest = createHash("sha1")
+    .update(`${code}|${entityType}|${entityId}`)
+    .digest("hex")
+    .slice(0, 12);
+  return `dqi_${code}_${normalizedEntity}_${digest}`;
 }
 
 function db(): Firestore {
@@ -208,6 +223,13 @@ function normaliseOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function sanitizeForId(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+  const trimmed = normalized.replace(/^_+|_+$/g, "");
+  if (trimmed.length === 0) return "unknown";
+  return trimmed.slice(0, 48);
 }
 
 function stripUndefinedDeep<T>(value: T): T {

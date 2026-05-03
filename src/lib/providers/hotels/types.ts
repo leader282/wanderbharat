@@ -1,6 +1,7 @@
 import type { Coordinates, LocalDateString } from "@/types/domain";
 
 export type HotelProviderName = "liteapi";
+export type ProviderName = HotelProviderName | "google_places";
 
 export interface HotelOccupancy {
   adults: number;
@@ -107,7 +108,7 @@ export type ProviderCallStatus =
 
 export interface ProviderCallLog {
   id: string;
-  provider: HotelProviderName;
+  provider: ProviderName;
   endpoint: string;
   request_summary: Record<string, unknown>;
   status: ProviderCallStatus;
