@@ -60,6 +60,154 @@ export type AccommodationPreference =
 export type PreferenceTag = string;
 
 // ============================================================================
+// Real-world data provenance primitives (prototype v2)
+// ============================================================================
+
+export const DATA_SOURCE_TYPES = [
+  "manual",
+  "google_places",
+  "liteapi",
+  "official_website",
+  "estimated",
+  "mock",
+  "system",
+] as const;
+export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
+
+export const DATA_CONFIDENCE_LEVELS = [
+  "live",
+  "verified",
+  "cached",
+  "estimated",
+  "unknown",
+] as const;
+export type DataConfidence = (typeof DATA_CONFIDENCE_LEVELS)[number];
+
+/** Bump when source-record schema contracts are intentionally versioned. */
+export const CURRENT_DATA_VERSION = 2 as const;
+
+export interface DataProvenance {
+  data_version: number;
+  source_type: DataSourceType;
+  confidence: DataConfidence;
+  source_url?: string | null;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  verified_by?: string | null;
+}
+
+const REAL_DATA_CONFIDENCE = new Set<DataConfidence>([
+  "live",
+  "verified",
+  "cached",
+]);
+const NON_REAL_DATA_SOURCES = new Set<DataSourceType>(["mock", "estimated"]);
+
+/**
+ * True when data is sourced from a non-mock provider and marked as
+ * live/verified/cached. Estimated and unknown values remain non-real.
+ */
+export function isRealData(
+  provenance: Pick<DataProvenance, "source_type" | "confidence">,
+): boolean {
+  if (NON_REAL_DATA_SOURCES.has(provenance.source_type)) {
+    return false;
+  }
+  return REAL_DATA_CONFIDENCE.has(provenance.confidence);
+}
+
+export const DEFAULT_DATA_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Determines staleness without reading the clock implicitly.
+ * Callers must provide `nowMs` to keep behavior deterministic in tests.
+ */
+export function isStaleData(
+  provenance: Pick<DataProvenance, "confidence" | "fetched_at" | "verified_at">,
+  nowMs: number,
+  staleAfterMs = DEFAULT_DATA_STALE_AFTER_MS,
+): boolean {
+  if (provenance.confidence === "live") {
+    return false;
+  }
+
+  const freshestTimestamp = provenance.verified_at ?? provenance.fetched_at;
+  if (freshestTimestamp == null) {
+    return provenance.confidence === "cached";
+  }
+
+  if (freshestTimestamp >= nowMs) {
+    return false;
+  }
+
+  return nowMs - freshestTimestamp > staleAfterMs;
+}
+
+export interface MockDataAssertionOptions {
+  nodeEnv?: string;
+}
+
+/**
+ * Guards against accidentally serving mock-tagged payloads in production.
+ * It also flags the legacy `source: "mock"` marker during transition periods.
+ */
+export function assertNoMockInProductionData(
+  value: unknown,
+  options: MockDataAssertionOptions = {},
+): void {
+  const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  if (nodeEnv !== "production") {
+    return;
+  }
+
+  const visited = new WeakSet<object>();
+
+  const visit = (candidate: unknown, path: string): void => {
+    if (candidate === null || candidate === undefined) {
+      return;
+    }
+    if (typeof candidate !== "object") {
+      return;
+    }
+
+    if (visited.has(candidate)) {
+      return;
+    }
+    visited.add(candidate);
+
+    if (Array.isArray(candidate)) {
+      for (let index = 0; index < candidate.length; index += 1) {
+        visit(candidate[index], `${path}[${index}]`);
+      }
+      return;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    if (record.source_type === "mock" || record.source === "mock") {
+      throw new Error(`Mock data is not allowed in production at ${path}`);
+    }
+
+    for (const [key, nestedValue] of Object.entries(record)) {
+      visit(nestedValue, `${path}.${key}`);
+    }
+  };
+
+  visit(value, "$");
+}
+
+export const DATA_CONFIDENCE_LABELS: Record<DataConfidence, string> = {
+  live: "Live",
+  verified: "Verified",
+  cached: "Cached",
+  estimated: "Estimated",
+  unknown: "Unknown",
+};
+
+export function formatDataConfidenceLabel(confidence: DataConfidence): string {
+  return DATA_CONFIDENCE_LABELS[confidence];
+}
+
+// ============================================================================
 // Geo primitives
 // ============================================================================
 
