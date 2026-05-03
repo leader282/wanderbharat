@@ -6,6 +6,7 @@ import type {
   ItineraryPreferences,
   StayAssignment,
 } from "@/types/domain";
+import { DEFAULT_CURRENCY } from "@/types/domain";
 import { getAdminDb, withFirestoreDiagnostics } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 import { deriveOptimalBudget } from "@/lib/itinerary/budget";
@@ -220,10 +221,10 @@ function normaliseBudgetRange(
   );
   const currency =
     typeof budget?.currency === "string" && budget.currency.trim()
-      ? budget.currency
-      : fallbackCurrency;
+      ? budget.currency.trim().toUpperCase()
+      : (fallbackCurrency ?? DEFAULT_CURRENCY);
 
-  return currency ? { min, max, currency } : { min, max };
+  return { min, max, currency };
 }
 
 function computeNightlyAverage(stays: StayAssignment[]): number {

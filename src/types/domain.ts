@@ -322,9 +322,25 @@ export interface BudgetRange {
   currency?: string;
 }
 
+/** Default itinerary currency for regions that don't provide one. */
+export const DEFAULT_CURRENCY = "INR" as const;
+/** Default guest nationality used for domestic pricing assumptions. */
+export const DEFAULT_GUEST_NATIONALITY = "IN" as const;
+/** Calendar date in local `YYYY-MM-DD` format. */
+export type LocalDateString = string;
+
 export interface TravellerComposition {
   adults: number;
   children: number;
+  /**
+   * Child ages in completed years. Optional for legacy itineraries that only
+   * stored a children count.
+   */
+  children_ages?: number[];
+  /** Number of rooms requested for accommodation discovery. */
+  rooms?: number;
+  /** ISO 3166-1 alpha-2 country code (uppercase), e.g. "IN". */
+  guest_nationality?: string;
 }
 
 export interface ItineraryBudgetLineItem {
@@ -350,6 +366,16 @@ export interface ItineraryPreferences {
   travel_style: TravelStyle;
   budget: BudgetRange;
   travellers: TravellerComposition;
+  /**
+   * Local trip start date ("YYYY-MM-DD"). Required for new itinerary generation
+   * requests via API validation, optional here to preserve legacy reads/tests.
+   */
+  trip_start_date?: LocalDateString;
+  /**
+   * Optional explicit end date ("YYYY-MM-DD"). When omitted it is derived as
+   * `trip_start_date + days - 1`.
+   */
+  trip_end_date?: LocalDateString;
   /** Optional preference tags to prioritise (e.g. ["heritage", "food"]). */
   interests?: PreferenceTag[];
   /** Optional preferred transport modes. Defaults to ["road"]. */

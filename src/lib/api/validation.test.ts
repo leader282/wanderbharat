@@ -10,8 +10,15 @@ const baseBody = {
   days: 5,
   preferences: {
     travel_style: "balanced" as const,
+    trip_start_date: "2026-10-20",
     budget: { min: 15000, max: 45000, currency: "INR" },
-    travellers: { adults: 2, children: 1 },
+    travellers: {
+      adults: 2,
+      children: 1,
+      children_ages: [8],
+      rooms: 1,
+      guest_nationality: "IN",
+    },
     interests: ["heritage", "food"],
     transport_modes: ["road" as const],
   },
@@ -78,6 +85,7 @@ test("generateItinerarySchema accepts a minimal request without optional fields"
     days: 3,
     preferences: {
       travel_style: "relaxed",
+      trip_start_date: "2026-12-01",
       budget: { min: 0, max: 10000 },
       travellers: { adults: 1, children: 0 },
     },
@@ -87,6 +95,10 @@ test("generateItinerarySchema accepts a minimal request without optional fields"
   if (!result.success) return;
   assert.equal(result.data.end_node, undefined);
   assert.equal(result.data.preferences.transport_modes, undefined);
+  assert.equal(result.data.preferences.budget.currency, "INR");
+  assert.equal(result.data.preferences.travellers.rooms, 1);
+  assert.equal(result.data.preferences.travellers.guest_nationality, "IN");
+  assert.deepEqual(result.data.preferences.travellers.children_ages, []);
 });
 
 test("generateItinerarySchema rejects an empty regions array", () => {
@@ -122,6 +134,61 @@ test("generateItinerarySchema rejects a trip longer than the 7-day cap", () => {
 test("generateItinerarySchema rejects a non-integer day count", () => {
   const result = generateItinerarySchema.safeParse({ ...baseBody, days: 2.5 });
   assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects malformed trip_start_date values", () => {
+  for (const badDate of ["2026/10/20", "20-10-2026", "2026-13-01"]) {
+    const result = generateItinerarySchema.safeParse({
+      ...baseBody,
+      preferences: {
+        ...baseBody.preferences,
+        trip_start_date: badDate,
+      },
+    });
+    assert.equal(result.success, false, `expected ${badDate} to be rejected`);
+  }
+});
+
+test("generateItinerarySchema rejects impossible calendar dates", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      trip_start_date: "2026-02-30",
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema validates optional trip_end_date against trip_start_date and days", () => {
+  const valid = generateItinerarySchema.safeParse({
+    ...baseBody,
+    days: 4,
+    preferences: {
+      ...baseBody.preferences,
+      trip_start_date: "2026-11-05",
+      trip_end_date: "2026-11-08",
+    },
+  });
+  assert.equal(valid.success, true);
+  if (valid.success) {
+    assert.equal(
+      Object.hasOwn(valid.data.preferences, "trip_end_date"),
+      false,
+      "trip_end_date is accepted for validation but not persisted downstream",
+    );
+  }
+
+  const invalid = generateItinerarySchema.safeParse({
+    ...baseBody,
+    days: 4,
+    preferences: {
+      ...baseBody.preferences,
+      trip_start_date: "2026-11-05",
+      trip_end_date: "2026-11-10",
+    },
+  });
+  assert.equal(invalid.success, false);
 });
 
 test("generateItinerarySchema rejects an unknown travel style", () => {
@@ -164,7 +231,78 @@ test("generateItinerarySchema requires at least one adult traveller", () => {
     ...baseBody,
     preferences: {
       ...baseBody.preferences,
-      travellers: { adults: 0, children: 2 },
+      travellers: { adults: 0, children: 2, children_ages: [6, 9] },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema requires at least one room", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: { ...baseBody.preferences.travellers, rooms: 0 },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema requires children_ages to match children count when provided", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: {
+        ...baseBody.preferences.travellers,
+        children: 2,
+        children_ages: [7],
+      },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema requires children_ages when children are present", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: {
+        adults: 2,
+        children: 1,
+        rooms: 1,
+        guest_nationality: "IN",
+      },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects children_ages when no children are present", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: {
+        ...baseBody.preferences.travellers,
+        children: 0,
+        children_ages: [7],
+      },
+    },
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects invalid guest nationality codes", () => {
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      travellers: {
+        ...baseBody.preferences.travellers,
+        guest_nationality: "IND",
+      },
     },
   });
   assert.equal(result.success, false);
