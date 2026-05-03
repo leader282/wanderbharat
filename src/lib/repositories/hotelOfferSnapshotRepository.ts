@@ -1,4 +1,5 @@
 import type { HotelOfferSnapshot } from "@/lib/providers/hotels/types";
+import type { Query } from "firebase-admin/firestore";
 import { getAdminDb, withFirestoreDiagnostics } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 
@@ -52,6 +53,28 @@ export async function findLatestHotelOfferSnapshotByCacheKey(
     .sort((left, right) => right.fetched_at - left.fetched_at);
 
   return list[0] ?? null;
+}
+
+export async function listHotelOfferSnapshots(args: {
+  region?: string;
+  node_id?: string;
+  limit?: number;
+} = {}): Promise<HotelOfferSnapshot[]> {
+  let query: Query = db().collection(COLLECTIONS.hotel_offer_snapshots);
+  if (args.region) query = query.where("region", "==", args.region);
+  if (args.node_id) query = query.where("node_id", "==", args.node_id);
+
+  const snap = await query.get();
+  const maxLimit = Math.max(1, Math.min(Math.trunc(args.limit ?? 50), 250));
+  return snap.docs
+    .map((doc) =>
+      normaliseHotelOfferSnapshot({
+        id: doc.id,
+        ...(doc.data() as Partial<HotelOfferSnapshot>),
+      }),
+    )
+    .sort((left, right) => right.fetched_at - left.fetched_at)
+    .slice(0, maxLimit);
 }
 
 function db() {
