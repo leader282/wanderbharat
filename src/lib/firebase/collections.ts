@@ -12,6 +12,7 @@ export const COLLECTIONS = {
   itineraries: "itineraries",
   users: "users",
   regions: "regions",
+  data_quality_issues: "data_quality_issues",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

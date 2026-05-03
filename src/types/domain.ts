@@ -207,6 +207,61 @@ export function formatDataConfidenceLabel(confidence: DataConfidence): string {
   return DATA_CONFIDENCE_LABELS[confidence];
 }
 
+export const DATA_QUALITY_ENTITY_TYPES = [
+  "region",
+  "city",
+  "attraction",
+  "hotel",
+  "route_edge",
+  "itinerary",
+  "provider_call",
+] as const;
+export type DataQualityEntityType = (typeof DATA_QUALITY_ENTITY_TYPES)[number];
+
+export const DATA_QUALITY_ISSUE_SEVERITIES = [
+  "info",
+  "warning",
+  "critical",
+] as const;
+export type DataQualityIssueSeverity =
+  (typeof DATA_QUALITY_ISSUE_SEVERITIES)[number];
+
+export const DATA_QUALITY_ISSUE_CODES = [
+  "missing_google_place_id",
+  "missing_opening_hours",
+  "missing_admission_cost",
+  "stale_place_data",
+  "mock_data_present",
+  "duplicate_place",
+  "liteapi_error",
+  "no_hotel_rates",
+  "route_edge_missing",
+  "itinerary_warning",
+] as const;
+export type DataQualityIssueCode = (typeof DATA_QUALITY_ISSUE_CODES)[number];
+
+export const DATA_QUALITY_ISSUE_STATUSES = [
+  "open",
+  "ignored",
+  "resolved",
+] as const;
+export type DataQualityIssueStatus =
+  (typeof DATA_QUALITY_ISSUE_STATUSES)[number];
+
+export interface DataQualityIssue {
+  id: string;
+  entity_type: DataQualityEntityType;
+  entity_id?: string;
+  severity: DataQualityIssueSeverity;
+  code: DataQualityIssueCode;
+  message: string;
+  details?: Record<string, unknown>;
+  status: DataQualityIssueStatus;
+  created_at: number;
+  resolved_at?: number;
+  resolved_by?: string;
+}
+
 // ============================================================================
 // Geo primitives
 // ============================================================================

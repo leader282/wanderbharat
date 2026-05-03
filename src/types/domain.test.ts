@@ -3,6 +3,10 @@ import test from "node:test";
 
 import {
   DATA_CONFIDENCE_LEVELS,
+  DATA_QUALITY_ENTITY_TYPES,
+  DATA_QUALITY_ISSUE_CODES,
+  DATA_QUALITY_ISSUE_SEVERITIES,
+  DATA_QUALITY_ISSUE_STATUSES,
   DATA_SOURCE_TYPES,
   assertNoMockInProductionData,
   formatDataConfidenceLabel,
@@ -27,6 +31,43 @@ test("v2 provenance literals are exported in stable order", () => {
     "cached",
     "estimated",
     "unknown",
+  ]);
+});
+
+test("data quality literals are exported in stable order", () => {
+  assert.deepEqual([...DATA_QUALITY_ENTITY_TYPES], [
+    "region",
+    "city",
+    "attraction",
+    "hotel",
+    "route_edge",
+    "itinerary",
+    "provider_call",
+  ]);
+
+  assert.deepEqual([...DATA_QUALITY_ISSUE_SEVERITIES], [
+    "info",
+    "warning",
+    "critical",
+  ]);
+
+  assert.deepEqual([...DATA_QUALITY_ISSUE_STATUSES], [
+    "open",
+    "ignored",
+    "resolved",
+  ]);
+
+  assert.deepEqual([...DATA_QUALITY_ISSUE_CODES], [
+    "missing_google_place_id",
+    "missing_opening_hours",
+    "missing_admission_cost",
+    "stale_place_data",
+    "mock_data_present",
+    "duplicate_place",
+    "liteapi_error",
+    "no_hotel_rates",
+    "route_edge_missing",
+    "itinerary_warning",
   ]);
 });
 
