@@ -10,7 +10,7 @@ const baseBody = {
   days: 5,
   preferences: {
     travel_style: "balanced" as const,
-    trip_start_date: "2026-10-20",
+    trip_start_date: "2099-10-20",
     budget: { min: 15000, max: 45000, currency: "INR" },
     travellers: {
       adults: 2,
@@ -85,7 +85,7 @@ test("generateItinerarySchema accepts a minimal request without optional fields"
     days: 3,
     preferences: {
       travel_style: "relaxed",
-      trip_start_date: "2026-12-01",
+      trip_start_date: "2099-12-01",
       budget: { min: 0, max: 10000 },
       travellers: { adults: 1, children: 0 },
     },
@@ -154,9 +154,25 @@ test("generateItinerarySchema rejects impossible calendar dates", () => {
     ...baseBody,
     preferences: {
       ...baseBody.preferences,
-      trip_start_date: "2026-02-30",
+      trip_start_date: "2099-02-30",
     },
   });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema rejects trip_start_date values in the past", () => {
+  const yesterday = new Date();
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const tripStartDate = yesterday.toISOString().slice(0, 10);
+
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      trip_start_date: tripStartDate,
+    },
+  });
+
   assert.equal(result.success, false);
 });
 
@@ -166,8 +182,8 @@ test("generateItinerarySchema validates optional trip_end_date against trip_star
     days: 4,
     preferences: {
       ...baseBody.preferences,
-      trip_start_date: "2026-11-05",
-      trip_end_date: "2026-11-08",
+      trip_start_date: "2099-11-05",
+      trip_end_date: "2099-11-08",
     },
   });
   assert.equal(valid.success, true);
@@ -184,8 +200,8 @@ test("generateItinerarySchema validates optional trip_end_date against trip_star
     days: 4,
     preferences: {
       ...baseBody.preferences,
-      trip_start_date: "2026-11-05",
-      trip_end_date: "2026-11-10",
+      trip_start_date: "2099-11-05",
+      trip_end_date: "2099-11-10",
     },
   });
   assert.equal(invalid.success, false);

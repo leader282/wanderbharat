@@ -120,6 +120,12 @@ test("handleGetItinerary returns the itinerary when it exists", async () => {
     getItinerary: async () => makeItinerary(),
     deleteItinerary: async () => {},
     getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => ({
+      uid: "uid_owner",
+      email: "owner@example.com",
+      name: "Owner",
+      picture: null,
+    }),
   });
 
   assert.equal(response.status, 200);
@@ -129,6 +135,44 @@ test("handleGetItinerary returns the itinerary when it exists", async () => {
   };
   assert.equal(payload.itinerary.id, "it_test");
   assert.equal(payload.map.missing_geometry_count, 0);
+});
+
+test("handleGetItinerary requires auth for account-owned itineraries", async () => {
+  const response = await handleGetItinerary("it_test", {
+    getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+    deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => null,
+  });
+
+  assert.equal(response.status, 401);
+});
+
+test("handleGetItinerary rejects users who do not own a saved itinerary", async () => {
+  const response = await handleGetItinerary("it_test", {
+    getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+    deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => ({
+      uid: "uid_other",
+      email: "other@example.com",
+      name: "Other",
+      picture: null,
+    }),
+  });
+
+  assert.equal(response.status, 403);
+});
+
+test("handleGetItinerary allows guest itineraries without auth", async () => {
+  const response = await handleGetItinerary("it_test", {
+    getItinerary: async () => makeItinerary({ user_id: null }),
+    deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => null,
+  });
+
+  assert.equal(response.status, 200);
 });
 
 test("handleDeleteItinerary requires an authenticated user", async () => {
@@ -220,7 +264,7 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
     "it_test",
     makeRequest({ total_budget: 30000 }),
     {
-      getItinerary: async () => makeItinerary(),
+      getItinerary: async () => makeItinerary({ user_id: null }),
       deleteItinerary: async () => {},
       saveItinerary: async () => {
         saveCalls += 1;
@@ -290,7 +334,7 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
         ],
         warnings: [],
       }),
-      resolveUserIdFromRequest: async () => null,
+      resolveUserIdFromRequest: async () => "uid_owner",
     },
   );
 
@@ -300,6 +344,27 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   };
   assert.equal(payload.preview.direction, "downgrade");
   assert.ok(payload.preview.impacts.some((impact) => impact.id === "stays"));
+  assert.equal(saveCalls, 0);
+});
+
+test("handleUpdateItineraryBudget rejects preview for non-owners on saved itineraries", async () => {
+  let saveCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 30000 }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {
+        saveCalls += 1;
+      },
+      getItineraryMapData: async () => makeMapData(),
+      resolveUserIdFromRequest: async () => "uid_other",
+    },
+  );
+
+  assert.equal(response.status, 403);
   assert.equal(saveCalls, 0);
 });
 

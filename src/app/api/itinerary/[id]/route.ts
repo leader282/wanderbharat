@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
+import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import { validateBudget } from "@/lib/itinerary/constraints";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
@@ -93,6 +94,7 @@ const defaultDependencies: ItineraryRouteDependencies = {
 export async function handleGetItinerary(
   id: string,
   deps: ItineraryRouteDependencies = defaultDependencies,
+  request?: Request,
 ) {
   if (!id) {
     return NextResponse.json(
@@ -109,6 +111,42 @@ export async function handleGetItinerary(
         { status: 404 },
       );
     }
+
+    if (itinerary.user_id) {
+      const resolveUserIdFromRequest =
+        deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
+      const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
+      let requesterUserId: string | null = null;
+      try {
+        requesterUserId = request
+          ? await resolveUserIdFromRequest(request)
+          : ((await resolveCurrentUser())?.uid ?? null);
+      } catch {
+        requesterUserId = null;
+      }
+
+      if (!requesterUserId) {
+        return NextResponse.json(
+          { error: "unauthorized", message: "Sign in to view saved itineraries." },
+          { status: 401 },
+        );
+      }
+      if (
+        !canAccessItinerary({
+          itineraryUserId: itinerary.user_id,
+          requesterUserId,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: "forbidden",
+            message: "You can only view itineraries saved to your account.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const map = await deps.getItineraryMapData(itinerary);
     const payload: ItineraryDetail = { itinerary, map };
     return NextResponse.json(payload);
@@ -215,7 +253,7 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  if (parsed.data.apply && existingItinerary.user_id) {
+  if (existingItinerary.user_id) {
     const resolveUserIdFromRequest =
       deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
     let requesterUserId: string | null = null;
@@ -235,7 +273,12 @@ export async function handleUpdateItineraryBudget(
       );
     }
 
-    if (requesterUserId !== existingItinerary.user_id) {
+    if (
+      !canAccessItinerary({
+        itineraryUserId: existingItinerary.user_id,
+        requesterUserId,
+      })
+    ) {
       return NextResponse.json(
         {
           error: "forbidden",
@@ -385,11 +428,11 @@ export async function handleUpdateItineraryBudget(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  return handleGetItinerary(id);
+  return handleGetItinerary(id, defaultDependencies, request);
 }
 
 export async function PATCH(

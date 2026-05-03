@@ -103,6 +103,8 @@ function makeAdmissionRule(args: {
   currency?: string;
   sourceType?: AttractionAdmissionRule["source_type"];
   confidence?: AttractionAdmissionRule["confidence"];
+  validFrom?: AttractionAdmissionRule["valid_from"];
+  validUntil?: AttractionAdmissionRule["valid_until"];
 }): AttractionAdmissionRule {
   return {
     id: args.id,
@@ -115,6 +117,8 @@ function makeAdmissionRule(args: {
     source_type: args.sourceType ?? "manual",
     confidence:
       args.confidence ?? (args.amount === null ? "unknown" : "verified"),
+    valid_from: args.validFrom ?? null,
+    valid_until: args.validUntil ?? null,
     data_version: 2,
   };
 }
@@ -860,6 +864,59 @@ test("generateItinerary excludes mismatched-currency admission rules and warns",
         warning.includes("INR"),
     ),
     "expected a currency-mismatch warning that names both currencies",
+  );
+});
+
+test("generateItinerary does not apply admission rules outside their validity window", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const attraction = makeAttraction({
+    id: "attr_expired_rule",
+    name: "Seasonal Fort",
+    cityId: end.id,
+    admissionRules: [
+      makeAdmissionRule({
+        id: "adm_expired",
+        attractionNodeId: "attr_expired_rule",
+        amount: 300,
+        confidence: "verified",
+        validFrom: "2026-01-01",
+        validUntil: "2026-01-31",
+      }),
+    ],
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000, currency: "INR" },
+        travellers: { adults: 2, children: 0 },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, attraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [attraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.itinerary.budget_breakdown?.attractionSubtotal, 0);
+  assert.equal(result.itinerary.budget_breakdown?.unknownAttractionCostsCount, 1);
+  assert.equal(
+    result.itinerary.budget_breakdown?.line_items.some(
+      (item) => item.kind === "attraction",
+    ),
+    false,
   );
 });
 

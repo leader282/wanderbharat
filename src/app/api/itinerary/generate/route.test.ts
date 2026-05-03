@@ -23,7 +23,7 @@ function makeItinerary(): Itinerary {
     preferences: {
       travel_style: "balanced",
       budget: { min: 0, max: 50000 },
-      trip_start_date: "2026-10-20",
+      trip_start_date: "2099-10-20",
       travellers: {
         adults: 2,
         children: 0,
@@ -85,7 +85,7 @@ const validBody = {
   preferences: {
     travel_style: "balanced" as const,
     budget: { min: 0, max: 50000 },
-    trip_start_date: "2026-10-20",
+    trip_start_date: "2099-10-20",
     travellers: {
       adults: 2,
       children: 0,

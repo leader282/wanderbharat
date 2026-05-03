@@ -19,6 +19,9 @@ import {
 } from "@/lib/repositories/dataQualityRepository";
 import { listByAttractionIds } from "@/lib/repositories/attractionAdmissionRepository";
 import { getAttractionOpeningHoursByAttractionIds } from "@/lib/repositories/attractionHoursRepository";
+import { listHotelOfferSnapshots } from "@/lib/repositories/hotelOfferSnapshotRepository";
+import { listProviderCallLogs } from "@/lib/repositories/providerCallLogRepository";
+import type { HotelOfferSnapshot, ProviderCallLog } from "@/lib/providers/hotels/types";
 
 const SCANNER_MANAGED_CODES = new Set<DataQualityIssueCode>([
   "mock_data_present",
@@ -26,6 +29,8 @@ const SCANNER_MANAGED_CODES = new Set<DataQualityIssueCode>([
   "missing_opening_hours",
   "missing_admission_cost",
   "duplicate_place",
+  "liteapi_error",
+  "no_hotel_rates",
   "route_edge_missing",
 ]);
 
@@ -43,6 +48,8 @@ export interface DataQualityScanDependencies {
     attractionIds: string[],
   ) => Promise<AttractionAdmissionRule[]>;
   listOpenIssues?: () => Promise<DataQualityIssue[]>;
+  listHotelOfferSnapshots?: () => Promise<HotelOfferSnapshot[]>;
+  listProviderCallLogs?: () => Promise<ProviderCallLog[]>;
   createIssue?: (
     issue: CreateDataQualityIssueInput,
   ) => Promise<DataQualityIssue>;
@@ -75,16 +82,25 @@ export async function runDataQualityScan(
   const listOpenIssuesFn =
     deps.listOpenIssues ??
     (() => listOpenIssues({ status: "open", limit: 2_000 }));
+  const listHotelOfferSnapshotsFn =
+    deps.listHotelOfferSnapshots ??
+    (() => listHotelOfferSnapshots({ limit: 500 }));
+  const listProviderCallLogsFn =
+    deps.listProviderCallLogs ??
+    (() => listProviderCallLogs({ provider: "liteapi", limit: 500 }));
   const createIssueFn = deps.createIssue ?? createIssue;
   const resolveIssueFn = deps.resolveIssue ?? resolveIssue;
   const nowMs = deps.nowMs ?? (() => Date.now());
   const resolvedBy = (options.resolvedBy ?? "data_quality_scanner").trim();
 
-  const [nodes, edges, currentlyOpenIssues] = await Promise.all([
+  const [nodes, edges, currentlyOpenIssues, hotelOfferSnapshots, providerCallLogs] =
+    await Promise.all([
     listNodesFn(),
     listEdgesFn(),
     listOpenIssuesFn(),
-  ]);
+      listHotelOfferSnapshotsFn(),
+      listProviderCallLogsFn(),
+    ]);
 
   const attractions = nodes.filter((node) => node.type === "attraction");
   const attractionIds = attractions.map((attraction) => attraction.id);
@@ -103,8 +119,6 @@ export async function runDataQualityScan(
   }
   const generated = new Map<string, CreateDataQualityIssueInput>();
 
-  // Hotel-rate quality checks are intentionally deferred until LiteAPI
-  // snapshot persistence lands in the next phase.
   for (const issue of [
     ...buildMockDataIssues(nodes),
     ...buildAttractionCoverageIssues(
@@ -114,6 +128,7 @@ export async function runDataQualityScan(
     ),
     ...buildDuplicatePlaceIssues(attractions),
     ...buildRouteEdgeIssues(edges),
+    ...buildHotelRateIssues(hotelOfferSnapshots, providerCallLogs),
   ]) {
     generated.set(issue.id, issue);
   }
@@ -323,6 +338,115 @@ function buildRouteEdgeIssues(edges: GraphEdge[]): CreateDataQualityIssueInput[]
         from: edge.from,
         to: edge.to,
         missing_fields: missingFields,
+      },
+    });
+  }
+
+  return issues;
+}
+
+function buildHotelRateIssues(
+  offerSnapshots: HotelOfferSnapshot[],
+  providerCallLogs: ProviderCallLog[],
+): CreateDataQualityIssueInput[] {
+  const issues: CreateDataQualityIssueInput[] = [];
+
+  const latestOfferByNode = new Map<string, HotelOfferSnapshot>();
+  for (const snapshot of offerSnapshots) {
+    if (snapshot.provider !== "liteapi") continue;
+    const nodeId = normaliseString(snapshot.node_id);
+    if (!nodeId) continue;
+    const existing = latestOfferByNode.get(nodeId);
+    if (!existing || snapshot.fetched_at > existing.fetched_at) {
+      latestOfferByNode.set(nodeId, snapshot);
+    }
+  }
+
+  for (const [nodeId, snapshot] of latestOfferByNode.entries()) {
+    const hasNoRates =
+      snapshot.status !== "error" &&
+      snapshot.result_count <= 0 &&
+      snapshot.offers.length === 0;
+    if (hasNoRates) {
+      issues.push({
+        id: buildIssueId("no_hotel_rates", "hotel", nodeId),
+        entity_type: "hotel",
+        entity_id: nodeId,
+        severity: "warning",
+        code: "no_hotel_rates",
+        message: `No hotel rates are available for city node "${nodeId}" in the latest LiteAPI snapshot.`,
+        details: {
+          snapshot_id: snapshot.id,
+          status: snapshot.status,
+          region: snapshot.region,
+          fetched_at: snapshot.fetched_at,
+        },
+      });
+    }
+
+    if (snapshot.status === "error") {
+      const errorCode = normaliseString(snapshot.error_code) ?? "provider_error";
+      issues.push({
+        id: buildIssueId("liteapi_error", "provider_call", nodeId),
+        entity_type: "provider_call",
+        entity_id: nodeId,
+        severity: "critical",
+        code: "liteapi_error",
+        message: `Latest LiteAPI rate snapshot for "${nodeId}" failed (${errorCode}).`,
+        details: {
+          snapshot_id: snapshot.id,
+          status: snapshot.status,
+          error_code: snapshot.error_code ?? null,
+          error_message: snapshot.error_message ?? null,
+          fetched_at: snapshot.fetched_at,
+        },
+      });
+    }
+  }
+
+  const latestLogsByTarget = new Map<string, ProviderCallLog>();
+  for (const log of providerCallLogs) {
+    if (log.provider !== "liteapi") continue;
+    const endpoint = normaliseString(log.endpoint);
+    if (!endpoint) continue;
+    const nodeId = normaliseString(log.node_id);
+    const region = normaliseString(log.region) ?? "global";
+    const key = nodeId ? `${nodeId}:${endpoint}` : `${region}:${endpoint}`;
+    const existing = latestLogsByTarget.get(key);
+    if (!existing || log.created_at > existing.created_at) {
+      latestLogsByTarget.set(key, log);
+    }
+  }
+
+  for (const log of latestLogsByTarget.values()) {
+    if (
+      log.status !== "error" &&
+      log.status !== "timeout" &&
+      log.status !== "disabled"
+    ) {
+      continue;
+    }
+    const endpoint = normaliseString(log.endpoint) ?? "unknown_endpoint";
+    const nodeId = normaliseString(log.node_id);
+    const region = normaliseString(log.region) ?? "global";
+    const issueEntityId = nodeId ?? `${region}:${endpoint}`;
+    const errorCode = normaliseString(log.error_code) ?? log.status;
+    const targetLabel = nodeId ?? `${region} (${endpoint})`;
+
+    issues.push({
+      id: buildIssueId("liteapi_error", "provider_call", issueEntityId),
+      entity_type: "provider_call",
+      entity_id: issueEntityId,
+      severity: "critical",
+      code: "liteapi_error",
+      message: `Latest LiteAPI call for "${targetLabel}" failed (${errorCode}).`,
+      details: {
+        provider_call_log_id: log.id,
+        endpoint,
+        status: log.status,
+        error_code: log.error_code ?? null,
+        error_message: log.error_message ?? null,
+        created_at: log.created_at,
       },
     });
   }

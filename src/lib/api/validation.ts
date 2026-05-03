@@ -108,6 +108,15 @@ const generateItineraryPreferencesSchema = z
           "accommodation_preference and accommodationPreference must match.",
       });
     }
+
+    const tripStartDateMs = localDateToUtcMs(preferences.trip_start_date);
+    if (tripStartDateMs !== null && tripStartDateMs < currentUtcMidnightMs()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["trip_start_date"],
+        message: "trip_start_date must not be in the past.",
+      });
+    }
   })
   .transform(
     ({
@@ -204,4 +213,18 @@ function addDaysToLocalDate(
   const candidate = new Date(Date.UTC(year, month - 1, day));
   candidate.setUTCDate(candidate.getUTCDate() + daysToAdd);
   return candidate.toISOString().slice(0, 10);
+}
+
+function localDateToUtcMs(dateString: string): number | null {
+  if (!isValidLocalDate(dateString)) return null;
+  const [yearRaw, monthRaw, dayRaw] = dateString.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  return Date.UTC(year, month - 1, day);
+}
+
+function currentUtcMidnightMs(): number {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }

@@ -1848,7 +1848,7 @@ function selectBestAdmissionRule(args: {
   const datedRules = dayDate
     ? args.rules.filter((rule) => isRuleValidOnDate(rule, dayDate))
     : args.rules;
-  const candidates = datedRules.length > 0 ? datedRules : args.rules;
+  const candidates = dayDate ? datedRules : args.rules;
 
   // Prefer non-student rules — student pricing is opt-in and we don't yet
   // model a student flag on TravellerComposition. Within that, prefer an
