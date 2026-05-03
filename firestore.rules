@@ -6,7 +6,10 @@ rules_version = '2';
 //   reference data.
 // - `itineraries` are readable by their owner (anonymous itineraries are
 //   readable by anyone with the id).
-// - `users` are readable/writable by the owner only.
+// - `users` are self-readable but server-write only. This is critical:
+//   the user doc carries the `role` field consumed by requireAdminUser(),
+//   so allowing client writes would let any signed-in account self-promote
+//   to admin via the Firebase SDK.
 //
 // All writes are server-only: the admin SDK bypasses these rules entirely,
 // so the API routes + seed scripts can mutate every collection regardless
@@ -40,7 +43,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
   }
 }
