@@ -128,11 +128,13 @@ Run seed scripts in deterministic order:
 ```bash
 npx tsx scripts/seedNodes.ts --region rajasthan
 npx tsx scripts/seedAttractions.ts --region rajasthan
+npx tsx scripts/seedAttractionHours.ts --region rajasthan
+npx tsx scripts/seedAttractionAdmissions.ts --region rajasthan
 npx tsx scripts/seedEdges.ts --region rajasthan
 npx tsx scripts/seedAccommodations.ts --region rajasthan
 ```
 
-Attractions are seeded before edges so that any optional `seedEdges --use-google` enrichment has full node coverage.
+Rajasthan now seeds curated attraction records directly from `scripts/data/rajasthan.ts`, so the baseline reseed does not require live Google calls. `seedEdges --use-google` remains optional for route refreshes.
 
 ## 5) Run Data Quality Scan
 
@@ -156,3 +158,9 @@ The scan auto-resolves any orphan `data_quality_issues` left behind by the purge
 npm run typecheck
 npm test
 ```
+
+## 7) Continue Manual Attraction Verification
+
+Use the admin verification playbook after reseed to fill remaining unknowns:
+
+- [Rajasthan attraction verification workflow](./rajasthan-attraction-verification.md)

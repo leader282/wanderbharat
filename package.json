@@ -17,10 +17,12 @@
     "ci": "npm run lint && npm run typecheck && npm test",
     "db:purge": "tsx scripts/purge.ts",
     "seed:nodes": "tsx scripts/seedNodes.ts",
-    "seed:edges": "tsx scripts/seedEdges.ts",
     "seed:attractions": "tsx scripts/seedAttractions.ts",
+    "seed:attraction-hours": "tsx scripts/seedAttractionHours.ts",
+    "seed:attraction-admissions": "tsx scripts/seedAttractionAdmissions.ts",
+    "seed:edges": "tsx scripts/seedEdges.ts",
     "seed:accommodations": "tsx scripts/seedAccommodations.ts",
-    "seed:all": "tsx scripts/seedNodes.ts --all && tsx scripts/seedEdges.ts --all && tsx scripts/seedAttractions.ts --all && tsx scripts/seedAccommodations.ts --all"
+    "seed:all": "tsx scripts/seedNodes.ts --all && tsx scripts/seedAttractions.ts --all && tsx scripts/seedAttractionHours.ts --all && tsx scripts/seedAttractionAdmissions.ts --all && tsx scripts/seedEdges.ts --all && tsx scripts/seedAccommodations.ts --all"
   },
   "dependencies": {
     "firebase": "^12.12.1",

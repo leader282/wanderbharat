@@ -74,10 +74,12 @@ scripts/
   data/gujarat.ts                   SEED DATA — default-exports a SeedDataset
   data/himachal.ts                  SEED DATA — default-exports a SeedDataset
   _regions.ts                       Resolves --region / --regions / --all into a slug list
-  purge.ts                          Wipes nodes/edges/regions/itineraries
+  purge.ts                          Safe scoped purge with dry-run safeguards
   seedNodes.ts                      Seeds `nodes` (cities) + `regions` summary
+  seedAttractions.ts                Seeds `nodes` (type=attraction) from curated data or Places fallback
+  seedAttractionHours.ts            Seeds `attraction_hours`
+  seedAttractionAdmissions.ts       Seeds `attraction_admissions`
   seedEdges.ts                      Seeds `edges` (road/train/flight network)
-  seedAttractions.ts                Seeds `nodes` (type=attraction) via Places
 ```
 
 ---
@@ -113,11 +115,8 @@ NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=...          # optional; falls back to DEMO_MAP_I
 Three regions ship out of the box: **rajasthan**, **gujarat**, **himachal**.
 
 ```bash
-# (optional) wipe seed collections first — destructive, requires --yes.
-# Skip --region to purge every region; pass --keep-itineraries to only
-# wipe nodes/edges/regions and leave generated trips alone.
-npm run db:purge -- --yes
-npm run db:purge -- --region rajasthan --yes
+# (optional) preview the Rajasthan purge scope safely:
+npm run db:purge -- --regions=rajasthan --dry-run
 
 # Seed everything (every dataset under scripts/data/) in one go:
 npm run seed:all
@@ -125,7 +124,11 @@ npm run seed:all
 # …or one collection at a time. Region selection is required — pass
 # --all / --regions / --region (plus optional --dry-run):
 npm run seed:nodes        -- --all
+npm run seed:attractions  -- --region rajasthan
+npm run seed:attraction-hours -- --region rajasthan
+npm run seed:attraction-admissions -- --region rajasthan
 npm run seed:edges        -- --regions gujarat,himachal
+# Places fallback mode for datasets that do not define curated attractions():
 npm run seed:attractions  -- --region himachal --per-city 8     # needs GOOGLE_MAPS_API_KEY
 ```
 

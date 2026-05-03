@@ -8,10 +8,14 @@ import { mapLimit } from "@/lib/utils/concurrency";
 import type { GraphNode, PreferenceTag } from "@/types/domain";
 
 /**
- * Seed the `nodes` collection with `attraction` records for each city in
- * one or more regions. Uses the generic Places Text Search service; no
- * region-specific logic lives here. Each dataset's `placesQueries()`
- * supplies the query list + center for every city.
+ * Seed the `nodes` collection with `attraction` records for one or more
+ * regions.
+ *
+ * Preferred path: deterministic curated records via each dataset's optional
+ * `attractions()` factory (no live API calls needed).
+ *
+ * Fallback path: Google Places Text Search via `placesQueries()` for datasets
+ * that still rely on provider discovery.
  *
  * Usage:
  *   npx tsx scripts/seedAttractions.ts --region rajasthan
@@ -20,8 +24,8 @@ import type { GraphNode, PreferenceTag } from "@/types/domain";
  *   npx tsx scripts/seedAttractions.ts --all --concurrency 6
  *   npx tsx scripts/seedAttractions.ts --region rajasthan --dry-run
  *
- * Datasets without a `placesQueries()` factory are skipped with a warning
- * rather than failing the whole run, so `--all` keeps moving.
+ * Datasets without both `attractions()` and `placesQueries()` are skipped with
+ * a warning rather than failing the whole run, so `--all` keeps moving.
  */
 
 async function main() {
@@ -34,15 +38,7 @@ async function main() {
     Math.min(200_000, Number(args["radius-m"] ?? 35_000)),
   );
 
-  if (!process.env.GOOGLE_MAPS_API_KEY) {
-    throw new Error(
-      "GOOGLE_MAPS_API_KEY is required for attraction seeding. Set it in .env.local.",
-    );
-  }
-
   const regions = resolveRegions(args);
-
-  const { fetchPlacesByQuery } = await import("@/lib/services/placesService");
 
   console.log(
     `[seedAttractions] regions=${regions.join(",")} dryRun=${dryRun} perCity=${perCity} concurrency=${concurrency} radius_m=${radius_m}`,
@@ -51,14 +47,38 @@ async function main() {
   let totalAttractions = 0;
   for (const region of regions) {
     const dataset = await loadDataset(region);
+
+    const curatedAttractions = dataset.attractions?.() ?? [];
+    if (curatedAttractions.length > 0) {
+      console.log(
+        `[seedAttractions] ${region}: using curated dataset attractions (${curatedAttractions.length})`,
+      );
+      totalAttractions += curatedAttractions.length;
+
+      if (dryRun) {
+        console.log(JSON.stringify(curatedAttractions.slice(0, 5), null, 2));
+        console.log(`...and ${Math.max(0, curatedAttractions.length - 5)} more`);
+      } else {
+        await upsertAttractions(curatedAttractions);
+      }
+      continue;
+    }
+
     const queries = dataset.placesQueries?.() ?? [];
     if (queries.length === 0) {
       console.warn(
-        `[seedAttractions] ${region}: dataset does not expose placesQueries() — skipping.`,
+        `[seedAttractions] ${region}: dataset exposes neither attractions() nor placesQueries() - skipping.`,
       );
       continue;
     }
 
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      throw new Error(
+        `[seedAttractions] ${region}: GOOGLE_MAPS_API_KEY is required when using placesQueries(). Set it in .env.local or add curated attractions() to the dataset.`,
+      );
+    }
+
+    const { fetchPlacesByQuery } = await import("@/lib/services/placesService");
     const perCityResults = await mapLimit(queries, concurrency, async (q) => {
       console.log(`[seedAttractions] ${region}/${q.city_id}: "${q.query}"`);
       const results = await fetchPlacesByQuery({
@@ -88,23 +108,28 @@ async function main() {
 
     if (dryRun) {
       console.log(JSON.stringify(attractions.slice(0, 5), null, 2));
-      console.log(`…and ${Math.max(0, attractions.length - 5)} more`);
+      console.log(`...and ${Math.max(0, attractions.length - 5)} more`);
       continue;
     }
 
-    const { upsertNodes } = await import("@/lib/repositories/nodeRepository");
-    await upsertNodes(attractions);
+    await upsertAttractions(attractions);
   }
 
   if (!dryRun) {
     console.log(
-      `[seedAttractions] done — upserted ${totalAttractions} attractions across ${regions.length} region${regions.length === 1 ? "" : "s"}.`,
+      `[seedAttractions] done - upserted ${totalAttractions} attractions across ${regions.length} region${regions.length === 1 ? "" : "s"}.`,
     );
   }
 }
 
+async function upsertAttractions(attractions: GraphNode[]): Promise<void> {
+  if (attractions.length === 0) return;
+  const { upsertNodes } = await import("@/lib/repositories/nodeRepository");
+  await upsertNodes(attractions);
+}
+
 /**
- * Map Google Places `types` to our preference tags. Purely heuristic — the
+ * Map Google Places `types` to our preference tags. Purely heuristic - the
  * point of tags is to let scoring + UI filters bite on seed data. Override
  * per-region by customising a dataset's cities' `tags`.
  */
