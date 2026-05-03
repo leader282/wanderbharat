@@ -18,6 +18,10 @@ export interface BudgetPanelState {
   lineItems: ItineraryBudgetLineItem[];
   hasStaySubtotal: boolean;
   lodgingSubtotal: number;
+  lodgingRateState: ItineraryBudgetBreakdown["lodgingRateState"];
+  lodgingLastCheckedAt: number | null;
+  unknownLodgingStaysCount: number;
+  hasUnknownLodgingCosts: boolean;
   hasTravelSubtotal: boolean;
   travelSubtotal: number;
   hasAttractionSubtotal: boolean;
@@ -73,6 +77,17 @@ export function deriveBudgetPanelState(args: {
   const lodgingSubtotal = hasStaySubtotal
     ? args.breakdown?.lodgingSubtotal ?? sumBudgetLineItemsByKind(lineItems, "stay")
     : 0;
+  const lodgingRateState = args.breakdown?.lodgingRateState ?? "lodging_unknown";
+  const lodgingLastCheckedAt =
+    Number.isFinite(args.breakdown?.lodgingLastCheckedAt) &&
+    Number(args.breakdown?.lodgingLastCheckedAt) > 0
+      ? Math.round(Number(args.breakdown?.lodgingLastCheckedAt))
+      : null;
+  const unknownLodgingStaysCount = normaliseCount(
+    args.breakdown?.unknownLodgingStaysCount,
+    lodgingRateState === "lodging_unknown" && hasStaySubtotal ? 1 : 0,
+  );
+  const hasUnknownLodgingCosts = unknownLodgingStaysCount > 0;
   const hasTravelSubtotal =
     args.breakdown?.travelSubtotal !== undefined ||
     lineItems.some((item) => item.kind === "travel");
@@ -91,6 +106,10 @@ export function deriveBudgetPanelState(args: {
     lineItems,
     hasStaySubtotal,
     lodgingSubtotal,
+    lodgingRateState,
+    lodgingLastCheckedAt,
+    unknownLodgingStaysCount,
+    hasUnknownLodgingCosts,
     hasTravelSubtotal,
     travelSubtotal,
     hasAttractionSubtotal,
@@ -121,6 +140,8 @@ export function describeBudgetBreakdown(
   state: Pick<
     BudgetPanelState,
     | "hasDetailedBreakdown"
+    | "lodgingRateState"
+    | "unknownLodgingStaysCount"
     | "hasTravelSubtotal"
     | "travelSubtotal"
     | "hasAttractionSubtotal"
@@ -137,7 +158,17 @@ export function describeBudgetBreakdown(
     return "This saved itinerary predates the newer line-item breakdown, so the total estimate is still valid even though the detailed split is limited.";
   }
 
+  const lodgingSentence =
+    state.lodgingRateState === "lodging_live"
+      ? "Hotel rates are live for this itinerary."
+      : state.lodgingRateState === "lodging_cached"
+        ? "Hotel rates are cached from a recent snapshot."
+        : state.unknownLodgingStaysCount > 0
+          ? `Hotel rates are unavailable for ${state.unknownLodgingStaysCount} stay ${state.unknownLodgingStaysCount === 1 ? "block" : "blocks"}.`
+          : "Hotel rates are currently unavailable.";
+
   return [
+    lodgingSentence,
     state.hasTravelSubtotal
       ? `Travel comes to ${formatMoney(state.travelSubtotal)}.`
       : "Travel is not itemised separately in this saved itinerary.",

@@ -9,7 +9,16 @@ import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommo
 import { validateBudget } from "@/lib/itinerary/constraints";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
+import { LiteApiHotelDataProvider } from "@/lib/providers/hotels/liteApiHotelDataProvider";
 import { getByNode } from "@/lib/repositories/accommodationRepository";
+import {
+  findLatestHotelOfferSnapshotByCacheKey,
+  saveHotelOfferSnapshot,
+} from "@/lib/repositories/hotelOfferSnapshotRepository";
+import {
+  findLatestHotelSearchSnapshotByQueryKey,
+  saveHotelSearchSnapshot,
+} from "@/lib/repositories/hotelSearchSnapshotRepository";
 import {
   deleteItinerary,
   getItinerary,
@@ -19,7 +28,12 @@ import {
   getItineraryMapData,
   precacheItineraryRouteGeometry,
 } from "@/lib/services/itineraryMapService";
-import type { Itinerary, ItineraryDetail, TransportMode } from "@/types/domain";
+import type {
+  Coordinates,
+  Itinerary,
+  ItineraryDetail,
+  TransportMode,
+} from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +60,12 @@ async function defaultPlanAccommodations(
 ) {
   return runAccommodationPlanner(input, {
     getByNode,
+    hotelDataProvider: new LiteApiHotelDataProvider(),
+    findLatestHotelSearchSnapshotByQueryKey,
+    saveHotelSearchSnapshot,
+    findLatestHotelOfferSnapshotByCacheKey,
+    saveHotelOfferSnapshot,
+    maxHotelProviderCalls: 6,
   });
 }
 
@@ -288,6 +308,9 @@ export async function handleUpdateItineraryBudget(
       travelStyle: input.preferences.travel_style,
       accommodationPreference: input.preferences.accommodation_preference,
       interests: input.preferences.interests,
+      tripStartDate: input.preferences.trip_start_date,
+      region: hydratedItinerary.region,
+      cityLocationsByNodeId: buildCityLocationsByNodeId(ctx.nodes),
     });
     hydratedItinerary = integrateAccommodationPlanIntoItinerary({
       itinerary: hydratedItinerary,
@@ -404,4 +427,14 @@ async function defaultResolveUserIdFromRequest(
   } catch {
     return null;
   }
+}
+
+function buildCityLocationsByNodeId(
+  nodes: Array<{ id: string; location: Coordinates }>,
+): Record<string, Coordinates> {
+  const locationsByNodeId: Record<string, Coordinates> = {};
+  for (const node of nodes) {
+    locationsByNodeId[node.id] = node.location;
+  }
+  return locationsByNodeId;
 }

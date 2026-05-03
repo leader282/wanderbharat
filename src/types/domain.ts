@@ -569,6 +569,9 @@ export interface ItineraryBudgetLineItem {
 export interface ItineraryBudgetBreakdown {
   line_items: ItineraryBudgetLineItem[];
   lodgingSubtotal?: number;
+  lodgingRateState?: LodgingRateState;
+  lodgingLastCheckedAt?: number | null;
+  unknownLodgingStaysCount?: number;
   travelSubtotal?: number;
   attractionSubtotal?: number;
   verifiedAttractionCostsCount?: number;
@@ -752,15 +755,61 @@ export interface StayRoomAllocationSummary {
   rooms: StayRoomSelection[];
 }
 
+export const LODGING_RATE_STATES = [
+  "lodging_live",
+  "lodging_cached",
+  "lodging_unknown",
+] as const;
+export type LodgingRateState = (typeof LODGING_RATE_STATES)[number];
+
+export interface StayHotelRateOption {
+  provider: "liteapi";
+  provider_hotel_id: string;
+  hotel_name: string;
+  room_type_id: string;
+  room_name: string;
+  board_name?: string | null;
+  refundable_tag?: string | null;
+  currency: string;
+  nightly_amount: number | null;
+  total_amount: number | null;
+  source_type: "liteapi";
+  confidence: DataConfidence;
+  fetched_at?: number | null;
+  expires_at?: number | null;
+  search_snapshot_id?: string | null;
+  offer_snapshot_id?: string | null;
+  address?: string | null;
+  star_rating?: number | null;
+  guest_rating?: number | null;
+  review_count?: number | null;
+  distance_from_anchor_km?: number | null;
+}
+
 export interface StayAssignment {
   nodeId: string;
   startDay: number;
   endDay: number;
   nights: number;
   accommodationId: string | null;
-  nightlyCost: number;
-  totalCost: number;
+  nightlyCost: number | null;
+  totalCost: number | null;
   roomAllocation?: StayRoomAllocationSummary;
+  hotelRateStatus?: "live" | "cached" | "unknown";
+  hotelRateUnavailableReason?:
+    | "provider_disabled"
+    | "provider_timeout"
+    | "provider_error"
+    | "no_rates"
+    | "no_hotels"
+    | "call_limit_exceeded"
+    | "missing_anchor"
+    | "missing_trip_start_date";
+  hotelRateLastCheckedAt?: number | null;
+  hotelSearchSnapshotId?: string | null;
+  hotelOfferSnapshotId?: string | null;
+  hotelRateOptions?: StayHotelRateOption[];
+  selectedHotelRateOptionIndex?: number | null;
 }
 
 /** Full itinerary — persisted to Firestore as-is. */

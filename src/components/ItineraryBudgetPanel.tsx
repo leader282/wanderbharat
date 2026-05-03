@@ -60,6 +60,10 @@ export default function ItineraryBudgetPanel({
     hasAttractionSubtotal,
     hasStaySubtotal,
     hasUnknownAttractionCosts,
+    hasUnknownLodgingCosts,
+    lodgingLastCheckedAt,
+    lodgingRateState,
+    unknownLodgingStaysCount,
     lineItems,
     lodgingSubtotal,
     unknownAttractionCostsCount,
@@ -69,6 +73,17 @@ export default function ItineraryBudgetPanel({
     verifiedAttractionCostsCount,
   } = budgetState;
   const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
+  const lodgingLastCheckedLabel = useMemo(() => {
+    if (!lodgingLastCheckedAt) return null;
+    try {
+      return new Date(lodgingLastCheckedAt).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return null;
+    }
+  }, [lodgingLastCheckedAt]);
 
   const parsedBudget =
     enteredBudget.trim() === "" ? null : Number(enteredBudget);
@@ -153,13 +168,18 @@ export default function ItineraryBudgetPanel({
           How your budget breaks down
         </h2>
         <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
-          We cost this route, travel, and stays at{" "}
+          {hasUnknownLodgingCosts
+            ? "Known costs for this route currently total "
+            : "We cost this route, travel, and stays at "}
           <span className="font-semibold text-[var(--color-ink-900)]">
             {formatMoney(totalTripCost)}
           </span>{" "}
-          total for {travellerLabel}. Your requested budget is{" "}
+          {hasUnknownLodgingCosts
+            ? `for ${travellerLabel}, excluding unavailable hotel rates.`
+            : `total for ${travellerLabel}.`}{" "}
+          Your requested budget is{" "}
           {formatMoney(requestedBudget.max)}.
-          {recommendedBudget && (
+          {recommendedBudget && !hasUnknownLodgingCosts && (
             <>
               {" "}
               For this exact route, a comfortable range is{" "}
@@ -176,12 +196,18 @@ export default function ItineraryBudgetPanel({
           value={formatMoney(requestedBudget.max)}
         />
         <BudgetStat
-          label="Estimated total cost"
+          label={hasUnknownLodgingCosts ? "Known cost so far" : "Estimated total cost"}
           value={formatMoney(totalTripCost)}
         />
         <BudgetStat
-          label="Stay subtotal"
-          value={hasStaySubtotal ? formatMoney(lodgingSubtotal) : "Not itemised"}
+          label={hasUnknownLodgingCosts ? "Known stay subtotal" : "Stay subtotal"}
+          value={
+            hasUnknownLodgingCosts && lodgingSubtotal <= 0
+              ? "Rates unavailable"
+              : hasStaySubtotal
+                ? formatMoney(lodgingSubtotal)
+                : "Not itemised"
+          }
         />
         <BudgetStat
           label="Attraction subtotal"
@@ -197,6 +223,21 @@ export default function ItineraryBudgetPanel({
 
       <p className="mt-3 text-sm text-[var(--color-ink-500)]">
         {describeBudgetBreakdown(budgetState, formatMoney)}
+      </p>
+      <p className="mt-2 text-sm text-[var(--color-ink-500)]">
+        {lodgingRateState === "lodging_live"
+          ? "Hotel rates are live for this itinerary."
+          : lodgingRateState === "lodging_cached"
+            ? "Hotel rates come from cached snapshots."
+            : unknownLodgingStaysCount > 0
+              ? `Hotel rates are unavailable for ${unknownLodgingStaysCount} stay ${unknownLodgingStaysCount === 1 ? "block" : "blocks"}.`
+              : "Hotel rates are currently unavailable."}
+        {lodgingLastCheckedLabel
+          ? ` Last checked: ${lodgingLastCheckedLabel}.`
+          : ""}
+      </p>
+      <p className="mt-1 text-sm text-amber-700">
+        Hotel prices may change. Booking is disabled in this prototype.
       </p>
       {verifiedAttractionCostsCount +
         estimatedAttractionCostsCount +

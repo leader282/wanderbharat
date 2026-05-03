@@ -8,13 +8,19 @@ import type {
 import { deriveOptimalBudget } from "@/lib/itinerary/budget";
 
 export function computeLodgingSubtotal(stays: StayAssignment[]): number {
-  return roundCurrency(stays.reduce((sum, stay) => sum + stay.totalCost, 0));
+  return roundCurrency(
+    stays.reduce((sum, stay) => {
+      if (!isFiniteAmount(stay.totalCost)) return sum;
+      return sum + stay.totalCost;
+    }, 0),
+  );
 }
 
 export function computeNightlyAverage(stays: StayAssignment[]): number {
-  const totalNights = stays.reduce((sum, stay) => sum + stay.nights, 0);
+  const knownStays = stays.filter((stay) => isFiniteAmount(stay.totalCost));
+  const totalNights = knownStays.reduce((sum, stay) => sum + stay.nights, 0);
   if (totalNights <= 0) return 0;
-  return roundCurrency(computeLodgingSubtotal(stays) / totalNights);
+  return roundCurrency(computeLodgingSubtotal(knownStays) / totalNights);
 }
 
 export function integrateAccommodationPlanIntoItinerary(args: {
@@ -32,6 +38,7 @@ export function integrateAccommodationPlanIntoItinerary(args: {
     args.stays,
     buildCityNameMap(args.itinerary),
   );
+  const lodgingRateSummary = deriveLodgingRateSummary(args.stays);
 
   const lodgingSubtotal = computeLodgingSubtotal(args.stays);
   const travelSubtotal = roundCurrency(
@@ -73,6 +80,9 @@ export function integrateAccommodationPlanIntoItinerary(args: {
       ...attractionLineItems,
     ]),
     lodgingSubtotal,
+    lodgingRateState: lodgingRateSummary.state,
+    lodgingLastCheckedAt: lodgingRateSummary.lastCheckedAt,
+    unknownLodgingStaysCount: lodgingRateSummary.unknownStaysCount,
     travelSubtotal,
     attractionSubtotal,
     verifiedAttractionCostsCount: attractionCounts.verified,
@@ -98,15 +108,28 @@ function buildStayBudgetLineItems(
   cityNamesById: Map<string, string>,
 ): ItineraryBudgetLineItem[] {
   return stays
-    .filter((stay) => stay.totalCost > 0)
+    .filter((stay) => isFiniteAmount(stay.totalCost) && stay.totalCost > 0)
     .map((stay) => {
       const cityName = cityNamesById.get(stay.nodeId) ?? stay.nodeId;
+      const selectedRateOption = resolveSelectedHotelRateOption(stay);
       return {
         id: `stay_${stay.startDay}_${stay.nodeId}_${stay.accommodationId ?? "unassigned"}`,
         day_index: stay.startDay,
         kind: "stay" as const,
         label: `Stay in ${cityName}`,
-        amount: roundCurrency(stay.totalCost),
+        amount: roundCurrency(stay.totalCost!),
+        provenance:
+          selectedRateOption &&
+          (selectedRateOption.confidence === "live" ||
+            selectedRateOption.confidence === "cached")
+            ? {
+                source_type: selectedRateOption.source_type,
+                confidence: selectedRateOption.confidence,
+                rule_id: selectedRateOption.offer_snapshot_id ?? undefined,
+                currency: selectedRateOption.currency,
+                fetched_at: selectedRateOption.fetched_at ?? null,
+              }
+            : undefined,
       };
     });
 }
@@ -228,4 +251,69 @@ function deriveAttractionCostCounts(
 function normaliseNonNegativeInteger(value: unknown): number | undefined {
   if (!Number.isFinite(value)) return undefined;
   return Math.max(0, Math.round(Number(value)));
+}
+
+function deriveLodgingRateSummary(stays: StayAssignment[]): {
+  state: ItineraryBudgetBreakdown["lodgingRateState"];
+  lastCheckedAt: number | null;
+  unknownStaysCount: number;
+} {
+  if (stays.length === 0) {
+    return {
+      state: "lodging_unknown",
+      lastCheckedAt: null,
+      unknownStaysCount: 0,
+    };
+  }
+
+  let knownRatesCount = 0;
+  let hasLive = false;
+  let hasCached = false;
+  let unknownStaysCount = 0;
+  let lastCheckedAt = 0;
+
+  for (const stay of stays) {
+    if (stay.hotelRateStatus === "live") {
+      hasLive = true;
+      knownRatesCount += 1;
+    } else if (stay.hotelRateStatus === "cached") {
+      hasCached = true;
+      knownRatesCount += 1;
+    } else {
+      unknownStaysCount += 1;
+    }
+
+    if (
+      Number.isFinite(stay.hotelRateLastCheckedAt) &&
+      Number(stay.hotelRateLastCheckedAt) > lastCheckedAt
+    ) {
+      lastCheckedAt = Number(stay.hotelRateLastCheckedAt);
+    }
+  }
+
+  if (knownRatesCount === 0 || unknownStaysCount > 0) {
+    return {
+      state: "lodging_unknown",
+      lastCheckedAt: lastCheckedAt > 0 ? lastCheckedAt : null,
+      unknownStaysCount,
+    };
+  }
+
+  return {
+    state: hasLive ? "lodging_live" : hasCached ? "lodging_cached" : "lodging_unknown",
+    lastCheckedAt: lastCheckedAt > 0 ? lastCheckedAt : null,
+    unknownStaysCount: 0,
+  };
+}
+
+function resolveSelectedHotelRateOption(stay: StayAssignment) {
+  const options = stay.hotelRateOptions ?? [];
+  if (options.length === 0) return null;
+  const requestedIndex = stay.selectedHotelRateOptionIndex ?? 0;
+  const safeIndex = Math.max(0, Math.min(requestedIndex, options.length - 1));
+  return options[safeIndex] ?? null;
+}
+
+function isFiniteAmount(value: number | null | undefined): value is number {
+  return Number.isFinite(value);
 }

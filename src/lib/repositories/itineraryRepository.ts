@@ -169,6 +169,18 @@ function normaliseBudgetBreakdown(
     ...args.warnings,
     ...(Array.isArray(breakdown?.warnings) ? breakdown.warnings : []),
   ]);
+  const lodgingRateState = normaliseLodgingRateState(
+    breakdown?.lodgingRateState,
+    args.stays,
+  );
+  const unknownLodgingStaysCount = normaliseOptionalCount(
+    breakdown?.unknownLodgingStaysCount,
+    deriveUnknownLodgingStaysCount(args.stays),
+  );
+  const lodgingLastCheckedAt = normaliseOptionalTimestamp(
+    breakdown?.lodgingLastCheckedAt,
+    deriveLodgingLastCheckedAt(args.stays),
+  );
   const lodgingSubtotal =
     breakdown?.lodgingSubtotal !== undefined
       ? normaliseCostAmount(breakdown.lodgingSubtotal, 0)
@@ -231,6 +243,9 @@ function normaliseBudgetBreakdown(
   return {
     line_items,
     lodgingSubtotal,
+    lodgingRateState,
+    lodgingLastCheckedAt,
+    unknownLodgingStaysCount,
     travelSubtotal,
     attractionSubtotal,
     verifiedAttractionCostsCount,
@@ -263,9 +278,13 @@ function normaliseBudgetRange(
 }
 
 function computeNightlyAverage(stays: StayAssignment[]): number {
-  const totalNights = stays.reduce((sum, stay) => sum + stay.nights, 0);
+  const knownStays = stays.filter((stay) => Number.isFinite(stay.totalCost));
+  const totalNights = knownStays.reduce((sum, stay) => sum + stay.nights, 0);
   if (totalNights <= 0) return 0;
-  const totalCost = stays.reduce((sum, stay) => sum + stay.totalCost, 0);
+  const totalCost = knownStays.reduce(
+    (sum, stay) => sum + Number(stay.totalCost),
+    0,
+  );
   return normaliseCostAmount(totalCost / totalNights, 0);
 }
 
@@ -321,6 +340,54 @@ function normaliseOptionalCount(
   }
   if (fallback === undefined) return undefined;
   return Math.max(0, Math.round(fallback));
+}
+
+function normaliseOptionalTimestamp(
+  value: unknown,
+  fallback: number | null,
+): number | null {
+  if (Number.isFinite(value)) return Math.max(0, Math.round(Number(value)));
+  return fallback;
+}
+
+function normaliseLodgingRateState(
+  value: unknown,
+  stays: StayAssignment[],
+): ItineraryBudgetBreakdown["lodgingRateState"] {
+  if (
+    value === "lodging_live" ||
+    value === "lodging_cached" ||
+    value === "lodging_unknown"
+  ) {
+    return value;
+  }
+
+  const unknown = stays.some(
+    (stay) => stay.hotelRateStatus === "unknown" || !Number.isFinite(stay.totalCost),
+  );
+  if (unknown) return "lodging_unknown";
+  if (stays.some((stay) => stay.hotelRateStatus === "live")) return "lodging_live";
+  if (stays.some((stay) => stay.hotelRateStatus === "cached")) {
+    return "lodging_cached";
+  }
+  return "lodging_unknown";
+}
+
+function deriveUnknownLodgingStaysCount(stays: StayAssignment[]): number {
+  return stays.reduce((count, stay) => {
+    if (stay.hotelRateStatus === "unknown") return count + 1;
+    if (!Number.isFinite(stay.totalCost)) return count + 1;
+    return count;
+  }, 0);
+}
+
+function deriveLodgingLastCheckedAt(stays: StayAssignment[]): number | null {
+  let latest = 0;
+  for (const stay of stays) {
+    if (!Number.isFinite(stay.hotelRateLastCheckedAt)) continue;
+    latest = Math.max(latest, Math.round(Number(stay.hotelRateLastCheckedAt)));
+  }
+  return latest > 0 ? latest : null;
 }
 
 function normaliseBudgetAmount(value: unknown, fallback: number): number {

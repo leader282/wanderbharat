@@ -155,6 +155,8 @@ test("describeBudgetBreakdown formats detailed and legacy copy", () => {
     describeBudgetBreakdown(
       {
         hasDetailedBreakdown: true,
+        lodgingRateState: "lodging_cached",
+        unknownLodgingStaysCount: 0,
         hasTravelSubtotal: false,
         travelSubtotal: 0,
         hasAttractionSubtotal: false,
@@ -167,13 +169,15 @@ test("describeBudgetBreakdown formats detailed and legacy copy", () => {
       },
       formatMoney,
     ),
-    "Travel is not itemised separately in this saved itinerary. Attraction entry costs are not itemised separately in this saved itinerary. The average nightly room allocation comes to INR 3200.",
+    "Hotel rates are cached from a recent snapshot. Travel is not itemised separately in this saved itinerary. Attraction entry costs are not itemised separately in this saved itinerary. The average nightly room allocation comes to INR 3200.",
   );
 
   assert.equal(
     describeBudgetBreakdown(
       {
         hasDetailedBreakdown: false,
+        lodgingRateState: "lodging_unknown",
+        unknownLodgingStaysCount: 0,
         hasTravelSubtotal: false,
         travelSubtotal: 0,
         hasAttractionSubtotal: false,

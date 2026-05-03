@@ -33,6 +33,29 @@ export async function getHotelSearchSnapshot(
   });
 }
 
+export async function findLatestHotelSearchSnapshotByQueryKey(
+  queryKey: string,
+): Promise<HotelSearchSnapshot | null> {
+  const key = normaliseString(queryKey);
+  if (!key) return null;
+
+  const snap = await db()
+    .collection(COLLECTIONS.hotel_search_snapshots)
+    .where("query_key", "==", key)
+    .get();
+
+  const list = snap.docs
+    .map((doc) =>
+      normaliseHotelSearchSnapshot({
+        id: doc.id,
+        ...(doc.data() as Partial<HotelSearchSnapshot>),
+      }),
+    )
+    .sort((left, right) => right.fetched_at - left.fetched_at);
+
+  return list[0] ?? null;
+}
+
 export async function listHotelSearchSnapshots(args: {
   region?: string;
   node_id?: string;

@@ -200,3 +200,82 @@ test("integrateAccommodationPlanIntoItinerary preserves attraction subtotals and
   assert.equal(itinerary.budget_breakdown?.unknownAttractionCostsCount, 2);
   assert.equal(itinerary.estimated_cost, 10100);
 });
+
+test("integrateAccommodationPlanIntoItinerary marks lodging state from LiteAPI-backed stays", () => {
+  const itinerary = integrateAccommodationPlanIntoItinerary({
+    itinerary: makeItinerary(),
+    stays: [
+      {
+        nodeId: "node_jaipur",
+        startDay: 0,
+        endDay: 0,
+        nights: 1,
+        accommodationId: null,
+        nightlyCost: 2800,
+        totalCost: 2800,
+        hotelRateStatus: "live",
+        hotelRateLastCheckedAt: 1_700_000_000_000,
+        hotelSearchSnapshotId: "search_1",
+        hotelOfferSnapshotId: "offer_1",
+        hotelRateOptions: [
+          {
+            provider: "liteapi",
+            provider_hotel_id: "h_1",
+            hotel_name: "Amber Palace",
+            room_type_id: "r_1",
+            room_name: "Deluxe",
+            currency: "INR",
+            nightly_amount: 2800,
+            total_amount: 2800,
+            source_type: "liteapi",
+            confidence: "live",
+            search_snapshot_id: "search_1",
+            offer_snapshot_id: "offer_1",
+            fetched_at: 1_700_000_000_000,
+          },
+        ],
+        selectedHotelRateOptionIndex: 0,
+      },
+      {
+        nodeId: "node_udaipur",
+        startDay: 1,
+        endDay: 2,
+        nights: 2,
+        accommodationId: null,
+        nightlyCost: 3100,
+        totalCost: 6200,
+        hotelRateStatus: "cached",
+        hotelRateLastCheckedAt: 1_700_000_100_000,
+        hotelSearchSnapshotId: "search_2",
+        hotelOfferSnapshotId: "offer_2",
+        hotelRateOptions: [
+          {
+            provider: "liteapi",
+            provider_hotel_id: "h_2",
+            hotel_name: "City Suites",
+            room_type_id: "r_2",
+            room_name: "Premium",
+            currency: "INR",
+            nightly_amount: 3100,
+            total_amount: 6200,
+            source_type: "liteapi",
+            confidence: "cached",
+            search_snapshot_id: "search_2",
+            offer_snapshot_id: "offer_2",
+            fetched_at: 1_700_000_100_000,
+          },
+        ],
+        selectedHotelRateOptionIndex: 0,
+      },
+    ],
+    requestedBudget: { min: 0, max: 999999, currency: "INR" },
+  });
+
+  assert.equal(itinerary.budget_breakdown?.lodgingRateState, "lodging_live");
+  assert.equal(itinerary.budget_breakdown?.unknownLodgingStaysCount, 0);
+  assert.equal(itinerary.budget_breakdown?.lodgingLastCheckedAt, 1_700_000_100_000);
+  const stayLine = itinerary.budget_breakdown?.line_items.find(
+    (item) => item.kind === "stay",
+  );
+  assert.equal(stayLine?.provenance?.source_type, "liteapi");
+});
