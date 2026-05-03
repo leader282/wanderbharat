@@ -1,15 +1,34 @@
-import AdminPlaceholderPage from "@/app/admin/_components/AdminPlaceholderPage";
+import LiteApiTestConsole from "@/app/admin/liteapi-test/LiteApiTestConsole";
+import { resolveLiteApiProviderConfig } from "@/lib/providers/hotels/liteApiConfig";
 
 export default function AdminLiteApiTestPage() {
+  const config = resolveLiteApiProviderConfig();
+
   return (
-    <AdminPlaceholderPage
-      title="LiteAPI test console"
-      description="Use this page to validate provider requests and inspect parsed payloads before writing snapshots."
-      nextSteps={[
-        "Run on-demand hotel search probes with explicit trip dates and party composition.",
-        "Render raw provider status + transformed snapshot preview side-by-side.",
-        "Capture request/response diagnostics for failed provider calls.",
-      ]}
+    <LiteApiTestConsole
+      defaults={{
+        countryCode: "IN",
+        radiusMeters: 5_000,
+        adults: 2,
+        rooms: 1,
+        currency: "INR",
+        guestNationality: "IN",
+        maxResults: config.maxResults,
+        checkinDate: buildFutureIsoDate(14),
+        checkoutDate: buildFutureIsoDate(15),
+      }}
+      providerStatus={{
+        enabledFlag: config.enabled,
+        apiKeyPresent: Boolean(config.apiKey),
+        available: config.enabled && Boolean(config.apiKey),
+        timeoutMs: config.timeoutMs,
+      }}
     />
   );
+}
+
+function buildFutureIsoDate(offsetDays: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
 }
