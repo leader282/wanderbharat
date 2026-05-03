@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import type {
   AttractionAdmissionAudience,
@@ -32,6 +33,29 @@ const MAX_ADMISSION_AMOUNT = 200_000;
 const ISO_4217_PATTERN = /^[A-Z]{3}$/;
 
 export async function upsertAttractionAdmissionRuleAction(
+  formData: FormData,
+): Promise<void> {
+  let status: "success" | "error" = "success";
+  let message = "Admission rule saved.";
+  const requestedAttractionId = readOptionalString(formData, "attraction_node_id");
+
+  try {
+    await upsertAttractionAdmissionRuleImpl(formData);
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Save failed.";
+  }
+
+  revalidatePath("/admin/attraction-costs");
+  redirect(
+    buildCostsRedirectUrl({
+      params: { save_status: status, save_message: message },
+      attractionId: requestedAttractionId,
+    }),
+  );
+}
+
+async function upsertAttractionAdmissionRuleImpl(
   formData: FormData,
 ): Promise<void> {
   const actor = await requireAdminIdentity();
@@ -117,20 +141,57 @@ export async function upsertAttractionAdmissionRuleAction(
   };
 
   await upsertRule(next);
-
-  revalidatePath("/admin/attraction-costs");
 }
 
 export async function deleteAttractionAdmissionRuleAction(
   formData: FormData,
 ): Promise<void> {
-  await requireAdminIdentity();
-  const ruleId = readRequiredString(formData, "rule_id");
-  await deleteRule(ruleId);
+  let status: "success" | "error" = "success";
+  let message = "Admission rule deleted.";
+  const requestedAttractionId = readOptionalString(formData, "attraction_node_id");
+
+  try {
+    await requireAdminIdentity();
+    const ruleId = readRequiredString(formData, "rule_id");
+    await deleteRule(ruleId);
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Delete failed.";
+  }
+
   revalidatePath("/admin/attraction-costs");
+  redirect(
+    buildCostsRedirectUrl({
+      params: { save_status: status, save_message: message },
+      attractionId: requestedAttractionId,
+    }),
+  );
 }
 
 export async function markAttractionAdmissionUnknownAction(
+  formData: FormData,
+): Promise<void> {
+  let status: "success" | "error" = "success";
+  let message = "Admission rule marked as unknown.";
+  const requestedAttractionId = readOptionalString(formData, "attraction_node_id");
+
+  try {
+    await markAttractionAdmissionUnknownImpl(formData);
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Save failed.";
+  }
+
+  revalidatePath("/admin/attraction-costs");
+  redirect(
+    buildCostsRedirectUrl({
+      params: { save_status: status, save_message: message },
+      attractionId: requestedAttractionId,
+    }),
+  );
+}
+
+async function markAttractionAdmissionUnknownImpl(
   formData: FormData,
 ): Promise<void> {
   await requireAdminIdentity();
@@ -180,11 +241,32 @@ export async function markAttractionAdmissionUnknownAction(
     verified_by: null,
     data_version: CURRENT_DATA_VERSION,
   });
-
-  revalidatePath("/admin/attraction-costs");
 }
 
 export async function markAttractionAdmissionFreeAction(
+  formData: FormData,
+): Promise<void> {
+  let status: "success" | "error" = "success";
+  let message = "Admission rule marked as verified free.";
+  const requestedAttractionId = readOptionalString(formData, "attraction_node_id");
+
+  try {
+    await markAttractionAdmissionFreeImpl(formData);
+  } catch (error) {
+    status = "error";
+    message = error instanceof Error ? error.message : "Save failed.";
+  }
+
+  revalidatePath("/admin/attraction-costs");
+  redirect(
+    buildCostsRedirectUrl({
+      params: { save_status: status, save_message: message },
+      attractionId: requestedAttractionId,
+    }),
+  );
+}
+
+async function markAttractionAdmissionFreeImpl(
   formData: FormData,
 ): Promise<void> {
   const actor = await requireAdminIdentity();
@@ -247,8 +329,18 @@ export async function markAttractionAdmissionFreeAction(
     verified_by: verifiedBy,
     data_version: CURRENT_DATA_VERSION,
   });
+}
 
-  revalidatePath("/admin/attraction-costs");
+function buildCostsRedirectUrl(args: {
+  params: Record<string, string>;
+  attractionId?: string;
+}): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(args.params)) {
+    search.set(key, value);
+  }
+  const hash = args.attractionId ? `#attr-${args.attractionId}` : "";
+  return `/admin/attraction-costs?${search.toString()}${hash}`;
 }
 
 async function requireAdminIdentity(): Promise<string> {

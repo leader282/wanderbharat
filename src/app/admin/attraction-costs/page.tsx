@@ -29,13 +29,19 @@ interface AdminAttractionCostsPageProps {
 }
 
 const DEFAULT_LIMIT = 250;
+const COSTS_FILTERS = ["all", "missing_only", "unknown_only"] as const;
+type CostsFilter = (typeof COSTS_FILTERS)[number];
 
 export default async function AdminAttractionCostsPage({
   searchParams,
 }: AdminAttractionCostsPageProps) {
   const params = await resolveSearchParams(searchParams);
   const region = parseStringParam(params.region);
+  const cityId = parseStringParam(params.city_id);
   const limit = parseLimitParam(params.limit);
+  const activeFilter = parseCostsFilter(params.filter);
+  const saveStatus = parseSaveStatus(params.save_status);
+  const saveMessage = parseStringParam(params.save_message);
 
   const attractions = (
     await findNodes({
@@ -45,10 +51,18 @@ export default async function AdminAttractionCostsPage({
     })
   ).sort((left, right) => left.name.localeCompare(right.name));
   const attractionIds = attractions.map((attraction) => attraction.id);
-  const [rules, missing] = await Promise.all([
+  const [rules, missing, cityOptions] = await Promise.all([
     listByAttractionIds(attractionIds),
     listMissingForAttractions(attractionIds),
+    findNodes({
+      type: "city",
+      ...(region ? { region } : {}),
+      limit: 500,
+    }),
   ]);
+  const sortedCityOptions = cityOptions.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
 
   const rulesByAttractionId = new Map<string, AttractionAdmissionRule[]>();
   for (const rule of rules) {
@@ -60,6 +74,23 @@ export default async function AdminAttractionCostsPage({
     missing.map((entry) => [entry.attraction_id, entry]),
   );
 
+  const cityFilteredAttractions = cityId
+    ? attractions.filter((attraction) => attraction.parent_node_id === cityId)
+    : attractions;
+
+  const filteredAttractions = cityFilteredAttractions.filter((attraction) => {
+    if (activeFilter === "missing_only") {
+      return missingByAttractionId.has(attraction.id);
+    }
+    if (activeFilter === "unknown_only") {
+      const list = rulesByAttractionId.get(attraction.id) ?? [];
+      return list.some(
+        (rule) => rule.confidence === "unknown" || rule.amount === null,
+      );
+    }
+    return true;
+  });
+
   const verifiedCount = rules.filter(
     (rule) => rule.confidence === "verified" && rule.amount !== null,
   ).length;
@@ -69,6 +100,8 @@ export default async function AdminAttractionCostsPage({
   const unknownCount = rules.filter(
     (rule) => rule.confidence === "unknown" || rule.amount === null,
   ).length;
+
+  const limitReached = attractions.length >= limit;
 
   return (
     <section className="space-y-5">
@@ -90,7 +123,7 @@ export default async function AdminAttractionCostsPage({
       </div>
 
       <div className="card p-5">
-        <form method="get" className="grid gap-3 md:grid-cols-4">
+        <form method="get" className="grid gap-3 md:grid-cols-5">
           <label className="space-y-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-500)]">
             Region
             <input
@@ -100,6 +133,33 @@ export default async function AdminAttractionCostsPage({
               placeholder="e.g. rajasthan"
               className="w-full rounded-lg border border-[var(--hairline)] bg-white px-3 py-2 text-sm text-[var(--color-ink-800)]"
             />
+          </label>
+          <label className="space-y-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-500)]">
+            City
+            <select
+              name="city_id"
+              defaultValue={cityId ?? ""}
+              className="w-full rounded-lg border border-[var(--hairline)] bg-white px-3 py-2 text-sm text-[var(--color-ink-800)]"
+            >
+              <option value="">All cities</option>
+              {sortedCityOptions.map((city) => (
+                <option key={city.id} value={city.id}>
+                  {city.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-500)]">
+            Show
+            <select
+              name="filter"
+              defaultValue={activeFilter}
+              className="w-full rounded-lg border border-[var(--hairline)] bg-white px-3 py-2 text-sm text-[var(--color-ink-800)]"
+            >
+              <option value="all">All attractions</option>
+              <option value="missing_only">Missing coverage</option>
+              <option value="unknown_only">Unknown amounts</option>
+            </select>
           </label>
           <label className="space-y-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-500)]">
             Attraction limit
@@ -112,7 +172,7 @@ export default async function AdminAttractionCostsPage({
               className="w-full rounded-lg border border-[var(--hairline)] bg-white px-3 py-2 text-sm text-[var(--color-ink-800)]"
             />
           </label>
-          <div className="flex items-end gap-2 md:col-span-2">
+          <div className="flex items-end gap-2">
             <button type="submit" className="btn-secondary">
               Apply filters
             </button>
@@ -126,8 +186,27 @@ export default async function AdminAttractionCostsPage({
         </form>
       </div>
 
+      {saveStatus && saveMessage ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            saveStatus === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-red-200 bg-red-50 text-red-900"
+          }`}
+        >
+          {saveMessage}
+        </div>
+      ) : null}
+
+      {limitReached ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Showing the first {limit} attractions (limit reached). Increase the
+          limit or narrow the region/city filters to see the rest.
+        </div>
+      ) : null}
+
       <ul className="grid gap-3 sm:grid-cols-4">
-        <SummaryCard label="Attractions scanned" value={attractions.length} />
+        <SummaryCard label="Attractions scanned" value={cityFilteredAttractions.length} />
         <SummaryCard label="Rules saved" value={rules.length} />
         <SummaryCard label="Missing coverage" value={missing.length} tone="warn" />
         <SummaryCard label="Unknown rules" value={unknownCount} />
@@ -139,12 +218,12 @@ export default async function AdminAttractionCostsPage({
       </ul>
 
       <section className="space-y-4">
-        {attractions.length === 0 ? (
+        {filteredAttractions.length === 0 ? (
           <div className="card px-5 py-8 text-sm text-[var(--color-ink-600)]">
             No attractions found for the selected filters.
           </div>
         ) : (
-          attractions.map((attraction) => (
+          filteredAttractions.map((attraction) => (
             <AttractionCostCard
               key={attraction.id}
               attraction={attraction}
@@ -168,7 +247,10 @@ function AttractionCostCard({
   missing?: MissingAttractionAdmission;
 }) {
   return (
-    <article className="card border border-[var(--hairline)] p-5">
+    <article
+      id={`attr-${attraction.id}`}
+      className="card border border-[var(--hairline)] p-5 scroll-mt-20"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-bold tracking-tight text-[var(--color-ink-900)]">
@@ -600,4 +682,18 @@ function parseLimitParam(value: SearchParamValue): number {
   const parsed = Number.parseInt(parseStringParam(value) ?? "", 10);
   if (!Number.isFinite(parsed)) return DEFAULT_LIMIT;
   return Math.max(1, Math.min(parsed, 1000));
+}
+
+function parseCostsFilter(value: SearchParamValue): CostsFilter {
+  const candidate = parseStringParam(value) as CostsFilter | undefined;
+  if (candidate && (COSTS_FILTERS as readonly string[]).includes(candidate)) {
+    return candidate;
+  }
+  return "all";
+}
+
+function parseSaveStatus(value: SearchParamValue): "success" | "error" | undefined {
+  const candidate = parseStringParam(value);
+  if (candidate === "success" || candidate === "error") return candidate;
+  return undefined;
 }

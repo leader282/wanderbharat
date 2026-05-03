@@ -1,4 +1,6 @@
 import type {
+  AttractionAdmissionRule,
+  AttractionOpeningHours,
   DataQualityEntityType,
   DataQualityIssue,
   DataQualityIssueCode,
@@ -15,6 +17,8 @@ import {
   resolveIssue,
   type CreateDataQualityIssueInput,
 } from "@/lib/repositories/dataQualityRepository";
+import { listByAttractionIds } from "@/lib/repositories/attractionAdmissionRepository";
+import { getAttractionOpeningHoursByAttractionIds } from "@/lib/repositories/attractionHoursRepository";
 
 const SCANNER_MANAGED_CODES = new Set<DataQualityIssueCode>([
   "mock_data_present",
@@ -32,6 +36,12 @@ export interface DataQualityScanOptions {
 export interface DataQualityScanDependencies {
   listNodes?: () => Promise<GraphNode[]>;
   listEdges?: () => Promise<GraphEdge[]>;
+  listAttractionOpeningHoursByAttractionIds?: (
+    attractionIds: string[],
+  ) => Promise<AttractionOpeningHours[]>;
+  listAttractionAdmissionRulesByAttractionIds?: (
+    attractionIds: string[],
+  ) => Promise<AttractionAdmissionRule[]>;
   listOpenIssues?: () => Promise<DataQualityIssue[]>;
   createIssue?: (
     issue: CreateDataQualityIssueInput,
@@ -57,6 +67,11 @@ export async function runDataQualityScan(
 ): Promise<DataQualityScanResult> {
   const listNodesFn = deps.listNodes ?? (() => findNodes());
   const listEdgesFn = deps.listEdges ?? (() => findEdges());
+  const listAttractionOpeningHoursByAttractionIdsFn =
+    deps.listAttractionOpeningHoursByAttractionIds ??
+    getAttractionOpeningHoursByAttractionIds;
+  const listAttractionAdmissionRulesByAttractionIdsFn =
+    deps.listAttractionAdmissionRulesByAttractionIds ?? listByAttractionIds;
   const listOpenIssuesFn =
     deps.listOpenIssues ??
     (() => listOpenIssues({ status: "open", limit: 2_000 }));
@@ -72,13 +87,31 @@ export async function runDataQualityScan(
   ]);
 
   const attractions = nodes.filter((node) => node.type === "attraction");
+  const attractionIds = attractions.map((attraction) => attraction.id);
+  const [openingHoursRecords, attractionAdmissionRules] = await Promise.all([
+    listAttractionOpeningHoursByAttractionIdsFn(attractionIds),
+    listAttractionAdmissionRulesByAttractionIdsFn(attractionIds),
+  ]);
+  const openingHoursByAttractionId = new Map(
+    openingHoursRecords.map((record) => [record.attraction_id, record]),
+  );
+  const admissionRulesByAttractionId = new Map<string, AttractionAdmissionRule[]>();
+  for (const rule of attractionAdmissionRules) {
+    const list = admissionRulesByAttractionId.get(rule.attraction_node_id) ?? [];
+    list.push(rule);
+    admissionRulesByAttractionId.set(rule.attraction_node_id, list);
+  }
   const generated = new Map<string, CreateDataQualityIssueInput>();
 
   // Hotel-rate quality checks are intentionally deferred until LiteAPI
   // snapshot persistence lands in the next phase.
   for (const issue of [
     ...buildMockDataIssues(nodes),
-    ...buildAttractionCoverageIssues(attractions),
+    ...buildAttractionCoverageIssues(
+      attractions,
+      openingHoursByAttractionId,
+      admissionRulesByAttractionId,
+    ),
     ...buildDuplicatePlaceIssues(attractions),
     ...buildRouteEdgeIssues(edges),
   ]) {
@@ -142,10 +175,20 @@ function buildMockDataIssues(nodes: GraphNode[]): CreateDataQualityIssueInput[] 
 
 function buildAttractionCoverageIssues(
   attractions: GraphNode[],
+  openingHoursByAttractionId: Map<string, AttractionOpeningHours>,
+  admissionRulesByAttractionId: Map<string, AttractionAdmissionRule[]>,
 ): CreateDataQualityIssueInput[] {
   const issues: CreateDataQualityIssueInput[] = [];
 
   for (const attraction of attractions) {
+    // Disabled attractions are soft-deleted retirees. The planner already
+    // skips them (see loadContext.ts), so admins shouldn't keep seeing
+    // missing-data warnings on records they intentionally retired. Mock
+    // contamination is intentionally not gated on `disabled` — that signal
+    // belongs in `buildMockDataIssues` even for retired records, since
+    // mock leakage anywhere is worth surfacing.
+    if (isAttractionDisabled(attraction)) continue;
+
     const metadata = asRecord(attraction.metadata) ?? {};
     const placeId = normaliseString(metadata.google_place_id);
 
@@ -168,7 +211,10 @@ function buildAttractionCoverageIssues(
       });
     }
 
-    if (!hasOpeningHours(metadata)) {
+    const openingHoursRecord = openingHoursByAttractionId.get(attraction.id);
+    const hasHoursCoverage =
+      hasUsableOpeningHoursRecord(openingHoursRecord) || hasOpeningHours(metadata);
+    if (!hasHoursCoverage) {
       issues.push({
         id: buildIssueId("missing_opening_hours", "attraction", attraction.id),
         entity_type: "attraction",
@@ -183,7 +229,10 @@ function buildAttractionCoverageIssues(
       });
     }
 
-    if (!hasAdmissionCostData(metadata)) {
+    const admissionRules = admissionRulesByAttractionId.get(attraction.id) ?? [];
+    const hasAdmissionCoverage =
+      hasUsableAdmissionRules(admissionRules) || hasAdmissionCostData(metadata);
+    if (!hasAdmissionCoverage) {
       issues.push({
         id: buildIssueId("missing_admission_cost", "attraction", attraction.id),
         entity_type: "attraction",
@@ -208,6 +257,12 @@ function buildDuplicatePlaceIssues(
   const placeIdMap = new Map<string, GraphNode[]>();
 
   for (const attraction of attractions) {
+    // Skip disabled records on the duplicate axis too: an active and a
+    // retired entry that share a place_id should not raise a duplicate
+    // warning since the retired one is not a planning candidate. Two
+    // active duplicates still flag.
+    if (isAttractionDisabled(attraction)) continue;
+
     const metadata = asRecord(attraction.metadata) ?? {};
     const placeId = normaliseString(metadata.google_place_id);
     if (!placeId) continue;
@@ -282,6 +337,10 @@ function toEntityType(node: GraphNode): DataQualityEntityType {
   return "region";
 }
 
+function isAttractionDisabled(attraction: GraphNode): boolean {
+  return attraction.metadata?.disabled === true;
+}
+
 function hasOpeningHours(metadata: Record<string, unknown>): boolean {
   const hasLegacyWindow =
     Boolean(normaliseString(metadata.opening_time)) &&
@@ -294,19 +353,40 @@ function hasOpeningHours(metadata: Record<string, unknown>): boolean {
   return Array.isArray(openingPeriods) && openingPeriods.length > 0;
 }
 
+function hasUsableOpeningHoursRecord(
+  record: AttractionOpeningHours | undefined,
+): boolean {
+  if (!record) return false;
+  if (record.confidence === "unknown") return false;
+  if (record.weekly_periods.length > 0) return true;
+  return (record.closed_days?.length ?? 0) > 0;
+}
+
 function hasAdmissionCostData(metadata: Record<string, unknown>): boolean {
-  if (Array.isArray(metadata.admission_costs) && metadata.admission_costs.length > 0) {
-    return true;
+  if (Array.isArray(metadata.admission_costs)) {
+    for (const entry of metadata.admission_costs) {
+      if (isFiniteNumber(entry)) return true;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const amount = (entry as Record<string, unknown>).amount;
+      if (isFiniteNumber(amount)) return true;
+    }
   }
 
-  if (asRecord(metadata.admission)) {
-    return true;
+  const admission = asRecord(metadata.admission);
+  if (admission) {
+    return Object.values(admission).some((value) => isFiniteNumber(value));
   }
 
   return (
     isFiniteNumber(metadata.admission_cost) ||
     isFiniteNumber(metadata.entry_fee) ||
     isFiniteNumber(metadata.ticket_price)
+  );
+}
+
+function hasUsableAdmissionRules(rules: AttractionAdmissionRule[]): boolean {
+  return rules.some(
+    (rule) => rule.amount !== null && rule.confidence !== "unknown",
   );
 }
 

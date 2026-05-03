@@ -143,6 +143,13 @@ export async function upsertNode(node: GraphNode): Promise<void> {
   await db().collection(COLLECTIONS.nodes).doc(node.id).set(node, { merge: true });
 }
 
+export async function replaceNode(node: GraphNode): Promise<void> {
+  await db()
+    .collection(COLLECTIONS.nodes)
+    .doc(node.id)
+    .set(stripUndefinedDeep(node), { merge: false });
+}
+
 export async function upsertNodes(nodes: GraphNode[]): Promise<void> {
   if (nodes.length === 0) return;
   const batchSize = 400; // Firestore cap is 500 writes per batch
@@ -155,4 +162,26 @@ export async function upsertNodes(nodes: GraphNode[]): Promise<void> {
       await batch.commit();
     }
   });
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      if (nested === undefined) continue;
+      const cleaned = stripUndefinedDeep(nested);
+      if (cleaned !== undefined) {
+        out[key] = cleaned;
+      }
+    }
+    return out as T;
+  }
+
+  return value;
 }

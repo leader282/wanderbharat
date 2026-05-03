@@ -99,7 +99,16 @@ export async function loadEngineContextForPlan(
     );
   }
 
-  const attractionIds = attractions.map((attraction) => attraction.id);
+  // Drop admin-disabled attractions before any downstream wiring. The flag is
+  // a soft-delete signal admins set in /admin/attractions and we honor it here
+  // so disabled records don't appear as itinerary candidates, don't count
+  // toward open-hours/admission coverage, and don't trigger Google/LiteAPI
+  // lookups in derived services.
+  const activeAttractions = attractions.filter(
+    (attraction) => !isAttractionDisabled(attraction),
+  );
+
+  const attractionIds = activeAttractions.map((attraction) => attraction.id);
   const [attractionHours, attractionAdmissions] = await Promise.all([
     getAttractionOpeningHoursByAttractionIds(attractionIds),
     listByAttractionIds(attractionIds),
@@ -113,7 +122,7 @@ export async function loadEngineContextForPlan(
     list.push(rule);
     admissionRulesByAttractionId.set(rule.attraction_node_id, list);
   }
-  const attractionsWithHours = attractions.map((attraction) => {
+  const attractionsWithHours = activeAttractions.map((attraction) => {
     const openingHours = openingHoursByAttractionId.get(attraction.id);
     const admissionRules = admissionRulesByAttractionId.get(attraction.id) ?? [];
     if (!openingHours && admissionRules.length === 0) return attraction;
@@ -199,4 +208,14 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
     out.push(item);
   }
   return out;
+}
+
+/**
+ * True when an attraction has been soft-disabled in the admin panel.
+ * Disabled attractions are skipped by the planner and the data quality
+ * scanner so retiring junk records actually clears warnings without
+ * requiring a destructive Firestore delete.
+ */
+export function isAttractionDisabled(attraction: GraphNode): boolean {
+  return attraction.metadata?.disabled === true;
 }

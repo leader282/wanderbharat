@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { DataQualityIssue, GraphEdge, GraphNode } from "@/types/domain";
+import type {
+  AttractionAdmissionRule,
+  AttractionOpeningHours,
+  DataQualityIssue,
+  GraphEdge,
+  GraphNode,
+} from "@/types/domain";
 import { runDataQualityScan } from "@/lib/admin/dataQualityScanner";
 import type { CreateDataQualityIssueInput } from "@/lib/repositories/dataQualityRepository";
 
@@ -37,6 +43,8 @@ test("runDataQualityScan flags missing attraction and edge fields", async () => 
     {
       listNodes: async () => nodes,
       listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => [],
+      listAttractionAdmissionRulesByAttractionIds: async () => [],
       listOpenIssues: store.listOpenIssues,
       createIssue: store.createIssue,
       resolveIssue: store.resolveIssue,
@@ -72,6 +80,8 @@ test("runDataQualityScan remains idempotent across repeated runs", async () => {
     {
       listNodes: async () => nodes,
       listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => [],
+      listAttractionAdmissionRulesByAttractionIds: async () => [],
       listOpenIssues: store.listOpenIssues,
       createIssue: store.createIssue,
       resolveIssue: store.resolveIssue,
@@ -85,6 +95,8 @@ test("runDataQualityScan remains idempotent across repeated runs", async () => {
     {
       listNodes: async () => nodes,
       listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => [],
+      listAttractionAdmissionRulesByAttractionIds: async () => [],
       listOpenIssues: store.listOpenIssues,
       createIssue: store.createIssue,
       resolveIssue: store.resolveIssue,
@@ -94,6 +106,74 @@ test("runDataQualityScan remains idempotent across repeated runs", async () => {
 
   assert.equal(store.getAllIssues().length, firstIssueCount);
   assert.equal(store.getOpenIssues().length, firstIssueCount);
+});
+
+test("runDataQualityScan skips disabled attractions for coverage and duplicates but still flags mock contamination", async () => {
+  const nodes: GraphNode[] = [
+    makeAttraction("attr_disabled_missing", "Retired Stepwell", {
+      disabled: true,
+    }),
+    makeAttraction("attr_active_missing", "Active Fort", {}),
+    makeAttraction("attr_disabled_dup", "Retired Palace", {
+      disabled: true,
+      google_place_id: "place_shared_palace",
+    }),
+    makeAttraction("attr_active_dup", "Active Palace", {
+      google_place_id: "place_shared_palace",
+    }),
+    // A disabled attraction with a mock marker should still surface as
+    // mock contamination — that signal is independent of soft-delete.
+    makeAttraction("attr_disabled_mock", "Mock Bazaar", {
+      disabled: true,
+      source_type: "mock",
+    }),
+  ];
+  const edges: GraphEdge[] = [makeEdge("edge_ok")];
+  const store = createIssueStore();
+
+  await runDataQualityScan(
+    { resolvedBy: "admin@example.com" },
+    {
+      listNodes: async () => nodes,
+      listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => [],
+      listAttractionAdmissionRulesByAttractionIds: async () => [],
+      listOpenIssues: store.listOpenIssues,
+      createIssue: store.createIssue,
+      resolveIssue: store.resolveIssue,
+      nowMs: () => 4_000_000_000_000,
+    },
+  );
+
+  const openIssues = store.getOpenIssues();
+  const entitiesByCode = (code: string) =>
+    new Set(
+      openIssues
+        .filter((issue) => issue.code === code)
+        .map((issue) => issue.entity_id),
+    );
+
+  const missingPlaceIdEntities = entitiesByCode("missing_google_place_id");
+  assert.ok(missingPlaceIdEntities.has("attr_active_missing"));
+  assert.ok(!missingPlaceIdEntities.has("attr_disabled_missing"));
+
+  const missingHoursEntities = entitiesByCode("missing_opening_hours");
+  assert.ok(missingHoursEntities.has("attr_active_missing"));
+  assert.ok(!missingHoursEntities.has("attr_disabled_missing"));
+
+  const missingCostsEntities = entitiesByCode("missing_admission_cost");
+  assert.ok(missingCostsEntities.has("attr_active_missing"));
+  assert.ok(!missingCostsEntities.has("attr_disabled_missing"));
+
+  const duplicateIssues = openIssues.filter(
+    (issue) => issue.code === "duplicate_place",
+  );
+  // One disabled entry sharing a place_id with one active entry leaves a
+  // single active record — no duplicate warning should fire.
+  assert.equal(duplicateIssues.length, 0);
+
+  const mockEntities = entitiesByCode("mock_data_present");
+  assert.ok(mockEntities.has("attr_disabled_mock"));
 });
 
 test("runDataQualityScan auto-resolves fixed scanner-managed issues", async () => {
@@ -108,6 +188,8 @@ test("runDataQualityScan auto-resolves fixed scanner-managed issues", async () =
     {
       listNodes: async () => nodes,
       listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => [],
+      listAttractionAdmissionRulesByAttractionIds: async () => [],
       listOpenIssues: store.listOpenIssues,
       createIssue: store.createIssue,
       resolveIssue: store.resolveIssue,
@@ -121,10 +203,13 @@ test("runDataQualityScan auto-resolves fixed scanner-managed issues", async () =
   nodes = [
     makeAttraction("attr_fixable", "Hawa Mahal", {
       google_place_id: "place_hawa_mahal",
-      opening_time: "09:00",
-      closing_time: "17:00",
-      admission_costs: [{ category: "adult", amount: null }],
     }),
+  ];
+  const openingHours: AttractionOpeningHours[] = [
+    makeOpeningHours("attr_fixable", "rajasthan"),
+  ];
+  const admissions: AttractionAdmissionRule[] = [
+    makeAdmissionRule("attr_fixable"),
   ];
 
   const secondRun = await runDataQualityScan(
@@ -132,6 +217,8 @@ test("runDataQualityScan auto-resolves fixed scanner-managed issues", async () =
     {
       listNodes: async () => nodes,
       listEdges: async () => edges,
+      listAttractionOpeningHoursByAttractionIds: async () => openingHours,
+      listAttractionAdmissionRulesByAttractionIds: async () => admissions,
       listOpenIssues: store.listOpenIssues,
       createIssue: store.createIssue,
       resolveIssue: store.resolveIssue,
@@ -220,5 +307,44 @@ function makeEdge(id: string, overrides: Partial<GraphEdge> = {}): GraphEdge {
     regions: ["rajasthan"],
     metadata: {},
     ...overrides,
+  };
+}
+
+function makeOpeningHours(
+  attractionId: string,
+  region: string,
+): AttractionOpeningHours {
+  return {
+    id: attractionId,
+    attraction_id: attractionId,
+    region,
+    timezone: "Asia/Kolkata",
+    weekly_periods: [{ day: "mon", opens: "09:00", closes: "17:00" }],
+    source_type: "manual",
+    confidence: "verified",
+    fetched_at: 3_000_000_000_000,
+    verified_at: 3_000_000_000_000,
+  };
+}
+
+function makeAdmissionRule(attractionNodeId: string): AttractionAdmissionRule {
+  return {
+    id: `${attractionNodeId}__adult__any`,
+    attraction_node_id: attractionNodeId,
+    region: "rajasthan",
+    currency: "INR",
+    amount: 50,
+    audience: "adult",
+    nationality: "any",
+    source_type: "manual",
+    confidence: "verified",
+    source_url: null,
+    notes: null,
+    valid_from: null,
+    valid_until: null,
+    fetched_at: 3_000_000_000_000,
+    verified_at: 3_000_000_000_000,
+    verified_by: "admin@example.com",
+    data_version: 2,
   };
 }
