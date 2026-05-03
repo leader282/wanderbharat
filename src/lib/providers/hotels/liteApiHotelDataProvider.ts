@@ -33,8 +33,10 @@ interface LiteApiHotelDataProviderOptions {
   ) => Promise<void>;
 }
 
-const HOTEL_SEARCH_ENDPOINT = "/data/hotels";
-const HOTEL_RATES_ENDPOINT = "/hotels/rates";
+// Keep these path segments relative (no leading slash) so URL resolution
+// preserves any version prefix in baseUrl (e.g. /v3.0).
+const HOTEL_SEARCH_ENDPOINT = "data/hotels";
+const HOTEL_RATES_ENDPOINT = "hotels/rates";
 
 export class LiteApiHotelDataProvider implements HotelDataProvider {
   readonly provider = "liteapi" as const;

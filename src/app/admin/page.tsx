@@ -31,11 +31,8 @@ const MODULES: Array<{ href: string; title: string; blurb: string }> = [
     title: "LiteAPI test console",
     blurb: "Validate LiteAPI lookups before pipeline integration runs.",
   },
-  {
-    href: "/admin/import-export",
-    title: "Import / export",
-    blurb: "Run reseed, purge, and data movement workflows safely.",
-  },
+  // Import / export module is hidden until the page exits placeholder
+  // status. Reseed/purge live in `npm run db:purge` + `seed:*` scripts.
 ];
 
 export default function AdminHomePage() {

@@ -22,7 +22,11 @@ const COUNTRY = "india";
 const CURRENCY = "INR";
 const LOCALE = "en-IN";
 const REGION_TIMEZONE = "Asia/Kolkata";
-const DEFAULT_TRANSPORT_MODES = ["road", "train"] as const;
+// Only road edges are seeded for Rajasthan today. Advertising "train" here
+// would let users toggle a transport mode that has no graph data, falling
+// back to live Google Routes calls at plan time. Re-add "train" once
+// curated rail edges land in ROAD_EDGES (or a sibling RAIL_EDGES).
+const DEFAULT_TRANSPORT_MODES = ["road"] as const;
 
 interface SeedCity {
   id: string;

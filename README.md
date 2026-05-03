@@ -6,7 +6,9 @@ TypeScript, Firebase (Auth + Firestore), and Vercel.
 > The engine works for any region. **Rajasthan, Gujarat, and Himachal
 > Pradesh ship as seed datasets** — nothing more. There is no
 > region-specific logic in any layer of the app; new regions are added by
-> dropping a file under `scripts/data/`.
+> dropping a file under `scripts/data/`. Prototype v2 quality gates are
+> currently Rajasthan-first; use `WB_ALLOWED_REGIONS=rajasthan` to keep the
+> public planner scoped during rollout.
 
 ---
 
@@ -102,17 +104,27 @@ NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 NEXT_PUBLIC_FIREBASE_DATABASE_ID=            # optional named DB id
 
-FIREBASE_SERVICE_ACCOUNT_JSON=<base64-of-service-account-json>  # or SERVICE_ACCOUNT_PATH=/path/to/key.json
+FIREBASE_SERVICE_ACCOUNT_JSON=<base64-of-service-account-json>  # or FIREBASE_SERVICE_ACCOUNT_PATH=/path/to/key.json
 FIREBASE_PROJECT_ID=...
 
 GOOGLE_MAPS_API_KEY=...                      # server: Places + Routes APIs
 NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=... # browser: Maps JavaScript API
 NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=...          # optional; falls back to DEMO_MAP_ID locally
+
+WB_ALLOWED_REGIONS=rajasthan                # optional: limit /api/regions + plan UI
+
+LITEAPI_ENABLED=false                        # server-only kill switch
+LITEAPI_API_KEY=...                          # server-only
+LITEAPI_BASE_URL=                            # optional override
+LITEAPI_TIMEOUT_MS=12000
+LITEAPI_MAX_RESULTS=20
 ```
 
 ### 3. Seed Firestore
 
 Three regions ship out of the box: **rajasthan**, **gujarat**, **himachal**.
+Prototype v2 validation is currently Rajasthan-focused, and Rajasthan's
+seeded default transport mode is `road` until curated rail edges land.
 
 ```bash
 # (optional) preview the Rajasthan purge scope safely:
@@ -212,7 +224,7 @@ full `nodes` scan.
   "count": 10,
   "default_currency": "INR",
   "default_locale": "en-IN",
-  "default_transport_modes": ["road", "train"],
+  "default_transport_modes": ["road"],
   "bbox": {
     "min_lat": 24.59,
     "min_lng": 70.91,
@@ -358,6 +370,14 @@ To enable Google sign-in:
    is minted on the server. On Vercel, prefer the base64-encoded
    service-account JSON in `FIREBASE_SERVICE_ACCOUNT_JSON`.
 
+Admin role bootstrap (for `/admin` access):
+
+```bash
+npm run grant:admin -- --uid <firebase-uid>
+# or
+npm run grant:admin -- --email <user@example.com>
+```
+
 ---
 
 ## Testing
@@ -444,6 +464,12 @@ PRs for GitHub Actions versions, so the CI itself stays patched.
 - `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` — optional but recommended once you move
   to Advanced Markers. The app falls back to Google’s `DEMO_MAP_ID` for
   local/dev, but production should use a project-owned map ID.
+- `WB_ALLOWED_REGIONS` — optional comma-separated allowlist for `/api/regions`
+  and the public plan dropdown (for example, `rajasthan` during v2 rollout).
+- `LITEAPI_ENABLED`, `LITEAPI_API_KEY`, `LITEAPI_BASE_URL`,
+  `LITEAPI_TIMEOUT_MS`, `LITEAPI_MAX_RESULTS` — server-only LiteAPI controls
+  for hotel discovery/rate snapshots. Keep `LITEAPI_ENABLED=false` until the
+  environment is ready for controlled provider traffic.
 
 3. Pull env vars locally with the Vercel CLI when you need parity:
 

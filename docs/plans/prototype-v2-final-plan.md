@@ -11,7 +11,7 @@ The final architecture keeps the current App Router shape:
 3. `loadEngineContextForPlan` loads Firestore data and resolves region-local planning facts such as day-of-week.
 4. `src/lib/itinerary/` stays deterministic and pure over injected inputs. It does not import Firestore, LiteAPI, Google APIs, `fetch`, or provider clients.
 5. The accommodation planner consumes curated accommodations plus already-loaded hotel rate snapshots through dependency injection. It never fetches LiteAPI directly.
-6. Admin pages and `api/admin/*` handlers use one shared `requireAdmin()` guard.
+6. Admin pages and `api/admin/*` handlers use one shared `requireAdminUser()` guard.
 
 Final runtime flow:
 
@@ -43,6 +43,7 @@ Key decisions from reconciliation:
 - Snapshot keys exclude `fetched_at`; `fetched_at` is data, not identity.
 - No long-lived `GraphNode.source` alias. A one-shot v2 migration/reseed writes `source_type` and removes the old field for Rajasthan data.
 - No `data_quality_runs` collection and no import UI in prototype v2. Data-quality metrics are computed on demand.
+- Public region exposure can be narrowed during rollout via `WB_ALLOWED_REGIONS` (for example, Rajasthan-only) without changing admin/seed tooling scope.
 
 ## 2. Final Firestore Collection Design
 
@@ -94,7 +95,8 @@ Key decisions from reconciliation:
 `users`
 
 - No schema change is required for prototype v2.
-- Admin authorization uses Firebase custom claims when available, with an env allowlist acceptable for prototype bootstrap.
+- Admin authorization is server-side and checks `users/{uid}.role === "admin"`.
+- Bootstrap admin access with `npm run grant:admin -- --uid <firebase-uid>` (or `--email <user@example.com>`), which writes that role via Firebase Admin SDK.
 
 ### New Collections
 
@@ -411,16 +413,18 @@ Commit: `feat(admin): add guarded data quality dashboard`
 
 Scope:
 
-- Add `src/lib/auth/admin.ts` with one `requireAdmin()` contract.
+- Add `src/lib/auth/admin.ts` with one `requireAdminUser()` contract.
 - Add `src/app/admin/layout.tsx` and admin overview.
 - Add read-only `/admin/data-quality`.
 - Data-quality metrics are computed on demand and not persisted.
+- Add a CLI bootstrap path for admin role assignment (`npm run grant:admin`) so locked-out operators can self-serve access safely.
 - Add admin route tests for unauthenticated, non-admin, expired session, and mismatched bearer token cases.
 
 Acceptance criteria:
 
 - Every admin page and `api/admin/*` handler calls the same guard.
 - Non-admin users cannot access admin pages or admin APIs.
+- Forbidden-state copy points operators to `npm run grant:admin` instead of ad-hoc Firestore console edits.
 - Dashboard reports missing provenance, unknown costs, unverified hours, missing region timezone, stale/absent hotel snapshots, and legacy-estimated values.
 - No admin route exposes provider secrets or raw logs.
 
@@ -446,7 +450,7 @@ Scope:
 - Add `/admin/cities/[id]` for city description, tags, recommended hours, and cost confidence.
 - Add `/admin/regions` for timezone/default currency/default locale.
 - Add `/admin/edges` as a route explorer for spotting wrong travel times.
-- Add server route handlers for edits, all behind `requireAdmin()`.
+- Add server route handlers for edits, all behind `requireAdminUser()`.
 
 Acceptance criteria:
 
@@ -693,7 +697,7 @@ LiteAPI rollback:
 Admin rollback:
 
 - Disable admin navigation first if UI is broken.
-- Keep `requireAdmin()` in place even when rolling back individual admin pages.
+- Keep `requireAdminUser()` in place even when rolling back individual admin pages.
 - If an admin write endpoint is suspect, disable that route or revert that phase before touching data.
 
 Schema rollback:

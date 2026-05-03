@@ -108,7 +108,7 @@ test("searchHotels uses injected fetch and normalises results", async () => {
   assert.equal(results[0]?.provider_hotel_id, "h_1");
   assert.equal(results[0]?.provider, "liteapi");
   assert.equal(results[0]?.location?.lat, 26.9239);
-  assert.ok(urls[0]?.includes("/data/hotels"));
+  assert.ok(urls[0]?.includes("/v3.0/data/hotels"));
   assert.ok(!urls[0]?.includes("/rates/prebook"));
   assert.equal(logs[0]?.status, "success");
   assert.equal(logs[0]?.result_count, 2);
@@ -185,7 +185,7 @@ test("searchRates calls rates endpoint and returns snapshot only", async () => {
   assert.equal(snapshot.offers[0]?.nightly_amount, 6000);
   assert.equal(snapshot.offers[0]?.provider_offer_id_hash?.length, 24);
   assert.equal(urls.length, 1);
-  assert.ok(urls[0]?.includes("/hotels/rates"));
+  assert.ok(urls[0]?.includes("/v3.0/hotels/rates"));
   assert.ok(!urls[0]?.includes("/rates/prebook"));
   assert.ok(!urls[0]?.includes("/rates/book"));
 });

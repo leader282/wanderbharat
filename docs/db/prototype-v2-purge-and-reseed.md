@@ -6,6 +6,9 @@ This runbook resets prototype data for schema v2 without accidentally deleting u
 
 - `scripts/purge.ts` preserves `users`, `itineraries`, and `data_quality_issues` by default.
 - Admin role assignments live in `users`, so they stay intact unless `--include-users` is passed explicitly.
+- If an operator needs admin access after a fresh environment bootstrap, run:
+  - `npm run grant:admin -- --uid <firebase-uid>`
+  - or `npm run grant:admin -- --email <user@example.com>`
 - Optional v2 collections (`attraction_hours`, `attraction_admissions`, `hotel_search_snapshots`, `hotel_offer_snapshots`, `provider_call_logs`) are skipped when absent.
 - The `regions` collection is never touched by the purge script — admin-managed region defaults survive untouched.
 - Destructive runs require all of:
@@ -57,6 +60,8 @@ Preview only Rajasthan-scoped records:
 
 ```bash
 npx tsx scripts/purge.ts --regions=rajasthan --dry-run
+# equivalent via package script:
+npm run db:purge -- --regions=rajasthan --dry-run
 ```
 
 Preview Rajasthan with itineraries and data quality issues included:

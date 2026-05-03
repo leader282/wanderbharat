@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "ci": "npm run lint && npm run typecheck && npm test",
     "db:purge": "tsx scripts/purge.ts",
+    "grant:admin": "tsx scripts/grantAdmin.ts",
     "seed:nodes": "tsx scripts/seedNodes.ts",
     "seed:attractions": "tsx scripts/seedAttractions.ts",
     "seed:attraction-hours": "tsx scripts/seedAttractionHours.ts",

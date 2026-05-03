@@ -14,7 +14,9 @@ const ADMIN_LINKS: Array<{ href: string; label: string }> = [
   { href: "/admin/attraction-costs", label: "Attraction costs" },
   { href: "/admin/hotels", label: "Hotels" },
   { href: "/admin/liteapi-test", label: "LiteAPI test" },
-  { href: "/admin/import-export", label: "Import / export" },
+  // Import / export is intentionally hidden from the nav while the page is
+  // still a placeholder; reseed/purge happen via `npm run` scripts. Re-add
+  // once src/app/admin/import-export/page.tsx ships real workflows.
 ];
 
 export default async function AdminLayout({
@@ -38,8 +40,12 @@ export default async function AdminLayout({
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-red-900">
             Signed in as {formatIdentity(auth.user)}. This workspace is reserved
-            for accounts with `users/{auth.user.uid}.role = &quot;admin&quot;`
-            in Firestore.
+            for accounts with <code className="font-mono text-xs">users/{auth.user.uid}.role = &quot;admin&quot;</code>{" "}
+            in Firestore. Run{" "}
+            <code className="font-mono text-xs">
+              npm run grant:admin -- --uid {auth.user.uid}
+            </code>{" "}
+            from the project root to grant access.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link href="/trips" className="btn-secondary">
