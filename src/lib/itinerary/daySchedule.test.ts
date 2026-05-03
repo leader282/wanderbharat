@@ -203,6 +203,30 @@ test("buildDaySchedule waits until an attraction opens before placing it", () =>
   assert.equal(blocks[0].endMin, 13 * 60);
 });
 
+test("buildDaySchedule fits activities into resolved opening periods when possible", () => {
+  const blocks = buildDaySchedule({
+    day: dayOf([
+      activity("City palace", 2, {
+        opening_hours_state: "known",
+        opening_periods: [
+          { opens: "09:00", closes: "11:00" },
+          { opens: "13:00", closes: "18:00" },
+        ],
+      }),
+    ]),
+    startTime: "10:30",
+  });
+
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].kind, "meal");
+  assert.equal(blocks[0].startMin, 13 * 60);
+  assert.equal(blocks[0].endMin, 14 * 60);
+  assert.equal(blocks[1].kind, "activity");
+  // 10:30 cannot fit in 09:00-11:00, so scheduler jumps to the afternoon window.
+  assert.equal(blocks[1].startMin, 14 * 60);
+  assert.equal(blocks[1].endMin, 16 * 60);
+});
+
 test("buildDayScheduleResult reports infeasible activities that would end after closing", () => {
   const result = buildDayScheduleResult({
     day: dayOf([
@@ -219,12 +243,61 @@ test("buildDayScheduleResult reports infeasible activities that would end after 
   assert.equal(result.unscheduledActivities[0]?.name, "Museum");
 });
 
+test("buildDayScheduleResult treats known closed attractions as unschedulable", () => {
+  const result = buildDayScheduleResult({
+    day: dayOf([
+      activity("Monday museum", 1.5, {
+        opening_hours_state: "closed",
+      }),
+    ]),
+    startTime: "09:00",
+  });
+
+  assert.equal(result.isFeasible, false);
+  assert.equal(result.unscheduledActivities[0]?.name, "Monday museum");
+});
+
+test("buildDaySchedule ignores closing_time when opening_hours_state is unknown", () => {
+  // An "unknown" activity carries no honest closing time. Even if a
+  // (heuristic) `closing_time` slips through, the scheduler should not use
+  // it to refuse placement — only the day-span cap should apply.
+  const blocks = buildDaySchedule({
+    day: dayOf([
+      activity("Mystery temple", 4, {
+        opening_hours_state: "unknown",
+        closing_time: "11:00",
+      }),
+    ]),
+    startTime: "09:00",
+  });
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].kind, "activity");
+  assert.equal(blocks[0].startMin, 9 * 60);
+  assert.equal(blocks[0].endMin, 13 * 60);
+});
+
 test("isDayScheduleFeasible accounts for the travel-style day span limit", () => {
   const feasible = isDayScheduleFeasible({
     day: dayOf([
       activity("Sunset fort", 2, {
         opening_time: "18:00",
         closing_time: "20:00",
+      }),
+    ]),
+    startTime: "09:00",
+    maxDaySpanHours: 8,
+  });
+
+  assert.equal(feasible, false);
+});
+
+test("isDayScheduleFeasible still enforces max day span with opening-period windows", () => {
+  const feasible = isDayScheduleFeasible({
+    day: dayOf([
+      activity("Evening fort", 2, {
+        opening_hours_state: "known",
+        opening_periods: [{ opens: "18:00", closes: "22:00" }],
       }),
     ]),
     startTime: "09:00",

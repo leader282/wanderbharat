@@ -54,7 +54,6 @@ export default function ItineraryBudgetPanel({
     budgetGap,
     budgetGapLabel,
     biggestDrivers,
-    breakdownWarnings,
     currency,
     hasStaySubtotal,
     lineItems,
@@ -187,19 +186,6 @@ export default function ItineraryBudgetPanel({
       <p className="mt-3 text-sm text-[var(--color-ink-500)]">
         {describeBudgetBreakdown(budgetState, formatMoney)}
       </p>
-
-      {breakdownWarnings.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <p className="text-sm font-semibold text-amber-900">
-            Accommodation notes
-          </p>
-          <ul className="mt-2 space-y-1 text-sm text-amber-900">
-            {breakdownWarnings.map((warning) => (
-              <li key={warning}>- {warning}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div>

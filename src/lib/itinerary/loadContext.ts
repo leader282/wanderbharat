@@ -4,6 +4,7 @@ import { getTravelStyleConfig } from "@/lib/config/travelStyle";
 import { averageSpeedKmH } from "@/lib/config/transportMode";
 import { findEdges } from "@/lib/repositories/edgeRepository";
 import { findNodes, getNodes } from "@/lib/repositories/nodeRepository";
+import { getAttractionOpeningHoursByAttractionIds } from "@/lib/repositories/attractionHoursRepository";
 import { haversineKm } from "@/lib/services/distanceService";
 
 /**
@@ -97,8 +98,26 @@ export async function loadEngineContextForPlan(
     );
   }
 
+  const attractionHours = await getAttractionOpeningHoursByAttractionIds(
+    attractions.map((attraction) => attraction.id),
+  );
+  const openingHoursByAttractionId = new Map(
+    attractionHours.map((entry) => [entry.attraction_id, entry]),
+  );
+  const attractionsWithHours = attractions.map((attraction) => {
+    const openingHours = openingHoursByAttractionId.get(attraction.id);
+    if (!openingHours) return attraction;
+    return {
+      ...attraction,
+      metadata: {
+        ...attraction.metadata,
+        opening_hours: openingHours,
+      },
+    };
+  });
+
   const attractionsByCity = new Map<string, GraphNode[]>();
-  for (const a of attractions) {
+  for (const a of attractionsWithHours) {
     const parent = a.parent_node_id;
     if (!parent) continue;
     const list = attractionsByCity.get(parent) ?? [];
@@ -110,7 +129,7 @@ export async function loadEngineContextForPlan(
   //    limits `in` to 10 ids so we fan out in batches.
   const edges = await loadEdgesForCities(Array.from(cityIds), regions);
 
-  const nodes = dedupeById([...pinned, ...selectedCities, ...attractions]);
+  const nodes = dedupeById([...pinned, ...selectedCities, ...attractionsWithHours]);
 
   return {
     nodes,

@@ -8,6 +8,8 @@ import {
   DATA_QUALITY_ISSUE_SEVERITIES,
   DATA_QUALITY_ISSUE_STATUSES,
   DATA_SOURCE_TYPES,
+  OPENING_HOURS_CONFIDENCE_LEVELS,
+  OPENING_HOURS_WEEKDAYS,
   assertNoMockInProductionData,
   formatDataConfidenceLabel,
   isRealData,
@@ -31,6 +33,23 @@ test("v2 provenance literals are exported in stable order", () => {
     "cached",
     "estimated",
     "unknown",
+  ]);
+
+  assert.deepEqual([...OPENING_HOURS_CONFIDENCE_LEVELS], [
+    "live",
+    "verified",
+    "cached",
+    "estimated",
+    "unknown",
+  ]);
+  assert.deepEqual([...OPENING_HOURS_WEEKDAYS], [
+    "sun",
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
   ]);
 });
 

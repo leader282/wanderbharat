@@ -23,7 +23,6 @@ export interface BudgetPanelState {
   hasNightlyAverage: boolean;
   nightlyAverage: number;
   totalTripCost: number;
-  breakdownWarnings: string[];
   hasDetailedBreakdown: boolean;
   recommendedBudget?: BudgetRange;
   budgetGap: number;
@@ -67,7 +66,6 @@ export function deriveBudgetPanelState(args: {
     hasNightlyAverage,
     nightlyAverage,
     totalTripCost,
-    breakdownWarnings: args.breakdown?.warnings ?? [],
     hasDetailedBreakdown:
       hasStaySubtotal || hasTravelSubtotal || hasNightlyAverage,
     recommendedBudget: args.breakdown?.recommendedBudget,

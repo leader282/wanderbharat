@@ -1,4 +1,5 @@
 import type {
+  AttractionOpeningHours,
   ConstraintError,
   GenerateItineraryInput,
   GraphEdge,
@@ -7,6 +8,11 @@ import type {
   ItineraryBudgetLineItem,
   ItineraryActivity,
   ItineraryDay,
+  LocalDateString,
+  OpeningHoursConfidence,
+  OpeningPeriod,
+  OpeningTimeRange,
+  OpeningHoursWeekday,
   PreferenceTag,
   TransportMode,
 } from "@/types/domain";
@@ -87,6 +93,7 @@ interface RouteSearchInput {
   tuning: EngineTuning;
   requestedNodeIds: Set<string>;
   preferredStartTime?: string;
+  tripStartDate?: LocalDateString;
   travellersCount: number;
 }
 
@@ -104,6 +111,7 @@ interface RouteSelection {
   fatiguePenalty: number;
   isFallbackStay: boolean;
   requestedCoverageCount: number;
+  warnings: string[];
 }
 
 type StayRole = "visit" | "destination" | "return_home" | "staycation";
@@ -115,6 +123,12 @@ interface StaySpec {
   requiredHours: number;
   desiredHours: number;
   scoreWeight: number;
+}
+
+interface ResolvedOpeningHoursForDay {
+  state: "known" | "closed" | "unknown";
+  periods: OpeningTimeRange[];
+  confidence: OpeningHoursConfidence;
 }
 
 export async function generateItinerary(
@@ -249,6 +263,7 @@ export async function generateItinerary(
     tuning,
     requestedNodeIds,
     preferredStartTime: input.preferences.preferred_start_time,
+    tripStartDate: input.preferences.trip_start_date,
     travellersCount,
   });
 
@@ -276,6 +291,7 @@ export async function generateItinerary(
         tuning,
         requestedNodeIds,
         preferredStartTime: input.preferences.preferred_start_time,
+        tripStartDate: input.preferences.trip_start_date,
         travellersCount,
       },
     });
@@ -356,6 +372,7 @@ export async function generateItinerary(
       requestedBudget: input.preferences.budget,
       recommendedBudget: derivedBudget,
     },
+    warnings: selected.warnings.length > 0 ? selected.warnings : undefined,
     score: Number(score.toFixed(3)),
     created_at: now,
   };
@@ -474,7 +491,7 @@ function evaluateRoute(
   order: GraphNode[],
   opts: RouteSearchInput,
 ): RouteSelection | null {
-  const dayPlan = buildDayPlanForRoute({
+  const dayPlanResult = buildDayPlanForRoute({
     days: opts.days,
     start: opts.start,
     end: opts.end,
@@ -485,8 +502,10 @@ function evaluateRoute(
     scoredById: opts.scoredById,
     tuning: opts.tuning,
     preferredStartTime: opts.preferredStartTime,
+    tripStartDate: opts.tripStartDate,
   });
-  if (!dayPlan) return null;
+  if (!dayPlanResult) return null;
+  const dayPlan = dayPlanResult.dayPlan;
 
   const costEstimate = estimateCost({
     dayPlan,
@@ -532,7 +551,13 @@ function evaluateRoute(
       opts.start.id === opts.end.id &&
       opts.candidates.length > 0,
     requestedCoverageCount: countRequestedCoverage(order, opts.requestedNodeIds),
+    warnings: dayPlanResult.warnings,
   };
+}
+
+interface DayPlanBuildResult {
+  dayPlan: ItineraryDay[];
+  warnings: string[];
 }
 
 function buildDayPlanForRoute(args: {
@@ -546,7 +571,8 @@ function buildDayPlanForRoute(args: {
   scoredById: Map<string, number>;
   tuning: EngineTuning;
   preferredStartTime?: string;
-}): ItineraryDay[] | null {
+  tripStartDate?: LocalDateString;
+}): DayPlanBuildResult | null {
   const stays = buildStaySpecs({
     start: args.start,
     end: args.end,
@@ -573,6 +599,7 @@ function buildDayPlanForRoute(args: {
   }
 
   const dayPlan: ItineraryDay[] = [];
+  const warnings = new Set<string>();
   let dayIndex = 0;
 
   for (let i = 0; i < stays.length; i += 1) {
@@ -592,6 +619,9 @@ function buildDayPlanForRoute(args: {
       tuning: args.tuning,
       startTime: args.preferredStartTime,
       maxTotalHoursPerDay: args.cfg.maxTotalHoursPerDay,
+      tripStartDate: args.tripStartDate,
+      startDayIndex: dayIndex,
+      warnings,
     });
 
     for (let dayOffset = 0; dayOffset < dayCaps.length; dayOffset += 1) {
@@ -625,7 +655,10 @@ function buildDayPlanForRoute(args: {
   }
 
   if (dayPlan.length !== args.days) return null;
-  return dayPlan;
+  return {
+    dayPlan,
+    warnings: Array.from(warnings),
+  };
 }
 
 function buildStaySpecs(args: {
@@ -894,52 +927,50 @@ function distributeStopActivities(args: {
   tuning: EngineTuning;
   startTime?: string;
   maxTotalHoursPerDay: number;
+  tripStartDate?: LocalDateString;
+  startDayIndex: number;
+  warnings: Set<string>;
 }): ItineraryActivity[][] {
-  const orderedAttractions = [...args.attractions].sort((left, right) => {
-    const leftClosing = parseClockValue(
-      left.metadata.closing_time as string | undefined,
-      Number.POSITIVE_INFINITY,
-    );
-    const rightClosing = parseClockValue(
-      right.metadata.closing_time as string | undefined,
-      Number.POSITIVE_INFINITY,
-    );
-    if (leftClosing !== rightClosing) return leftClosing - rightClosing;
-
-    const leftOpening = parseClockValue(
-      left.metadata.opening_time as string | undefined,
-      0,
-    );
-    const rightOpening = parseClockValue(
-      right.metadata.opening_time as string | undefined,
-      0,
-    );
-    if (leftOpening !== rightOpening) return leftOpening - rightOpening;
-
-    const hoursDiff =
-      Number(
-        right.metadata.recommended_hours ?? args.tuning.defaultAttractionHours,
-      ) -
-      Number(
-        left.metadata.recommended_hours ?? args.tuning.defaultAttractionHours,
-      );
-    if (Math.abs(hoursDiff) > 1e-9) return hoursDiff;
-    return left.id.localeCompare(right.id);
-  });
-
   const plan = args.dayCaps.map(() => [] as ItineraryActivity[]);
-  const remainingAttractions = [...orderedAttractions];
+  const remainingAttractions = [...args.attractions];
   let remainingTarget = args.targetHours;
 
   for (let dayIndex = 0; dayIndex < args.dayCaps.length; dayIndex += 1) {
     let remainingCapacity = args.dayCaps[dayIndex];
+    const dayDate = addDaysToLocalDate(
+      args.tripStartDate,
+      args.startDayIndex + dayIndex,
+    );
+
+    // Surface a single warning per day listing attractions that are closed on
+    // this date. The placement loop also rejects them via the day-schedule
+    // feasibility check, but we want the user to see *why* something they
+    // might expect on day N didn't make it onto the plan.
+    const closedToday = args.attractions.filter(
+      (attraction) =>
+        resolveOpeningHoursForAttractionOnDate(attraction, dayDate).state ===
+        "closed",
+    );
+    if (closedToday.length > 0) {
+      const dayLabel = `Day ${args.startDayIndex + dayIndex + 1}`;
+      const sampleNames = closedToday.slice(0, 3).map((a) => a.name).join(", ");
+      const moreSuffix =
+        closedToday.length > 3 ? ` and ${closedToday.length - 3} more` : "";
+      args.warnings.add(
+        `${dayLabel} in ${args.base.name}: ${closedToday.length} attraction${
+          closedToday.length === 1 ? "" : "s"
+        } closed (${sampleNames}${moreSuffix}).`,
+      );
+    }
 
     while (remainingCapacity > 0.75 && remainingTarget > 0.25) {
       const maxBlock = Math.min(remainingCapacity, remainingTarget);
       let placedAttraction = false;
+      const orderedAttractions = [...remainingAttractions].sort((left, right) =>
+        compareAttractionsForDay(left, right, dayDate, args.tuning),
+      );
 
-      for (let i = 0; i < remainingAttractions.length; i += 1) {
-        const attraction = remainingAttractions[i];
+      for (const attraction of orderedAttractions) {
         const duration = Math.max(
           1,
           Math.min(
@@ -950,7 +981,11 @@ function distributeStopActivities(args: {
             maxBlock,
           ),
         );
-        const candidate = toActivity(attraction, duration);
+        const resolvedOpeningHours = resolveOpeningHoursForAttractionOnDate(
+          attraction,
+          dayDate,
+        );
+        const candidate = toActivity(attraction, duration, resolvedOpeningHours);
         if (
           !canScheduleActivitiesForDay({
             base: args.base,
@@ -967,7 +1002,21 @@ function distributeStopActivities(args: {
         plan[dayIndex].push(candidate);
         remainingCapacity -= duration;
         remainingTarget -= duration;
-        remainingAttractions.splice(i, 1);
+        const placedIndex = remainingAttractions.findIndex(
+          (entry) => entry.id === attraction.id,
+        );
+        if (placedIndex >= 0) {
+          remainingAttractions.splice(placedIndex, 1);
+        }
+        if (candidate.opening_hours_state === "unknown") {
+          args.warnings.add(
+            `Opening hours for ${candidate.name} are unknown; scheduled timing may be approximate.`,
+          );
+        } else if (candidate.opening_hours_confidence === "estimated") {
+          args.warnings.add(
+            `Opening hours for ${candidate.name} are estimated, not verified — confirm before visiting.`,
+          );
+        }
         placedAttraction = true;
         break;
       }
@@ -1020,7 +1069,22 @@ function distributeStopActivities(args: {
   return plan;
 }
 
-function toActivity(node: GraphNode, duration: number): ItineraryActivity {
+function toActivity(
+  node: GraphNode,
+  duration: number,
+  openingHours?: ResolvedOpeningHoursForDay,
+): ItineraryActivity {
+  // Only surface clock fields when the resolved state is "known". For
+  // unknown/closed states we deliberately leave them undefined so the UI
+  // never shows a 09:00-18:00 placeholder that came from heuristic
+  // metadata. The resolver already promotes legacy `metadata.opening_time`
+  // pairs to a known/estimated period, so a real legacy window still flows
+  // through `openingHours.periods` here.
+  const periods =
+    openingHours?.state === "known" && openingHours.periods.length > 0
+      ? openingHours.periods
+      : undefined;
+
   return {
     node_id: node.id,
     name: node.name,
@@ -1028,8 +1092,11 @@ function toActivity(node: GraphNode, duration: number): ItineraryActivity {
     duration_hours: Number(duration.toFixed(2)),
     tags: node.tags,
     description: node.metadata.description as string | undefined,
-    opening_time: node.metadata.opening_time as string | undefined,
-    closing_time: node.metadata.closing_time as string | undefined,
+    opening_time: periods?.[0]?.opens,
+    closing_time: periods?.[periods.length - 1]?.closes,
+    opening_periods: periods,
+    opening_hours_state: openingHours?.state ?? undefined,
+    opening_hours_confidence: openingHours?.confidence ?? undefined,
   };
 }
 
@@ -1082,6 +1149,233 @@ function canScheduleActivitiesForDay(args: {
       total_travel_hours: Number(args.arrivalTravelHours.toFixed(2)),
     },
   });
+}
+
+const WEEKDAYS_BY_UTC_INDEX: OpeningHoursWeekday[] = [
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+];
+
+function compareAttractionsForDay(
+  left: GraphNode,
+  right: GraphNode,
+  dayDate: LocalDateString | undefined,
+  tuning: EngineTuning,
+): number {
+  const leftHours = resolveOpeningHoursForAttractionOnDate(left, dayDate);
+  const rightHours = resolveOpeningHoursForAttractionOnDate(right, dayDate);
+
+  const stateDiff =
+    openingStatePriority(leftHours.state) - openingStatePriority(rightHours.state);
+  if (stateDiff !== 0) return stateDiff;
+
+  const leftClosing = resolveEffectiveClosingMinute(left, leftHours);
+  const rightClosing = resolveEffectiveClosingMinute(right, rightHours);
+  if (leftClosing !== rightClosing) return leftClosing - rightClosing;
+
+  const leftOpening = resolveEffectiveOpeningMinute(left, leftHours);
+  const rightOpening = resolveEffectiveOpeningMinute(right, rightHours);
+  if (leftOpening !== rightOpening) return leftOpening - rightOpening;
+
+  const hoursDiff =
+    Number(right.metadata.recommended_hours ?? tuning.defaultAttractionHours) -
+    Number(left.metadata.recommended_hours ?? tuning.defaultAttractionHours);
+  if (Math.abs(hoursDiff) > 1e-9) return hoursDiff;
+
+  return left.id.localeCompare(right.id);
+}
+
+function openingStatePriority(
+  state: ResolvedOpeningHoursForDay["state"],
+): number {
+  switch (state) {
+    case "known":
+      return 0;
+    case "unknown":
+      return 1;
+    case "closed":
+      return 2;
+  }
+}
+
+function resolveEffectiveOpeningMinute(
+  attraction: GraphNode,
+  resolved: ResolvedOpeningHoursForDay,
+): number {
+  if (resolved.periods.length > 0) {
+    return Math.min(...resolved.periods.map((period) => toClockMinutes(period.opens)));
+  }
+  return parseClockValue(attraction.metadata.opening_time as string | undefined, 0);
+}
+
+function resolveEffectiveClosingMinute(
+  attraction: GraphNode,
+  resolved: ResolvedOpeningHoursForDay,
+): number {
+  if (resolved.periods.length > 0) {
+    return Math.min(
+      ...resolved.periods.map((period) => toClockMinutes(period.closes)),
+    );
+  }
+  if (resolved.state === "closed") {
+    return Number.POSITIVE_INFINITY;
+  }
+  return parseClockValue(
+    attraction.metadata.closing_time as string | undefined,
+    Number.POSITIVE_INFINITY,
+  );
+}
+
+function resolveOpeningHoursForAttractionOnDate(
+  attraction: GraphNode,
+  dayDate: LocalDateString | undefined,
+): ResolvedOpeningHoursForDay {
+  const legacyRange = normaliseOpeningRange({
+    opens: attraction.metadata.opening_time as string | undefined,
+    closes: attraction.metadata.closing_time as string | undefined,
+  });
+  const schedule = attraction.metadata.opening_hours as
+    | AttractionOpeningHours
+    | undefined;
+  const confidence = schedule?.confidence ?? "unknown";
+  if (!schedule) {
+    if (legacyRange) {
+      return { state: "known", periods: [legacyRange], confidence: "estimated" };
+    }
+    return { state: "unknown", periods: [], confidence };
+  }
+  if (!dayDate) {
+    if (legacyRange) {
+      return { state: "known", periods: [legacyRange], confidence };
+    }
+    return { state: "unknown", periods: [], confidence };
+  }
+
+  if (schedule.confidence === "unknown") {
+    return { state: "unknown", periods: [], confidence: schedule.confidence };
+  }
+
+  const fromException = resolveExceptionForDate(schedule, dayDate);
+  if (fromException) {
+    return fromException;
+  }
+
+  const weekday = weekdayForLocalDate(dayDate);
+  if (!weekday) {
+    return { state: "unknown", periods: [], confidence: schedule.confidence };
+  }
+
+  const closedDays = new Set(schedule.closed_days ?? []);
+  const periods = (schedule.weekly_periods ?? [])
+    .filter((period) => period.day === weekday)
+    .map((period) => normaliseOpeningRange(period))
+    .filter((period): period is OpeningTimeRange => Boolean(period))
+    .sort((left, right) => {
+      const openDiff = toClockMinutes(left.opens) - toClockMinutes(right.opens);
+      if (openDiff !== 0) return openDiff;
+      return toClockMinutes(left.closes) - toClockMinutes(right.closes);
+    });
+
+  if (periods.length > 0) {
+    return { state: "known", periods, confidence: schedule.confidence };
+  }
+  if (closedDays.has(weekday)) {
+    return { state: "closed", periods: [], confidence: schedule.confidence };
+  }
+
+  return { state: "unknown", periods: [], confidence: schedule.confidence };
+}
+
+function resolveExceptionForDate(
+  schedule: AttractionOpeningHours,
+  dayDate: LocalDateString,
+): ResolvedOpeningHoursForDay | null {
+  if (!Array.isArray(schedule.exceptions) || schedule.exceptions.length === 0) {
+    return null;
+  }
+
+  const entry = schedule.exceptions.find((exception) => exception.date === dayDate);
+  if (!entry) return null;
+
+  if (entry.closed) {
+    return { state: "closed", periods: [], confidence: schedule.confidence };
+  }
+
+  const range = normaliseOpeningRange(entry);
+  if (range) {
+    return {
+      state: "known",
+      periods: [range],
+      confidence: schedule.confidence,
+    };
+  }
+
+  return { state: "unknown", periods: [], confidence: schedule.confidence };
+}
+
+function normaliseOpeningRange(
+  period: Pick<OpeningPeriod, "opens" | "closes"> | { opens?: string; closes?: string },
+): OpeningTimeRange | null {
+  const opens = normaliseClock(period.opens);
+  const closes = normaliseClock(period.closes);
+  if (!opens || !closes) return null;
+  if (toClockMinutes(opens) >= toClockMinutes(closes)) return null;
+  return { opens, closes };
+}
+
+function normaliseClock(value: string | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(trimmed) ? trimmed : null;
+}
+
+function toClockMinutes(clock: string): number {
+  const [hours, minutes] = clock.split(":").map((part) => Number(part));
+  return hours * 60 + minutes;
+}
+
+function weekdayForLocalDate(
+  localDate: LocalDateString,
+): OpeningHoursWeekday | null {
+  const parsed = parseLocalDate(localDate);
+  if (!parsed) return null;
+  return WEEKDAYS_BY_UTC_INDEX[parsed.getUTCDay()] ?? null;
+}
+
+function addDaysToLocalDate(
+  localDate: LocalDateString | undefined,
+  offsetDays: number,
+): LocalDateString | undefined {
+  if (!localDate) return undefined;
+  const parsed = parseLocalDate(localDate);
+  if (!parsed) return undefined;
+  parsed.setUTCDate(parsed.getUTCDate() + offsetDays);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function parseLocalDate(localDate: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return candidate;
 }
 
 function countRequestedCoverage(

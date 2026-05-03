@@ -7,6 +7,7 @@ import DayTimeline from "@/components/itinerary/DayTimeline";
 import { ArrowLeftIcon } from "@/components/itinerary/icons";
 import ItineraryFootnote from "@/components/itinerary/ItineraryFootnote";
 import ItineraryHero from "@/components/itinerary/ItineraryHero";
+import ItineraryNotices from "@/components/itinerary/ItineraryNotices";
 import ItinerarySectionNav, {
   type ItineraryNavSection,
 } from "@/components/itinerary/ItinerarySectionNav";
@@ -86,6 +87,8 @@ export default async function ItineraryPage({
       </Link>
 
       <ItineraryHero itinerary={itinerary} stats={stats} />
+
+      <ItineraryNotices warnings={itinerary.warnings} />
 
       <ItinerarySectionNav sections={NAV_SECTIONS} />
 

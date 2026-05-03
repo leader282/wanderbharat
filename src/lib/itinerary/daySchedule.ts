@@ -1,18 +1,21 @@
 /**
- * Render-time scheduler for the daily plan UI.
+ * Render-time scheduler for the daily plan UI, and a pure feasibility
+ * check that the itinerary engine reuses to gate placement.
  *
  * The engine deals exclusively in *durations* (`duration_hours`,
  * `travel_time_hours`). For the itinerary timeline we want *clock times*
  * ("9:00 – 11:30 AM") because users read a daily plan to know **when** to
  * be where, not just for how long.
  *
- * This module is a pure presentation helper: given a day's data plus the
- * user's preferred start time, it produces an ordered list of timed
- * blocks (travel, activities, an optional lunch break) with start/end
+ * This module is a pure helper: given a day's data plus the user's
+ * preferred start time, it produces an ordered list of timed blocks
+ * (travel, activities, an optional lunch break) with start/end
  * minutes-from-midnight already computed. Buffer time between blocks is
  * absorbed into the cursor and is never rendered as its own row.
  *
- * Engine code does not import from this file.
+ * The engine imports `isDayScheduleFeasible` from here so the placement
+ * loop and the rendered timeline always agree on whether a candidate
+ * activity fits inside its opening windows and the day's total span.
  */
 
 import type {
@@ -161,20 +164,29 @@ export function buildDayScheduleResult({
       nextCursor += SCHEDULE_RULES.betweenActivitiesBufferMin;
     }
 
-    let activityStart = earliestActivityStart(nextCursor, activity);
+    let activityStart = resolveActivityStart({
+      cursor: nextCursor,
+      activity,
+      durationMin,
+      latestEndMin,
+    });
+    if (activityStart === null) {
+      unscheduledActivities.push(activity);
+      continue;
+    }
 
     if (
       !lunchPlaced &&
       activityStart >= SCHEDULE_RULES.lunchWindow.startMin &&
       activityStart <= SCHEDULE_RULES.lunchWindow.endMin
     ) {
-      const afterLunchStart = earliestActivityStart(
-        activityStart + SCHEDULE_RULES.lunchDurationMin,
+      const afterLunchStart = resolveActivityStart({
+        cursor: activityStart + SCHEDULE_RULES.lunchDurationMin,
         activity,
-      );
-      if (
-        fitsActivityWindow(activity, afterLunchStart, durationMin, latestEndMin)
-      ) {
+        durationMin,
+        latestEndMin,
+      });
+      if (afterLunchStart !== null) {
         blocks.push({
           kind: "meal",
           startMin: activityStart,
@@ -183,14 +195,8 @@ export function buildDayScheduleResult({
           label: "Lunch",
         });
         lunchPlaced = true;
-        nextCursor = activityStart + SCHEDULE_RULES.lunchDurationMin;
-        activityStart = earliestActivityStart(nextCursor, activity);
+        activityStart = afterLunchStart;
       }
-    }
-
-    if (!fitsActivityWindow(activity, activityStart, durationMin, latestEndMin)) {
-      unscheduledActivities.push(activity);
-      continue;
     }
 
     blocks.push({
@@ -284,26 +290,61 @@ function parseTimeToMinutes(value: string | undefined): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function earliestActivityStart(
-  cursor: number,
-  activity: ItineraryActivity,
-): number {
-  const openingTime = parseTimeToMinutes(activity.opening_time);
-  if (openingTime === null) return cursor;
-  return Math.max(cursor, openingTime);
+function resolveActivityStart(args: {
+  cursor: number;
+  activity: ItineraryActivity;
+  durationMin: number;
+  latestEndMin?: number;
+}): number | null {
+  if (args.activity.opening_hours_state === "closed") {
+    return null;
+  }
+
+  const periodWindows = parseActivityPeriods(args.activity);
+  if (periodWindows.length > 0) {
+    for (const period of periodWindows) {
+      const startMin = Math.max(args.cursor, period.opens);
+      const endMin = startMin + args.durationMin;
+      if (endMin > period.closes) continue;
+      if (args.latestEndMin !== undefined && endMin > args.latestEndMin) continue;
+      return startMin;
+    }
+    return null;
+  }
+
+  const openingTime = parseTimeToMinutes(args.activity.opening_time);
+  const startMin =
+    openingTime === null ? args.cursor : Math.max(args.cursor, openingTime);
+  const endMin = startMin + args.durationMin;
+
+  if (args.activity.opening_hours_state !== "unknown") {
+    const closingTime = parseTimeToMinutes(args.activity.closing_time);
+    if (closingTime !== null && endMin > closingTime) return null;
+  }
+
+  if (args.latestEndMin !== undefined && endMin > args.latestEndMin) return null;
+  return startMin;
 }
 
-function fitsActivityWindow(
+function parseActivityPeriods(
   activity: ItineraryActivity,
-  startMin: number,
-  durationMin: number,
-  latestEndMin?: number,
-): boolean {
-  const endMin = startMin + durationMin;
-  const closingTime = parseTimeToMinutes(activity.closing_time);
-  if (closingTime !== null && endMin > closingTime) return false;
-  if (latestEndMin !== undefined && endMin > latestEndMin) return false;
-  return true;
+): Array<{ opens: number; closes: number }> {
+  if (!Array.isArray(activity.opening_periods)) return [];
+
+  const windows: Array<{ opens: number; closes: number }> = [];
+  for (const period of activity.opening_periods) {
+    const opens = parseTimeToMinutes(period.opens);
+    const closes = parseTimeToMinutes(period.closes);
+    if (opens === null || closes === null) continue;
+    if (closes <= opens) continue;
+    windows.push({ opens, closes });
+  }
+
+  windows.sort((left, right) => {
+    if (left.opens !== right.opens) return left.opens - right.opens;
+    return left.closes - right.closes;
+  });
+  return windows;
 }
 
 function hoursToMinutes(hours: number): number {

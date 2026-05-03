@@ -36,6 +36,11 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   );
   const totalTripCost = roundCurrency(lodgingSubtotal + travelSubtotal);
   const nightlyAverage = computeNightlyAverage(args.stays);
+  // Itinerary-level warnings are the single source of truth: engine warnings
+  // (opening hours, closed days, ...) merged with accommodation warnings.
+  // We deliberately do NOT mirror them onto `budget_breakdown.warnings`
+  // anymore so the UI can surface them in a dedicated notices banner instead
+  // of mislabeling them as accommodation notes.
   const warnings = dedupeWarnings([
     ...(args.itinerary.warnings ?? []),
     ...(args.warnings ?? []),
@@ -51,7 +56,6 @@ export function integrateAccommodationPlanIntoItinerary(args: {
     totalTripCost,
     requestedBudget,
     recommendedBudget: derivedBudget,
-    warnings: warnings.length > 0 ? warnings : undefined,
   };
 
   return {

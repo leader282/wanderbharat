@@ -83,6 +83,77 @@ export const DATA_CONFIDENCE_LEVELS = [
 ] as const;
 export type DataConfidence = (typeof DATA_CONFIDENCE_LEVELS)[number];
 
+export const OPENING_HOURS_CONFIDENCE_LEVELS = [
+  "live",
+  "verified",
+  "cached",
+  "estimated",
+  "unknown",
+] as const;
+export type OpeningHoursConfidence =
+  (typeof OPENING_HOURS_CONFIDENCE_LEVELS)[number];
+
+export const OPENING_HOURS_WEEKDAYS = [
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+] as const;
+export type OpeningHoursWeekday = (typeof OPENING_HOURS_WEEKDAYS)[number];
+
+/**
+ * Single-day opening window. `opens`/`closes` are local-time `HH:MM`
+ * strings on the same calendar day — i.e. `closes > opens`.
+ *
+ * Overnight venues (e.g. open Sun 22:00 and closing Mon 02:00) must be
+ * ingested as two separate records, one per calendar day, until v2
+ * introduces explicit cross-midnight resolution. Daytime attractions —
+ * which is what the prototype targets — fit cleanly in this single-day
+ * model and map directly to Google Places `regularOpeningHours.periods`
+ * after splitting any midnight-crossing entries during ingestion.
+ */
+export interface OpeningPeriod {
+  day: OpeningHoursWeekday;
+  opens: string;
+  closes: string;
+}
+
+export interface OpeningTimeRange {
+  opens: string;
+  closes: string;
+}
+
+export interface OpeningHoursException {
+  /** Local date in YYYY-MM-DD format. */
+  date: string;
+  /** Optional hard closure override for the specific date. */
+  closed?: boolean;
+  opens?: string;
+  closes?: string;
+}
+
+export interface AttractionOpeningHours {
+  id: string;
+  attraction_id: string;
+  region: string;
+  timezone?: string | null;
+  weekly_periods: OpeningPeriod[];
+  closed_days?: OpeningHoursWeekday[];
+  /**
+   * Optional placeholder for future one-off overrides. V1 keeps weekly periods
+   * authoritative and does not fully resolve exceptions yet.
+   */
+  exceptions?: OpeningHoursException[];
+  source_type: DataSourceType;
+  confidence: OpeningHoursConfidence;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  updated_at?: number;
+}
+
 /** Bump when source-record schema contracts are intentionally versioned. */
 export const CURRENT_DATA_VERSION = 2 as const;
 
@@ -316,6 +387,8 @@ export interface NodeMetadata {
   opening_time?: string;
   /** Optional local closing time ("HH:MM"). */
   closing_time?: string;
+  /** Optional structured opening-hours schedule loaded from attraction_hours. */
+  opening_hours?: AttractionOpeningHours;
   /** Allow any forward-compatible extras without breaking typing. */
   [key: string]: unknown;
 }
@@ -510,6 +583,11 @@ export interface ItineraryActivity {
   opening_time?: string;
   /** Optional local closing time ("HH:MM"). */
   closing_time?: string;
+  /** Optional resolved windows for the specific itinerary day. */
+  opening_periods?: OpeningTimeRange[];
+  /** `unknown` allows scheduling but should surface a warning. */
+  opening_hours_state?: "known" | "closed" | "unknown";
+  opening_hours_confidence?: OpeningHoursConfidence;
 }
 
 /** A contiguous day within an itinerary. */

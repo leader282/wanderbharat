@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type {
+  AttractionOpeningHours,
   GenerateItineraryInput,
   GraphEdge,
   GraphNode,
@@ -58,10 +59,46 @@ function makeRoadEdge(args: {
   };
 }
 
-function makeContext(nodes: GraphNode[], edges: GraphEdge[]): EngineContext {
+function makeAttraction(args: {
+  id: string;
+  name: string;
+  cityId: string;
+  recommendedHours?: number;
+  openingHours?: AttractionOpeningHours;
+  openingTime?: string;
+  closingTime?: string;
+}): GraphNode {
+  return {
+    id: args.id,
+    type: "attraction",
+    name: args.name,
+    region: "test-region",
+    country: "test-country",
+    tags: ["heritage"],
+    parent_node_id: args.cityId,
+    metadata: {
+      recommended_hours: args.recommendedHours ?? 2,
+      description: `${args.name} description`,
+      opening_time: args.openingTime,
+      closing_time: args.closingTime,
+      opening_hours: args.openingHours,
+    },
+    location: {
+      lat: 26.9,
+      lng: 75.8,
+    },
+  };
+}
+
+function makeContext(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  attractionsByCity?: Map<string, GraphNode[]>,
+): EngineContext {
   return {
     nodes,
     edges,
+    attractionsByCity,
     now: () => 1700000000000,
     makeId: (prefix) => `${prefix}_test`,
   };
@@ -692,4 +729,396 @@ test("generateItinerary enforces minHoursPerStop through exact day allocation", 
   if (result.ok) return;
 
   assert.equal(result.error.reason, "no_feasible_route");
+});
+
+test("generateItinerary moves a closed-day attraction to a later open day", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  const museum = makeAttraction({
+    id: "attr_museum",
+    name: "City Museum",
+    cityId: end.id,
+    openingHours: {
+      id: "attr_museum",
+      attraction_id: "attr_museum",
+      region: "test-region",
+      weekly_periods: [{ day: "tue", opens: "10:00", closes: "18:00" }],
+      closed_days: ["mon"],
+      source_type: "manual",
+      confidence: "verified",
+    },
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 40000 },
+        trip_start_date: "2026-05-04", // Monday
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, museum],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [museum]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const day0Activities = result.itinerary.day_plan[0]?.activities ?? [];
+  const day1Activities = result.itinerary.day_plan[1]?.activities ?? [];
+  assert.equal(
+    day0Activities.some((activity) => activity.node_id === museum.id),
+    false,
+  );
+  assert.equal(
+    day1Activities.some((activity) => activity.node_id === museum.id),
+    true,
+  );
+});
+
+test("generateItinerary keeps unknown-hour attractions schedulable and adds a warning", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  const unknownHoursAttraction = makeAttraction({
+    id: "attr_unknown",
+    name: "Unknown Hours Fort",
+    cityId: end.id,
+    openingHours: {
+      id: "attr_unknown",
+      attraction_id: "attr_unknown",
+      region: "test-region",
+      weekly_periods: [],
+      source_type: "manual",
+      confidence: "unknown",
+    },
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 40000 },
+        trip_start_date: "2026-05-04",
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, unknownHoursAttraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [unknownHoursAttraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const scheduledUnknownAttraction = result.itinerary.day_plan.some((day) =>
+    day.activities.some((activity) => activity.node_id === unknownHoursAttraction.id),
+  );
+  assert.equal(scheduledUnknownAttraction, true);
+  assert.ok(
+    (result.itinerary.warnings ?? []).some((warning) =>
+      warning.includes("Unknown Hours Fort"),
+    ),
+  );
+
+  const scheduledActivity = result.itinerary.day_plan
+    .flatMap((day) => day.activities)
+    .find((activity) => activity.node_id === unknownHoursAttraction.id);
+  assert.ok(scheduledActivity, "expected the unknown attraction to be scheduled");
+  assert.equal(
+    scheduledActivity.opening_time,
+    undefined,
+    "unknown-state activities must not surface heuristic opening times",
+  );
+  assert.equal(scheduledActivity.closing_time, undefined);
+  assert.equal(scheduledActivity.opening_periods, undefined);
+});
+
+test("generateItinerary warns when an attraction relies on legacy estimated hours", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  // No `openingHours` doc, only legacy metadata. The resolver treats this as
+  // state="known" with confidence="estimated" so the attraction still flows
+  // through, but we expect a heads-up warning so users know it isn't verified.
+  const heuristicAttraction = makeAttraction({
+    id: "attr_heuristic",
+    name: "Heuristic Haveli",
+    cityId: end.id,
+    openingTime: "10:00",
+    closingTime: "18:00",
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 40000 },
+        trip_start_date: "2026-05-05",
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, heuristicAttraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [heuristicAttraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const scheduled = result.itinerary.day_plan
+    .flatMap((day) => day.activities)
+    .find((activity) => activity.node_id === heuristicAttraction.id);
+  assert.ok(scheduled, "expected the heuristic attraction to be scheduled");
+  assert.equal(scheduled.opening_hours_state, "known");
+  assert.equal(scheduled.opening_hours_confidence, "estimated");
+  assert.ok(
+    (result.itinerary.warnings ?? []).some(
+      (warning) =>
+        warning.includes("Heuristic Haveli") && warning.includes("estimated"),
+    ),
+    "expected a warning that flags the estimated opening hours",
+  );
+});
+
+test("generateItinerary applies a same-date exception closure over weekly hours", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  const fort = makeAttraction({
+    id: "attr_fort",
+    name: "Public Holiday Fort",
+    cityId: end.id,
+    openingHours: {
+      id: "attr_fort",
+      attraction_id: "attr_fort",
+      region: "test-region",
+      weekly_periods: [
+        { day: "mon", opens: "10:00", closes: "18:00" },
+        { day: "tue", opens: "10:00", closes: "18:00" },
+      ],
+      // 2026-05-04 happens to be Monday — without the exception the fort
+      // would be open. The exception forces the engine to push it to Tuesday.
+      exceptions: [{ date: "2026-05-04", closed: true }],
+      source_type: "manual",
+      confidence: "verified",
+    },
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 40000 },
+        trip_start_date: "2026-05-04",
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, fort],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [fort]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const day0Activities = result.itinerary.day_plan[0]?.activities ?? [];
+  const day1Activities = result.itinerary.day_plan[1]?.activities ?? [];
+  assert.equal(
+    day0Activities.some((activity) => activity.node_id === fort.id),
+    false,
+    "exception closure should keep the fort off the start-day plan",
+  );
+  assert.equal(
+    day1Activities.some((activity) => activity.node_id === fort.id),
+    true,
+  );
+  assert.ok(
+    (result.itinerary.warnings ?? []).some(
+      (warning) =>
+        warning.includes("Day 1") && warning.includes("Public Holiday Fort"),
+    ),
+    "expected a heads-up that the fort is closed on the exception day",
+  );
+});
+
+test("generateItinerary fills a fully-closed day with explore filler and warns", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  const monClosed = (id: string, name: string) =>
+    makeAttraction({
+      id,
+      name,
+      cityId: end.id,
+      openingHours: {
+        id,
+        attraction_id: id,
+        region: "test-region",
+        weekly_periods: [{ day: "tue", opens: "10:00", closes: "18:00" }],
+        closed_days: ["mon"],
+        source_type: "manual",
+        confidence: "verified",
+      },
+    });
+  const museum = monClosed("attr_museum", "Mon-closed Museum");
+  const palace = monClosed("attr_palace", "Mon-closed Palace");
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 40000 },
+        trip_start_date: "2026-05-04", // Monday → both attractions closed
+        travellers: { adults: 2, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, museum, palace],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [museum, palace]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const day0Activities = result.itinerary.day_plan[0]?.activities ?? [];
+  for (const activity of day0Activities) {
+    assert.notEqual(
+      activity.node_id,
+      museum.id,
+      "closed attraction must not leak into the day plan",
+    );
+    assert.notEqual(activity.node_id, palace.id);
+  }
+  assert.ok(
+    day0Activities.length > 0,
+    "expected an explore filler when all attractions are closed",
+  );
+  assert.ok(
+    day0Activities.every((activity) => activity.node_id === end.id),
+    "filler activities should reference the city base node",
+  );
+  assert.ok(
+    (result.itinerary.warnings ?? []).some(
+      (warning) =>
+        warning.includes("Day 1") &&
+        warning.includes("2 attractions closed") &&
+        warning.includes("Mon-closed Museum"),
+    ),
+    "expected a heads-up that two attractions are closed on Day 1",
+  );
+});
+
+test("generateItinerary returns deterministic plans on repeated runs", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End", recommendedHours: 6 });
+  const museum = makeAttraction({
+    id: "attr_museum",
+    name: "Determinism Museum",
+    cityId: end.id,
+    openingHours: {
+      id: "attr_museum",
+      attraction_id: "attr_museum",
+      region: "test-region",
+      weekly_periods: [
+        { day: "mon", opens: "09:00", closes: "17:00" },
+        { day: "tue", opens: "09:00", closes: "17:00" },
+      ],
+      closed_days: ["wed"],
+      source_type: "manual",
+      confidence: "verified",
+    },
+  });
+  const garden = makeAttraction({
+    id: "attr_garden",
+    name: "Determinism Garden",
+    cityId: end.id,
+    openingHours: {
+      id: "attr_garden",
+      attraction_id: "attr_garden",
+      region: "test-region",
+      weekly_periods: [
+        { day: "mon", opens: "08:00", closes: "20:00" },
+        { day: "tue", opens: "08:00", closes: "20:00" },
+        { day: "wed", opens: "08:00", closes: "20:00" },
+      ],
+      source_type: "manual",
+      confidence: "verified",
+    },
+  });
+
+  const buildInput = (): GenerateItineraryInput => ({
+    regions: ["test-region"],
+    start_node: start.id,
+    end_node: end.id,
+    days: 2,
+    preferences: {
+      travel_style: "balanced",
+      budget: { min: 0, max: 40000 },
+      trip_start_date: "2026-05-04",
+      travellers: { adults: 2, children: 0 },
+      transport_modes: ["road"],
+    },
+  });
+  const buildContext = () =>
+    makeContext(
+      [start, end, museum, garden],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [museum, garden]]]),
+    );
+
+  const first = await generateItinerary(buildInput(), buildContext(), {
+    resolveTravelMatrix: strictResolver,
+  });
+  const second = await generateItinerary(buildInput(), buildContext(), {
+    resolveTravelMatrix: strictResolver,
+  });
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+  assert.deepStrictEqual(first.itinerary.day_plan, second.itinerary.day_plan);
+  assert.deepStrictEqual(
+    first.itinerary.warnings ?? [],
+    second.itinerary.warnings ?? [],
+  );
+  assert.deepStrictEqual(first.itinerary.nodes, second.itinerary.nodes);
 });
