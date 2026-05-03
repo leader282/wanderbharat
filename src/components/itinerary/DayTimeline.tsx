@@ -10,9 +10,11 @@ import {
 } from "react";
 
 import DayStayBlock from "@/components/DayStayBlock";
+import DataStateBadge from "@/components/itinerary/DataStateBadge";
 import { formatDuration, formatTimeRange } from "@/lib/itinerary/daySchedule";
 import type { ScheduleBlock } from "@/lib/itinerary/daySchedule";
 import {
+  makeMoneyFormatter,
   formatRoundedHours,
   formatClockTimeLabel,
   titleCaseWords,
@@ -26,7 +28,10 @@ import {
   setAllOpenDayIndices,
   toggleOpenDayIndex,
 } from "@/lib/itinerary/timelinePresentation";
-import type { TransportMode } from "@/types/domain";
+import type {
+  ItineraryBudgetLineItem,
+  TransportMode,
+} from "@/types/domain";
 
 import {
   BedIcon,
@@ -47,15 +52,22 @@ export default function DayTimeline({
   preparedDays,
   currency,
   startTime,
+  attractionLineItems = [],
 }: {
   preparedDays: PreparedDay[];
   currency: string;
   startTime: string | undefined;
+  attractionLineItems?: ItineraryBudgetLineItem[];
 }) {
   const [openIndices, setOpenIndices] = useState<Set<number>>(() =>
     getInitialOpenDayIndices(preparedDays),
   );
   const [activeArrayIndex, setActiveArrayIndex] = useState(0);
+  const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
+  const attractionCostLookup = useMemo(
+    () => buildAttractionCostLookup(attractionLineItems),
+    [attractionLineItems],
+  );
 
   const arrayIdxByDayIndex = useMemo(() => {
     const m = new Map<number, number>();
@@ -263,6 +275,8 @@ export default function DayTimeline({
             open={openIndices.has(prepared.day.day_index)}
             onToggle={() => toggle(prepared.day.day_index)}
             currency={currency}
+            formatMoney={formatMoney}
+            attractionCostLookup={attractionCostLookup}
           />
         ))}
       </ol>
@@ -312,6 +326,8 @@ function DayCard({
   open,
   onToggle,
   currency,
+  formatMoney,
+  attractionCostLookup,
 }: {
   prepared: PreparedDay;
   index: number;
@@ -319,6 +335,8 @@ function DayCard({
   open: boolean;
   onToggle: () => void;
   currency: string;
+  formatMoney: (value: number) => string;
+  attractionCostLookup: Map<string, ItineraryBudgetLineItem>;
 }) {
   const {
     day,
@@ -479,6 +497,9 @@ function DayCard({
                     <ScheduleRow
                       key={`${block.kind}-${block.startMin}-${i}`}
                       block={block}
+                      dayIndex={day.day_index}
+                      formatMoney={formatMoney}
+                      attractionCostLookup={attractionCostLookup}
                     />
                   ))}
                 </ul>
@@ -545,7 +566,17 @@ function TravelLegChip({
   );
 }
 
-function ScheduleRow({ block }: { block: ScheduleBlock }) {
+function ScheduleRow({
+  block,
+  dayIndex,
+  formatMoney,
+  attractionCostLookup,
+}: {
+  block: ScheduleBlock;
+  dayIndex: number;
+  formatMoney: (value: number) => string;
+  attractionCostLookup: Map<string, ItineraryBudgetLineItem>;
+}) {
   const range = formatTimeRange(block.startMin, block.endMin);
   const duration = formatDuration(block.durationMin);
 
@@ -576,6 +607,26 @@ function ScheduleRow({ block }: { block: ScheduleBlock }) {
   }
 
   const activity = block.activity;
+  const openingHoursState = activity.opening_hours_state;
+  const openingConfidence = normaliseDataState(
+    activity.opening_hours_confidence,
+  );
+  const attractionLineItem = attractionCostLookup.get(
+    attractionCostLookupKey(dayIndex, activity.name),
+  );
+  const admissionState = deriveAdmissionState(attractionLineItem);
+  const admissionLabel = attractionLineItem
+    ? admissionState === "estimated"
+      ? `Entry ~${formatMoney(attractionLineItem.amount)}`
+      : `Entry ${formatMoney(attractionLineItem.amount)}`
+    : activity.type === "attraction"
+      ? "Entry fee unknown"
+      : null;
+  const showOpeningHoursHint =
+    openingHoursState === "unknown" ||
+    openingHoursState === "closed" ||
+    openingConfidence === "cached" ||
+    openingConfidence === "estimated";
   return (
     <BaseRow
       kind="activity"
@@ -585,6 +636,39 @@ function ScheduleRow({ block }: { block: ScheduleBlock }) {
       tags={activity.tags.slice(0, 4)}
       range={range}
       duration={duration}
+      extras={
+        (showOpeningHoursHint || admissionLabel !== null) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {openingHoursState === "closed" && (
+              <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-amber-900">
+                Closed on this day
+              </span>
+            )}
+            {openingHoursState === "unknown" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline)] bg-white px-2 py-0.5 text-[0.68rem] text-[var(--color-ink-600)]">
+                Opening hours unknown
+                <DataStateBadge state={openingConfidence ?? "unknown"} size="xs" />
+              </span>
+            )}
+            {openingHoursState !== "unknown" &&
+              openingHoursState !== "closed" &&
+              openingConfidence &&
+              openingConfidence !== "verified" &&
+              openingConfidence !== "live" && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline)] bg-white px-2 py-0.5 text-[0.68rem] text-[var(--color-ink-600)]">
+                  Opening hours
+                  <DataStateBadge state={openingConfidence} size="xs" />
+                </span>
+              )}
+            {admissionLabel !== null && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline)] bg-white px-2 py-0.5 text-[0.68rem] text-[var(--color-ink-600)]">
+                {admissionLabel}
+                <DataStateBadge state={admissionState} size="xs" />
+              </span>
+            )}
+          </div>
+        )
+      }
     />
   );
 }
@@ -595,6 +679,7 @@ function BaseRow({
   title,
   subtitle,
   tags,
+  extras,
   range,
   duration,
 }: {
@@ -603,6 +688,7 @@ function BaseRow({
   title: string;
   subtitle?: string;
   tags?: string[];
+  extras?: React.ReactNode;
   range: string;
   duration: string;
 }) {
@@ -625,6 +711,7 @@ function BaseRow({
         {subtitle && (
           <p className="mt-1 text-sm text-[var(--color-ink-500)]">{subtitle}</p>
         )}
+        {extras}
         {tags && tags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {tags.map((tag) => (
@@ -678,4 +765,58 @@ function summaryLine(args: {
   hasStay: boolean;
 }): string {
   return buildDaySummaryLine(args);
+}
+
+function buildAttractionCostLookup(
+  lineItems: ItineraryBudgetLineItem[],
+): Map<string, ItineraryBudgetLineItem> {
+  const lookup = new Map<string, ItineraryBudgetLineItem>();
+  for (const lineItem of lineItems) {
+    if (lineItem.kind !== "attraction") continue;
+    const key = attractionCostLookupKey(
+      lineItem.day_index,
+      attractionNameFromAdmissionLabel(lineItem.label),
+    );
+    if (!lookup.has(key)) {
+      lookup.set(key, lineItem);
+    }
+  }
+  return lookup;
+}
+
+function attractionCostLookupKey(dayIndex: number, attractionName: string): string {
+  return `${dayIndex}:${normaliseText(attractionName)}`;
+}
+
+function attractionNameFromAdmissionLabel(label: string): string {
+  return label
+    .replace(/\s+admission(?:\s*\(estimated\))?$/i, "")
+    .trim();
+}
+
+function normaliseText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function deriveAdmissionState(
+  lineItem: ItineraryBudgetLineItem | undefined,
+): "live" | "verified" | "cached" | "estimated" | "unknown" {
+  if (!lineItem) return "unknown";
+  const confidence = normaliseDataState(lineItem.provenance?.confidence);
+  if (confidence) return confidence;
+  return lineItem.label.toLowerCase().includes("estimated")
+    ? "estimated"
+    : "verified";
+}
+
+function normaliseDataState(
+  value: unknown,
+): "live" | "verified" | "cached" | "estimated" | "unknown" | null {
+  return value === "live" ||
+    value === "verified" ||
+    value === "cached" ||
+    value === "estimated" ||
+    value === "unknown"
+    ? value
+    : null;
 }

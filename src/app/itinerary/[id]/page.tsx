@@ -122,6 +122,11 @@ export default async function ItineraryPage({
           preparedDays={preparedDays}
           currency={currency}
           startTime={itinerary.preferences.preferred_start_time}
+          attractionLineItems={
+            itinerary.budget_breakdown?.line_items.filter(
+              (lineItem) => lineItem.kind === "attraction",
+            ) ?? []
+          }
         />
       </PageSection>
 
@@ -135,6 +140,7 @@ export default async function ItineraryPage({
           estimatedCost={itinerary.estimated_cost}
           requestedBudget={itinerary.preferences.budget}
           travellers={itinerary.preferences.travellers}
+          tripDays={itinerary.days}
           breakdown={itinerary.budget_breakdown}
         />
       </PageSection>

@@ -3,7 +3,7 @@ import {
   makeMoneyFormatter,
   titleCaseWords,
 } from "@/lib/itinerary/presentation";
-import { formatDataConfidenceLabel } from "@/types/domain";
+import DataStateBadge from "@/components/itinerary/DataStateBadge";
 
 import { BedIcon, PinIcon } from "./icons";
 
@@ -94,7 +94,7 @@ function StayCard({
   const formatMoney = makeMoneyFormatter(currency);
   const { stay, accommodation, cityName } = entry;
   const selectedRateOption = resolveSelectedHotelRateOption(stay);
-  const confidenceLabel = formatDataConfidenceLabel(
+  const confidenceState = normaliseHotelDataState(
     selectedRateOption?.confidence ?? stay.hotelRateStatus ?? "unknown",
   );
   const lastCheckedLabel = formatLastChecked(stay.hotelRateLastCheckedAt);
@@ -135,8 +135,7 @@ function StayCard({
                 {selectedRateOption.room_name}
                 {selectedRateOption.board_name
                   ? ` · ${selectedRateOption.board_name}`
-                  : ""}{" "}
-                · {confidenceLabel}
+                  : ""}
               </>
             ) : (
               "No specific property matched — your nights here stay flexible"
@@ -186,10 +185,15 @@ function StayCard({
         </span>
       </div>
       <p className="mt-2 text-xs text-[var(--color-ink-500)]">
-        Confidence: {confidenceLabel}
-        {lastCheckedLabel ? ` · Price last checked ${lastCheckedLabel}` : ""}
+        <span className="inline-flex items-center gap-1.5">
+          <span>Rate status</span>
+          <DataStateBadge state={confidenceState} size="xs" />
+          {lastCheckedLabel ? <span>· Last checked {lastCheckedLabel}</span> : null}
+        </span>
       </p>
-      <p className="mt-1 text-xs text-amber-700">Booking disabled in prototype.</p>
+      <p className="mt-1 text-xs text-[var(--color-ink-500)]">
+        Prices may change. Booking disabled in prototype.
+      </p>
       {stay.hotelRateOptions && stay.hotelRateOptions.length > 0 && (
         <ul className="mt-3 space-y-1 text-xs text-[var(--color-ink-600)]">
           {stay.hotelRateOptions.slice(0, 5).map((option) => (
@@ -242,4 +246,16 @@ function formatLastChecked(value: number | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function normaliseHotelDataState(
+  value: unknown,
+): "live" | "verified" | "cached" | "estimated" | "unknown" {
+  return value === "live" ||
+    value === "verified" ||
+    value === "cached" ||
+    value === "estimated" ||
+    value === "unknown"
+    ? value
+    : "unknown";
 }

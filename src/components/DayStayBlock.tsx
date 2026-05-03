@@ -1,5 +1,4 @@
 import {
-  formatDataConfidenceLabel,
   type Accommodation,
   type StayAssignment,
 } from "@/types/domain";
@@ -8,6 +7,7 @@ import {
   makeMoneyFormatter,
   titleCaseWords,
 } from "@/lib/itinerary/presentation";
+import DataStateBadge from "@/components/itinerary/DataStateBadge";
 
 export interface ItineraryStayEntry {
   stay: StayAssignment;
@@ -35,7 +35,7 @@ export default function DayStayBlock({
   const formatMoney = makeMoneyFormatter(currency);
   const nightsLabel = `Night ${nightNumber} of ${stay.nights}`;
   const selectedRateOption = resolveSelectedHotelRateOption(stay);
-  const confidenceLabel = formatDataConfidenceLabel(
+  const confidenceState = normaliseHotelDataState(
     selectedRateOption?.confidence ?? stay.hotelRateStatus ?? "unknown",
   );
   const lastCheckedLabel = formatLastChecked(stay.hotelRateLastCheckedAt);
@@ -103,11 +103,14 @@ export default function DayStayBlock({
               </div>
             </div>
             <p className="mt-2 text-xs text-[var(--color-ink-500)]">
-              Confidence: {confidenceLabel}
-              {lastCheckedLabel ? ` · Price last checked ${lastCheckedLabel}` : ""}
+              <span className="inline-flex items-center gap-1.5">
+                <span>Rate status</span>
+                <DataStateBadge state={confidenceState} size="xs" />
+                {lastCheckedLabel ? <span>· Last checked {lastCheckedLabel}</span> : null}
+              </span>
             </p>
-            <p className="mt-1 text-xs text-amber-700">
-              Booking disabled in prototype.
+            <p className="mt-1 text-xs text-[var(--color-ink-500)]">
+              Prices may change. Booking disabled in prototype.
             </p>
             {stay.hotelRateOptions && stay.hotelRateOptions.length > 1 && (
               <div className="mt-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-3.5 py-3">
@@ -148,10 +151,13 @@ export default function DayStayBlock({
           without an accommodation match.
         </p>
         <p className="mt-2 text-xs">
-          Confidence: {confidenceLabel}
-          {lastCheckedLabel ? ` · Price last checked ${lastCheckedLabel}` : ""}
+          <span className="inline-flex items-center gap-1.5">
+            <span>Rate status</span>
+            <DataStateBadge state={confidenceState} size="xs" />
+            {lastCheckedLabel ? <span>· Last checked {lastCheckedLabel}</span> : null}
+          </span>
         </p>
-        <p className="mt-1 text-xs">Booking disabled in prototype.</p>
+        <p className="mt-1 text-xs">Prices may change. Booking disabled in prototype.</p>
       </div>
     );
   }
@@ -313,4 +319,16 @@ function formatLastChecked(value: number | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function normaliseHotelDataState(
+  value: unknown,
+): "live" | "verified" | "cached" | "estimated" | "unknown" {
+  return value === "live" ||
+    value === "verified" ||
+    value === "cached" ||
+    value === "estimated" ||
+    value === "unknown"
+    ? value
+    : "unknown";
 }
