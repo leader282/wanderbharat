@@ -143,3 +143,60 @@ test("integrateAccommodationPlanIntoItinerary rewrites budget totals and stores 
     "Only over-budget accommodations were available in Udaipur; selected the best deterministic fallback.",
   ]);
 });
+
+test("integrateAccommodationPlanIntoItinerary preserves attraction subtotals and confidence counters", () => {
+  const base = makeItinerary();
+  base.budget_breakdown = {
+    line_items: [
+      {
+        id: "travel_1",
+        day_index: 1,
+        kind: "travel",
+        label: "Jaipur to Udaipur by Road",
+        amount: 1500,
+      },
+      {
+        id: "attraction_1",
+        day_index: 2,
+        kind: "attraction",
+        label: "City Palace admission (estimated)",
+        amount: 400,
+      },
+    ],
+    attractionSubtotal: 400,
+    verifiedAttractionCostsCount: 1,
+    estimatedAttractionCostsCount: 1,
+    unknownAttractionCostsCount: 2,
+  };
+
+  const itinerary = integrateAccommodationPlanIntoItinerary({
+    itinerary: base,
+    stays: [
+      {
+        nodeId: "node_jaipur",
+        startDay: 0,
+        endDay: 0,
+        nights: 1,
+        accommodationId: "acc_jaipur",
+        nightlyCost: 2200,
+        totalCost: 2200,
+      },
+      {
+        nodeId: "node_udaipur",
+        startDay: 1,
+        endDay: 2,
+        nights: 2,
+        accommodationId: "acc_udaipur",
+        nightlyCost: 3000,
+        totalCost: 6000,
+      },
+    ],
+    requestedBudget: { min: 0, max: 999999, currency: "INR" },
+  });
+
+  assert.equal(itinerary.budget_breakdown?.attractionSubtotal, 400);
+  assert.equal(itinerary.budget_breakdown?.verifiedAttractionCostsCount, 1);
+  assert.equal(itinerary.budget_breakdown?.estimatedAttractionCostsCount, 1);
+  assert.equal(itinerary.budget_breakdown?.unknownAttractionCostsCount, 2);
+  assert.equal(itinerary.estimated_cost, 10100);
+});

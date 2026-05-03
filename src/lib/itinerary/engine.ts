@@ -1,4 +1,7 @@
 import type {
+  AttractionAdmissionAudience,
+  AttractionAdmissionNationality,
+  AttractionAdmissionRule,
   AttractionOpeningHours,
   ConstraintError,
   GenerateItineraryInput,
@@ -6,6 +9,7 @@ import type {
   GraphNode,
   Itinerary,
   ItineraryBudgetLineItem,
+  ItineraryBudgetLineItemProvenance,
   ItineraryActivity,
   ItineraryDay,
   LocalDateString,
@@ -14,7 +18,12 @@ import type {
   OpeningTimeRange,
   OpeningHoursWeekday,
   PreferenceTag,
+  TravellerComposition,
   TransportMode,
+} from "@/types/domain";
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_GUEST_NATIONALITY,
 } from "@/types/domain";
 import { getTravelStyleConfig } from "@/lib/config/travelStyle";
 import {
@@ -94,7 +103,7 @@ interface RouteSearchInput {
   requestedNodeIds: Set<string>;
   preferredStartTime?: string;
   tripStartDate?: LocalDateString;
-  travellersCount: number;
+  travellers: TravellerComposition;
 }
 
 interface RouteSelection {
@@ -111,6 +120,10 @@ interface RouteSelection {
   fatiguePenalty: number;
   isFallbackStay: boolean;
   requestedCoverageCount: number;
+  attractionSubtotal: number;
+  verifiedAttractionCostsCount: number;
+  estimatedAttractionCostsCount: number;
+  unknownAttractionCostsCount: number;
   warnings: string[];
 }
 
@@ -163,7 +176,6 @@ export async function generateItinerary(
   const modes = normaliseModes(input.preferences.transport_modes);
   const allowedRegions = new Set<string>(input.regions);
   const travellers = normaliseTravellers(input.preferences.travellers);
-  const travellersCount = totalTravellers(travellers);
   const requestedNodeIds = new Set<string>();
 
   for (const cityId of input.requested_city_ids ?? []) {
@@ -264,7 +276,7 @@ export async function generateItinerary(
     requestedNodeIds,
     preferredStartTime: input.preferences.preferred_start_time,
     tripStartDate: input.preferences.trip_start_date,
-    travellersCount,
+    travellers,
   });
 
   if (!selected) return { ok: false, error: noFeasibleRoute() };
@@ -292,7 +304,7 @@ export async function generateItinerary(
         requestedNodeIds,
         preferredStartTime: input.preferences.preferred_start_time,
         tripStartDate: input.preferences.trip_start_date,
-        travellersCount,
+        travellers,
       },
     });
 
@@ -369,6 +381,10 @@ export async function generateItinerary(
     estimated_cost: Math.round(selected.estimatedCost),
     budget_breakdown: {
       line_items: selected.budgetLineItems,
+      attractionSubtotal: selected.attractionSubtotal,
+      verifiedAttractionCostsCount: selected.verifiedAttractionCostsCount,
+      estimatedAttractionCostsCount: selected.estimatedAttractionCostsCount,
+      unknownAttractionCostsCount: selected.unknownAttractionCostsCount,
       requestedBudget: input.preferences.budget,
       recommendedBudget: derivedBudget,
     },
@@ -511,7 +527,11 @@ function evaluateRoute(
     dayPlan,
     nodesById: opts.nodesById,
     matrix: opts.matrix,
-    travellersCount: opts.travellersCount,
+    travellers: opts.travellers,
+    tripStartDate: opts.tripStartDate,
+    currency:
+      opts.preferences.budget.currency?.trim().toUpperCase() ||
+      DEFAULT_CURRENCY,
   });
 
   const destinationScores = buildDestinationScores(order, opts);
@@ -551,7 +571,11 @@ function evaluateRoute(
       opts.start.id === opts.end.id &&
       opts.candidates.length > 0,
     requestedCoverageCount: countRequestedCoverage(order, opts.requestedNodeIds),
-    warnings: dayPlanResult.warnings,
+    attractionSubtotal: costEstimate.attractionSubtotal,
+    verifiedAttractionCostsCount: costEstimate.verifiedAttractionCostsCount,
+    estimatedAttractionCostsCount: costEstimate.estimatedAttractionCostsCount,
+    unknownAttractionCostsCount: costEstimate.unknownAttractionCostsCount,
+    warnings: dedupeStrings([...dayPlanResult.warnings, ...costEstimate.warnings]),
   };
 }
 
@@ -1571,18 +1595,33 @@ function estimateCost(args: {
   dayPlan: ItineraryDay[];
   nodesById: Map<string, GraphNode>;
   matrix: TravelMatrix;
-  travellersCount: number;
+  travellers: TravellerComposition;
+  tripStartDate?: LocalDateString;
+  currency: string;
 }): {
   totalCost: number;
   lineItems: ItineraryBudgetLineItem[];
+  attractionSubtotal: number;
+  verifiedAttractionCostsCount: number;
+  estimatedAttractionCostsCount: number;
+  unknownAttractionCostsCount: number;
+  warnings: string[];
 } {
+  const travellersCount = totalTravellers(args.travellers);
+  const itineraryCurrency =
+    args.currency?.trim().toUpperCase() || DEFAULT_CURRENCY;
   let totalCost = 0;
+  let attractionSubtotal = 0;
+  let verifiedAttractionCostsCount = 0;
+  let estimatedAttractionCostsCount = 0;
+  let unknownAttractionCostsCount = 0;
   const lineItems: ItineraryBudgetLineItem[] = [];
+  const warnings = new Set<string>();
 
   for (const day of args.dayPlan) {
     const node = args.nodesById.get(day.base_node_id);
     const stayCost =
-      Number(node?.metadata.avg_daily_cost ?? 0) * args.travellersCount;
+      Number(node?.metadata.avg_daily_cost ?? 0) * travellersCount;
     if (stayCost > 0) {
       lineItems.push({
         id: `stay_${day.day_index}_${day.base_node_id}`,
@@ -1594,37 +1633,367 @@ function estimateCost(args: {
       totalCost += stayCost;
     }
 
-    if (!day.travel) continue;
-    const leg = args.matrix.get(
-      day.travel.from_node_id,
-      day.travel.to_node_id,
-      day.travel.transport_mode,
-    );
-    const explicit = Number(leg?.metadata?.estimated_cost ?? 0);
-    const base = Number(leg?.metadata?.base_price ?? 0);
-    const fallback =
-      day.travel.distance_km * defaultPerKmCost(day.travel.transport_mode);
-    const travelCostPerTraveller =
-      explicit > 0 ? explicit : base > 0 ? base : fallback;
-    const travelCost = travelCostPerTraveller * args.travellersCount;
-    const fromName =
-      args.nodesById.get(day.travel.from_node_id)?.name ?? "Previous stop";
-    const toName =
-      args.nodesById.get(day.travel.to_node_id)?.name ?? day.base_node_name;
+    const dayDate = addDaysToLocalDate(args.tripStartDate, day.day_index);
 
-    if (travelCost > 0) {
-      lineItems.push({
-        id: `travel_${day.day_index}_${day.travel.from_node_id}_${day.travel.to_node_id}_${day.travel.transport_mode}`,
-        day_index: day.day_index,
-        kind: "travel",
-        label: `${fromName} to ${toName} by ${titleCase(day.travel.transport_mode)}`,
-        amount: Number(travelCost.toFixed(2)),
+    if (day.travel) {
+      const leg = args.matrix.get(
+        day.travel.from_node_id,
+        day.travel.to_node_id,
+        day.travel.transport_mode,
+      );
+      const explicit = Number(leg?.metadata?.estimated_cost ?? 0);
+      const base = Number(leg?.metadata?.base_price ?? 0);
+      const fallback =
+        day.travel.distance_km * defaultPerKmCost(day.travel.transport_mode);
+      const travelCostPerTraveller =
+        explicit > 0 ? explicit : base > 0 ? base : fallback;
+      const travelCost = travelCostPerTraveller * travellersCount;
+      const fromName =
+        args.nodesById.get(day.travel.from_node_id)?.name ?? "Previous stop";
+      const toName =
+        args.nodesById.get(day.travel.to_node_id)?.name ?? day.base_node_name;
+
+      if (travelCost > 0) {
+        lineItems.push({
+          id: `travel_${day.day_index}_${day.travel.from_node_id}_${day.travel.to_node_id}_${day.travel.transport_mode}`,
+          day_index: day.day_index,
+          kind: "travel",
+          label: `${fromName} to ${toName} by ${titleCase(day.travel.transport_mode)}`,
+          amount: Number(travelCost.toFixed(2)),
+        });
+        totalCost += travelCost;
+      }
+    }
+
+    for (const [activityIndex, activity] of day.activities.entries()) {
+      const attraction = args.nodesById.get(activity.node_id);
+      if (!attraction || attraction.type !== "attraction") continue;
+      const rules = Array.isArray(attraction.metadata.admission_rules)
+        ? (attraction.metadata.admission_rules as AttractionAdmissionRule[])
+        : [];
+      const resolvedAdmission = resolveAdmissionForActivity({
+        attraction,
+        rules,
+        travellers: args.travellers,
+        dayDate,
+        itineraryCurrency,
       });
-      totalCost += travelCost;
+      for (const warning of resolvedAdmission.warnings) {
+        warnings.add(warning);
+      }
+
+      if (resolvedAdmission.state === "unknown") {
+        unknownAttractionCostsCount += 1;
+        warnings.add(
+          `Admission costs for ${activity.name} are unknown and excluded from the budget total.`,
+        );
+        continue;
+      }
+
+      if (resolvedAdmission.state === "estimated") {
+        estimatedAttractionCostsCount += 1;
+      } else {
+        verifiedAttractionCostsCount += 1;
+      }
+
+      attractionSubtotal += resolvedAdmission.amount;
+      totalCost += resolvedAdmission.amount;
+      const lineItemProvenance = buildLineItemProvenance(
+        resolvedAdmission.contributingRules,
+        itineraryCurrency,
+      );
+      // Always emit verified/estimated line items, even when the amount is
+      // zero (free attractions). Otherwise there's no way for downstream
+      // UIs to distinguish a verified-free entry from an un-modelled one.
+      lineItems.push({
+        id: `attraction_${day.day_index}_${activity.node_id}_${activityIndex}`,
+        day_index: day.day_index,
+        kind: "attraction",
+        label:
+          resolvedAdmission.state === "estimated"
+            ? `${activity.name} admission (estimated)`
+            : `${activity.name} admission`,
+        amount: Number(resolvedAdmission.amount.toFixed(2)),
+        provenance: lineItemProvenance,
+      });
     }
   }
 
-  return { totalCost, lineItems };
+  return {
+    totalCost,
+    lineItems,
+    attractionSubtotal: Number(attractionSubtotal.toFixed(2)),
+    verifiedAttractionCostsCount,
+    estimatedAttractionCostsCount,
+    unknownAttractionCostsCount,
+    warnings: Array.from(warnings),
+  };
+}
+
+interface ResolvedAdmission {
+  state: "verified" | "estimated" | "unknown";
+  amount: number;
+  warnings: string[];
+  contributingRules: AttractionAdmissionRule[];
+}
+
+function resolveAdmissionForActivity(args: {
+  attraction: GraphNode;
+  rules: AttractionAdmissionRule[];
+  travellers: TravellerComposition;
+  dayDate?: LocalDateString;
+  itineraryCurrency: string;
+}): ResolvedAdmission {
+  const warnings: string[] = [];
+  if (args.rules.length === 0) {
+    return { state: "unknown", amount: 0, warnings, contributingRules: [] };
+  }
+
+  // Treat any rule whose currency disagrees with the itinerary's currency
+  // as untrustworthy: silently mixing currencies in a sum is a budget-honesty
+  // bug, not a localisation concern. Surface it as a warning so admins can
+  // re-quote the rule in the right currency.
+  const currencyMatchedRules = args.rules.filter(
+    (rule) => rule.currency === args.itineraryCurrency,
+  );
+  const mismatchedCurrencies = new Set<string>();
+  for (const rule of args.rules) {
+    if (rule.currency !== args.itineraryCurrency) {
+      mismatchedCurrencies.add(rule.currency);
+    }
+  }
+  if (mismatchedCurrencies.size > 0 && currencyMatchedRules.length === 0) {
+    const list = Array.from(mismatchedCurrencies).sort().join(", ");
+    warnings.push(
+      `Admission rules for ${args.attraction.name} are priced in ${list}; itinerary currency is ${args.itineraryCurrency} — excluded from the budget total.`,
+    );
+    return { state: "unknown", amount: 0, warnings, contributingRules: [] };
+  }
+  if (mismatchedCurrencies.size > 0) {
+    const list = Array.from(mismatchedCurrencies).sort().join(", ");
+    warnings.push(
+      `Some admission rules for ${args.attraction.name} are priced in ${list}; only ${args.itineraryCurrency} rules were used in the budget.`,
+    );
+  }
+
+  const guestNationality = inferGuestNationality(args.travellers, args.attraction);
+  const segments: Array<{
+    count: number;
+    audience: AttractionAdmissionAudience;
+    nationality: AttractionAdmissionNationality;
+  }> = [
+    {
+      count: Math.max(0, args.travellers.adults),
+      audience: "adult",
+      nationality: guestNationality,
+    },
+    {
+      count: Math.max(0, args.travellers.children),
+      audience: "child",
+      nationality: guestNationality,
+    },
+  ];
+
+  let amount = 0;
+  let hasEstimated = false;
+  const contributingRules: AttractionAdmissionRule[] = [];
+
+  for (const segment of segments) {
+    if (segment.count <= 0) continue;
+    const selectedRule = selectBestAdmissionRule({
+      rules: currencyMatchedRules,
+      audience: segment.audience,
+      nationality: segment.nationality,
+      dayDate: args.dayDate,
+    });
+    if (!selectedRule) {
+      return {
+        state: "unknown",
+        amount: 0,
+        warnings,
+        contributingRules: [],
+      };
+    }
+    if (selectedRule.amount === null || selectedRule.confidence === "unknown") {
+      return {
+        state: "unknown",
+        amount: 0,
+        warnings,
+        contributingRules: [],
+      };
+    }
+    if (selectedRule.confidence === "estimated") {
+      hasEstimated = true;
+    }
+    amount += selectedRule.amount * segment.count;
+    contributingRules.push(selectedRule);
+  }
+
+  const roundedAmount = Number(Math.max(0, amount).toFixed(2));
+  return {
+    state: hasEstimated ? "estimated" : "verified",
+    amount: roundedAmount,
+    warnings,
+    contributingRules,
+  };
+}
+
+function selectBestAdmissionRule(args: {
+  rules: AttractionAdmissionRule[];
+  audience: AttractionAdmissionAudience;
+  nationality: AttractionAdmissionNationality;
+  dayDate?: LocalDateString;
+}): AttractionAdmissionRule | null {
+  const dayDate = args.dayDate;
+  const datedRules = dayDate
+    ? args.rules.filter((rule) => isRuleValidOnDate(rule, dayDate))
+    : args.rules;
+  const candidates = datedRules.length > 0 ? datedRules : args.rules;
+
+  // Prefer non-student rules — student pricing is opt-in and we don't yet
+  // model a student flag on TravellerComposition. Within that, prefer an
+  // exact nationality match over the catch-all `any` bucket.
+  const audienceMatches = candidates.filter(
+    (rule) => rule.audience === args.audience && !rule.is_student,
+  );
+  if (audienceMatches.length === 0) return null;
+
+  const exactNationality = audienceMatches.filter(
+    (rule) => rule.nationality === args.nationality,
+  );
+  const fallbackNationality = audienceMatches.filter(
+    (rule) => rule.nationality === "any",
+  );
+
+  const tiered = exactNationality.length > 0
+    ? exactNationality
+    : fallbackNationality.length > 0
+      ? fallbackNationality
+      : audienceMatches;
+  return sortAdmissionRulesByPriority(tiered)[0] ?? null;
+}
+
+function sortAdmissionRulesByPriority(
+  rules: AttractionAdmissionRule[],
+): AttractionAdmissionRule[] {
+  return [...rules].sort((left, right) => {
+    const confidenceDiff =
+      admissionConfidenceRank(right.confidence) -
+      admissionConfidenceRank(left.confidence);
+    if (confidenceDiff !== 0) return confidenceDiff;
+
+    const sourceDiff =
+      admissionSourceRank(right.source_type) - admissionSourceRank(left.source_type);
+    if (sourceDiff !== 0) return sourceDiff;
+
+    const freshnessDiff =
+      (right.verified_at ?? right.fetched_at ?? 0) -
+      (left.verified_at ?? left.fetched_at ?? 0);
+    if (freshnessDiff !== 0) return freshnessDiff;
+
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function admissionConfidenceRank(
+  confidence: AttractionAdmissionRule["confidence"],
+): number {
+  switch (confidence) {
+    case "verified":
+      return 3;
+    case "estimated":
+      return 2;
+    case "unknown":
+      return 1;
+  }
+}
+
+function admissionSourceRank(
+  sourceType: AttractionAdmissionRule["source_type"],
+): number {
+  switch (sourceType) {
+    case "official_website":
+      return 5;
+    case "manual":
+      return 4;
+    case "google_places":
+      return 3;
+    case "system":
+      return 2;
+    case "estimated":
+      return 1;
+  }
+}
+
+function isRuleValidOnDate(
+  rule: AttractionAdmissionRule,
+  dayDate: LocalDateString,
+): boolean {
+  if (rule.valid_from && dayDate < rule.valid_from) return false;
+  if (rule.valid_until && dayDate > rule.valid_until) return false;
+  return true;
+}
+
+/**
+ * Resolve traveller nationality vs the attraction's country to one of the
+ * structured nationality buckets. Falls back to `domestic` when the guest
+ * nationality is unspecified, matching the existing default.
+ */
+function inferGuestNationality(
+  travellers: TravellerComposition,
+  attraction: GraphNode,
+): AttractionAdmissionNationality {
+  const guestIso = canonicaliseCountry(
+    travellers.guest_nationality?.trim() || DEFAULT_GUEST_NATIONALITY,
+  );
+  const attractionIso = canonicaliseCountry(attraction.country);
+  if (!guestIso || !attractionIso) return "domestic";
+  return guestIso === attractionIso ? "domestic" : "foreigner";
+}
+
+/**
+ * Best-effort normalisation between ISO 3166-1 alpha-2 codes (e.g. "IN")
+ * and human-friendly slugs that occur in our seed data (e.g. "india").
+ * The map only needs entries for countries we actively plan trips in;
+ * unrecognised inputs round-trip through lowercasing so direct equality
+ * still works when both sides use the same convention.
+ */
+const COUNTRY_SLUG_TO_ISO: Record<string, string> = {
+  india: "in",
+  bharat: "in",
+};
+
+function canonicaliseCountry(input: string): string {
+  const lower = input.trim().toLowerCase();
+  if (!lower) return "";
+  if (lower.length === 2) return lower;
+  return COUNTRY_SLUG_TO_ISO[lower] ?? lower;
+}
+
+function buildLineItemProvenance(
+  rules: AttractionAdmissionRule[],
+  itineraryCurrency: string,
+): ItineraryBudgetLineItemProvenance | undefined {
+  if (rules.length === 0) return undefined;
+  // Multiple rules can contribute to one line item (e.g. adult + child); the
+  // primary record drives the displayed confidence/source. We pick the rule
+  // with the lowest confidence so the snapshot reflects the weakest link
+  // in the calculation, which is what the budget honesty signals depend on.
+  const ranked = [...rules].sort(
+    (left, right) =>
+      admissionConfidenceRank(left.confidence) -
+      admissionConfidenceRank(right.confidence),
+  );
+  const primary = ranked[0];
+  if (!primary) return undefined;
+  return {
+    source_type: primary.source_type,
+    confidence: primary.confidence,
+    rule_id: primary.id,
+    currency: itineraryCurrency,
+    fetched_at: primary.fetched_at ?? undefined,
+    verified_at: primary.verified_at ?? undefined,
+  };
 }
 
 function computeDesiredStopHours(
@@ -1792,6 +2161,18 @@ function compareNumbers(left: number, right: number, epsilon: number): number {
 
 function average(values: number[]): number {
   return values.length > 0 ? sum(values) / values.length : 0;
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 function sum(values: number[]): number {

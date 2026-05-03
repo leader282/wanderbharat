@@ -25,6 +25,9 @@ export function integrateAccommodationPlanIntoItinerary(args: {
 }): Itinerary {
   const existingLineItems = args.itinerary.budget_breakdown?.line_items ?? [];
   const travelLineItems = existingLineItems.filter((item) => item.kind === "travel");
+  const attractionLineItems = existingLineItems.filter(
+    (item) => item.kind === "attraction",
+  );
   const stayLineItems = buildStayBudgetLineItems(
     args.stays,
     buildCityNameMap(args.itinerary),
@@ -34,7 +37,22 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   const travelSubtotal = roundCurrency(
     travelLineItems.reduce((sum, item) => sum + item.amount, 0),
   );
-  const totalTripCost = roundCurrency(lodgingSubtotal + travelSubtotal);
+  const hasAttractionSubtotal =
+    args.itinerary.budget_breakdown?.attractionSubtotal !== undefined ||
+    attractionLineItems.length > 0;
+  const attractionSubtotal = hasAttractionSubtotal
+    ? roundCurrency(
+        args.itinerary.budget_breakdown?.attractionSubtotal ??
+          attractionLineItems.reduce((sum, item) => sum + item.amount, 0),
+      )
+    : undefined;
+  const attractionCounts = deriveAttractionCostCounts(
+    args.itinerary.budget_breakdown,
+    attractionLineItems,
+  );
+  const totalTripCost = roundCurrency(
+    lodgingSubtotal + travelSubtotal + (attractionSubtotal ?? 0),
+  );
   const nightlyAverage = computeNightlyAverage(args.stays);
   // Itinerary-level warnings are the single source of truth: engine warnings
   // (opening hours, closed days, ...) merged with accommodation warnings.
@@ -49,9 +67,17 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   const currency = requestedBudget.currency ?? args.itinerary.preferences.budget.currency;
   const derivedBudget = deriveOptimalBudget(totalTripCost, currency);
   const budgetBreakdown: ItineraryBudgetBreakdown = {
-    line_items: sortBudgetLineItems([...stayLineItems, ...travelLineItems]),
+    line_items: sortBudgetLineItems([
+      ...stayLineItems,
+      ...travelLineItems,
+      ...attractionLineItems,
+    ]),
     lodgingSubtotal,
     travelSubtotal,
+    attractionSubtotal,
+    verifiedAttractionCostsCount: attractionCounts.verified,
+    estimatedAttractionCostsCount: attractionCounts.estimated,
+    unknownAttractionCostsCount: attractionCounts.unknown,
     nightlyAverage,
     totalTripCost,
     requestedBudget,
@@ -126,4 +152,80 @@ function dedupeWarnings(warnings: string[]): string[] {
 
 function roundCurrency(value: number): number {
   return Number(Math.max(0, value).toFixed(2));
+}
+
+function deriveAttractionCostCounts(
+  breakdown: Itinerary["budget_breakdown"] | undefined,
+  attractionLineItems: ItineraryBudgetLineItem[],
+): {
+  verified: number | undefined;
+  estimated: number | undefined;
+  unknown: number | undefined;
+} {
+  const hasStoredCounts =
+    breakdown?.verifiedAttractionCostsCount !== undefined ||
+    breakdown?.estimatedAttractionCostsCount !== undefined ||
+    breakdown?.unknownAttractionCostsCount !== undefined;
+  if (hasStoredCounts) {
+    return {
+      verified: normaliseNonNegativeInteger(
+        breakdown?.verifiedAttractionCostsCount,
+      ),
+      estimated: normaliseNonNegativeInteger(
+        breakdown?.estimatedAttractionCostsCount,
+      ),
+      unknown: normaliseNonNegativeInteger(
+        breakdown?.unknownAttractionCostsCount,
+      ),
+    };
+  }
+
+  if (attractionLineItems.length === 0) {
+    return {
+      verified: undefined,
+      estimated: undefined,
+      unknown: undefined,
+    };
+  }
+
+  // Prefer structured provenance over label scraping. Fall back to label
+  // matching only for legacy itineraries persisted before provenance was
+  // added — the substring is stable but should never be the source of truth
+  // for new data.
+  let verified = 0;
+  let estimated = 0;
+  for (const item of attractionLineItems) {
+    const confidence = item.provenance?.confidence;
+    if (confidence === "estimated") {
+      estimated += 1;
+      continue;
+    }
+    if (
+      confidence === "verified" ||
+      confidence === "live" ||
+      confidence === "cached"
+    ) {
+      verified += 1;
+      continue;
+    }
+    // Legacy fallback: scrape the label only when no provenance is present.
+    if (
+      confidence === undefined &&
+      item.label.toLowerCase().includes("estimated")
+    ) {
+      estimated += 1;
+    } else {
+      verified += 1;
+    }
+  }
+  return {
+    verified,
+    estimated,
+    unknown: 0,
+  };
+}
+
+function normaliseNonNegativeInteger(value: unknown): number | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  return Math.max(0, Math.round(Number(value)));
 }

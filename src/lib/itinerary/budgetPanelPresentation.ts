@@ -20,6 +20,12 @@ export interface BudgetPanelState {
   lodgingSubtotal: number;
   hasTravelSubtotal: boolean;
   travelSubtotal: number;
+  hasAttractionSubtotal: boolean;
+  attractionSubtotal: number;
+  verifiedAttractionCostsCount: number;
+  estimatedAttractionCostsCount: number;
+  unknownAttractionCostsCount: number;
+  hasUnknownAttractionCosts: boolean;
   hasNightlyAverage: boolean;
   nightlyAverage: number;
   totalTripCost: number;
@@ -37,6 +43,30 @@ export function deriveBudgetPanelState(args: {
   breakdown?: ItineraryBudgetBreakdown;
 }): BudgetPanelState {
   const lineItems = args.breakdown?.line_items ?? EMPTY_LINE_ITEMS;
+  const attractionLineItems = lineItems.filter((item) => item.kind === "attraction");
+  const {
+    verified: derivedVerifiedAttractionCount,
+    estimated: derivedEstimatedAttractionCount,
+  } = deriveAttractionConfidenceCounts(attractionLineItems);
+  const hasAttractionSubtotal =
+    args.breakdown?.attractionSubtotal !== undefined ||
+    attractionLineItems.length > 0;
+  const attractionSubtotal = hasAttractionSubtotal
+    ? args.breakdown?.attractionSubtotal ??
+      sumBudgetLineItemsByKind(lineItems, "attraction")
+    : 0;
+  const verifiedAttractionCostsCount = normaliseCount(
+    args.breakdown?.verifiedAttractionCostsCount,
+    Math.max(0, derivedVerifiedAttractionCount),
+  );
+  const estimatedAttractionCostsCount = normaliseCount(
+    args.breakdown?.estimatedAttractionCostsCount,
+    Math.max(0, derivedEstimatedAttractionCount),
+  );
+  const unknownAttractionCostsCount = normaliseCount(
+    args.breakdown?.unknownAttractionCostsCount,
+    0,
+  );
   const hasStaySubtotal =
     args.breakdown?.lodgingSubtotal !== undefined ||
     lineItems.some((item) => item.kind === "stay");
@@ -63,11 +93,23 @@ export function deriveBudgetPanelState(args: {
     lodgingSubtotal,
     hasTravelSubtotal,
     travelSubtotal,
+    hasAttractionSubtotal,
+    attractionSubtotal,
+    verifiedAttractionCostsCount,
+    estimatedAttractionCostsCount,
+    unknownAttractionCostsCount,
+    hasUnknownAttractionCosts: unknownAttractionCostsCount > 0,
     hasNightlyAverage,
     nightlyAverage,
     totalTripCost,
     hasDetailedBreakdown:
-      hasStaySubtotal || hasTravelSubtotal || hasNightlyAverage,
+      hasStaySubtotal ||
+      hasTravelSubtotal ||
+      hasAttractionSubtotal ||
+      hasNightlyAverage ||
+      verifiedAttractionCostsCount > 0 ||
+      estimatedAttractionCostsCount > 0 ||
+      unknownAttractionCostsCount > 0,
     recommendedBudget: args.breakdown?.recommendedBudget,
     budgetGap,
     budgetGapLabel: budgetGap >= 0 ? "Budget buffer" : "Over budget",
@@ -81,6 +123,11 @@ export function describeBudgetBreakdown(
     | "hasDetailedBreakdown"
     | "hasTravelSubtotal"
     | "travelSubtotal"
+    | "hasAttractionSubtotal"
+    | "attractionSubtotal"
+    | "verifiedAttractionCostsCount"
+    | "estimatedAttractionCostsCount"
+    | "unknownAttractionCostsCount"
     | "hasNightlyAverage"
     | "nightlyAverage"
   >,
@@ -94,6 +141,15 @@ export function describeBudgetBreakdown(
     state.hasTravelSubtotal
       ? `Travel comes to ${formatMoney(state.travelSubtotal)}.`
       : "Travel is not itemised separately in this saved itinerary.",
+    state.hasAttractionSubtotal
+      ? `Attraction entries contribute ${formatMoney(
+          state.attractionSubtotal,
+        )} (${state.verifiedAttractionCostsCount} verified, ${state.estimatedAttractionCostsCount} estimated, ${state.unknownAttractionCostsCount} unknown).`
+      : state.verifiedAttractionCostsCount > 0 ||
+          state.estimatedAttractionCostsCount > 0 ||
+          state.unknownAttractionCostsCount > 0
+        ? `Attraction entries include ${state.verifiedAttractionCostsCount} verified, ${state.estimatedAttractionCostsCount} estimated, and ${state.unknownAttractionCostsCount} unknown costs.`
+        : "Attraction entry costs are not itemised separately in this saved itinerary.",
     state.hasNightlyAverage
       ? `The average nightly room allocation comes to ${formatMoney(
           state.nightlyAverage,
@@ -109,6 +165,9 @@ export function formatBudgetDriverLabel(driver: BudgetDriver): string {
   if (driver.kind === "travel" && driver.occurrences > 1) {
     return `${driver.label} (${driver.occurrences} legs)`;
   }
+  if (driver.kind === "attraction" && driver.occurrences > 1) {
+    return `${driver.label} (${driver.occurrences} visits)`;
+  }
   return driver.label;
 }
 
@@ -117,6 +176,11 @@ export function formatBudgetDriverMeta(driver: BudgetDriver): string {
     return driver.occurrences > 1
       ? "Accommodation across repeated nights"
       : "Accommodation for this stop";
+  }
+  if (driver.kind === "attraction") {
+    return driver.occurrences > 1
+      ? "Admission fees across repeated visits"
+      : "Admission fee for this attraction";
   }
   return driver.occurrences > 1
     ? "Repeated transport legs in this itinerary"
@@ -130,4 +194,39 @@ export function sumBudgetLineItemsByKind(
   return lineItems
     .filter((item) => item.kind === kind)
     .reduce((sum, item) => sum + item.amount, 0);
+}
+
+function normaliseCount(value: unknown, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.round(Number(value))) : fallback;
+}
+
+function deriveAttractionConfidenceCounts(
+  attractionLineItems: ItineraryBudgetLineItem[],
+): { verified: number; estimated: number } {
+  let verified = 0;
+  let estimated = 0;
+  for (const item of attractionLineItems) {
+    const confidence = item.provenance?.confidence;
+    if (confidence === "estimated") {
+      estimated += 1;
+      continue;
+    }
+    if (
+      confidence === "verified" ||
+      confidence === "live" ||
+      confidence === "cached"
+    ) {
+      verified += 1;
+      continue;
+    }
+    if (
+      confidence === undefined &&
+      item.label.toLowerCase().includes("estimated")
+    ) {
+      estimated += 1;
+    } else {
+      verified += 1;
+    }
+  }
+  return { verified, estimated };
 }

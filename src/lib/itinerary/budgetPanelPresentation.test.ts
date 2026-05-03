@@ -80,6 +80,11 @@ test("deriveBudgetPanelState falls back to summed line items and aggregates top 
   assert.equal(state.travellerLabel, "2 adults + 1 child");
   assert.equal(state.lodgingSubtotal, 10_500);
   assert.equal(state.travelSubtotal, 1800);
+  assert.equal(state.hasAttractionSubtotal, false);
+  assert.equal(state.attractionSubtotal, 0);
+  assert.equal(state.verifiedAttractionCostsCount, 0);
+  assert.equal(state.estimatedAttractionCostsCount, 0);
+  assert.equal(state.unknownAttractionCostsCount, 0);
   assert.equal(state.totalTripCost, 21_000);
   assert.equal(state.budgetGap, 3000);
   assert.equal(state.budgetGapLabel, "Budget buffer");
@@ -102,9 +107,45 @@ test("deriveBudgetPanelState stays resilient when breakdown data is missing", ()
 
   assert.equal(state.hasStaySubtotal, false);
   assert.equal(state.hasTravelSubtotal, false);
+  assert.equal(state.hasAttractionSubtotal, false);
   assert.equal(state.biggestDrivers.length, 0);
   assert.equal(state.budgetGap, -1500);
   assert.equal(state.budgetGapLabel, "Over budget");
+});
+
+test("deriveBudgetPanelState surfaces attraction subtotal and confidence counters", () => {
+  const state = deriveBudgetPanelState({
+    estimatedCost: 22_800,
+    requestedBudget,
+    travellers,
+    breakdown: breakdown({
+      line_items: [
+        lineItem({
+          id: "attraction_verified",
+          kind: "attraction",
+          label: "Amber Fort admission",
+          amount: 800,
+        }),
+        lineItem({
+          id: "attraction_estimated",
+          kind: "attraction",
+          label: "Stepwell entry (estimated)",
+          amount: 500,
+        }),
+      ],
+      attractionSubtotal: 1300,
+      verifiedAttractionCostsCount: 1,
+      estimatedAttractionCostsCount: 1,
+      unknownAttractionCostsCount: 2,
+    }),
+  });
+
+  assert.equal(state.hasAttractionSubtotal, true);
+  assert.equal(state.attractionSubtotal, 1300);
+  assert.equal(state.verifiedAttractionCostsCount, 1);
+  assert.equal(state.estimatedAttractionCostsCount, 1);
+  assert.equal(state.unknownAttractionCostsCount, 2);
+  assert.equal(state.hasUnknownAttractionCosts, true);
 });
 
 test("describeBudgetBreakdown formats detailed and legacy copy", () => {
@@ -116,12 +157,17 @@ test("describeBudgetBreakdown formats detailed and legacy copy", () => {
         hasDetailedBreakdown: true,
         hasTravelSubtotal: false,
         travelSubtotal: 0,
+        hasAttractionSubtotal: false,
+        attractionSubtotal: 0,
+        verifiedAttractionCostsCount: 0,
+        estimatedAttractionCostsCount: 0,
+        unknownAttractionCostsCount: 0,
         hasNightlyAverage: true,
         nightlyAverage: 3200,
       },
       formatMoney,
     ),
-    "Travel is not itemised separately in this saved itinerary. The average nightly room allocation comes to INR 3200.",
+    "Travel is not itemised separately in this saved itinerary. Attraction entry costs are not itemised separately in this saved itinerary. The average nightly room allocation comes to INR 3200.",
   );
 
   assert.equal(
@@ -130,6 +176,11 @@ test("describeBudgetBreakdown formats detailed and legacy copy", () => {
         hasDetailedBreakdown: false,
         hasTravelSubtotal: false,
         travelSubtotal: 0,
+        hasAttractionSubtotal: false,
+        attractionSubtotal: 0,
+        verifiedAttractionCostsCount: 0,
+        estimatedAttractionCostsCount: 0,
+        unknownAttractionCostsCount: 0,
         hasNightlyAverage: false,
         nightlyAverage: 0,
       },

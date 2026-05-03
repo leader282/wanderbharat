@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ATTRACTION_ADMISSION_AUDIENCES,
+  ATTRACTION_ADMISSION_CONFIDENCE_LEVELS,
+  ATTRACTION_ADMISSION_NATIONALITIES,
+  ATTRACTION_ADMISSION_SOURCE_TYPES,
   DATA_CONFIDENCE_LEVELS,
   DATA_QUALITY_ENTITY_TYPES,
   DATA_QUALITY_ISSUE_CODES,
@@ -50,6 +54,29 @@ test("v2 provenance literals are exported in stable order", () => {
     "thu",
     "fri",
     "sat",
+  ]);
+
+  assert.deepEqual([...ATTRACTION_ADMISSION_AUDIENCES], [
+    "adult",
+    "child",
+    "senior",
+  ]);
+  assert.deepEqual([...ATTRACTION_ADMISSION_NATIONALITIES], [
+    "any",
+    "domestic",
+    "foreigner",
+  ]);
+  assert.deepEqual([...ATTRACTION_ADMISSION_SOURCE_TYPES], [
+    "official_website",
+    "manual",
+    "estimated",
+    "google_places",
+    "system",
+  ]);
+  assert.deepEqual([...ATTRACTION_ADMISSION_CONFIDENCE_LEVELS], [
+    "verified",
+    "estimated",
+    "unknown",
   ]);
 });
 

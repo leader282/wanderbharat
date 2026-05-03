@@ -181,6 +181,37 @@ function normaliseBudgetBreakdown(
       : line_items.some((item) => item.kind === "travel")
         ? sumLineItems(line_items, "travel")
         : undefined;
+  const attractionSubtotal =
+    breakdown?.attractionSubtotal !== undefined
+      ? normaliseCostAmount(breakdown.attractionSubtotal, 0)
+      : line_items.some((item) => item.kind === "attraction")
+        ? sumLineItems(line_items, "attraction")
+        : undefined;
+  const attractionLineItems = line_items.filter(
+    (item) => item.kind === "attraction",
+  );
+  const { verified: derivedVerifiedAttractionCount, estimated: derivedEstimatedAttractionCount } =
+    deriveAttractionConfidenceCounts(attractionLineItems);
+  const hasAttractionCounts =
+    breakdown?.verifiedAttractionCostsCount !== undefined ||
+    breakdown?.estimatedAttractionCostsCount !== undefined ||
+    breakdown?.unknownAttractionCostsCount !== undefined ||
+    attractionLineItems.length > 0;
+  const verifiedAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(
+        breakdown?.verifiedAttractionCostsCount,
+        Math.max(0, derivedVerifiedAttractionCount),
+      )
+    : undefined;
+  const estimatedAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(
+        breakdown?.estimatedAttractionCostsCount,
+        Math.max(0, derivedEstimatedAttractionCount),
+      )
+    : undefined;
+  const unknownAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(breakdown?.unknownAttractionCostsCount, 0)
+    : undefined;
   const nightlyAverage =
     breakdown?.nightlyAverage !== undefined
       ? normaliseCostAmount(breakdown.nightlyAverage, 0)
@@ -201,6 +232,10 @@ function normaliseBudgetBreakdown(
     line_items,
     lodgingSubtotal,
     travelSubtotal,
+    attractionSubtotal,
+    verifiedAttractionCostsCount,
+    estimatedAttractionCostsCount,
+    unknownAttractionCostsCount,
     nightlyAverage,
     totalTripCost,
     requestedBudget,
@@ -236,7 +271,7 @@ function computeNightlyAverage(stays: StayAssignment[]): number {
 
 function sumLineItems(
   lineItems: NonNullable<ItineraryBudgetBreakdown["line_items"]>,
-  kind: "stay" | "travel",
+  kind: "stay" | "travel" | "attraction",
 ): number {
   return normaliseCostAmount(
     lineItems
@@ -244,6 +279,48 @@ function sumLineItems(
       .reduce((sum, item) => sum + item.amount, 0),
     0,
   );
+}
+
+function deriveAttractionConfidenceCounts(
+  attractionLineItems: NonNullable<ItineraryBudgetBreakdown["line_items"]>,
+): { verified: number; estimated: number } {
+  let verified = 0;
+  let estimated = 0;
+  for (const item of attractionLineItems) {
+    const confidence = item.provenance?.confidence;
+    if (confidence === "estimated") {
+      estimated += 1;
+      continue;
+    }
+    if (
+      confidence === "verified" ||
+      confidence === "live" ||
+      confidence === "cached"
+    ) {
+      verified += 1;
+      continue;
+    }
+    if (
+      confidence === undefined &&
+      item.label.toLowerCase().includes("estimated")
+    ) {
+      estimated += 1;
+    } else {
+      verified += 1;
+    }
+  }
+  return { verified, estimated };
+}
+
+function normaliseOptionalCount(
+  value: unknown,
+  fallback: number | undefined,
+): number | undefined {
+  if (Number.isFinite(value)) {
+    return Math.max(0, Math.round(Number(value)));
+  }
+  if (fallback === undefined) return undefined;
+  return Math.max(0, Math.round(fallback));
 }
 
 function normaliseBudgetAmount(value: unknown, fallback: number): number {

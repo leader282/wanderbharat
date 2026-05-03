@@ -154,6 +154,74 @@ export interface AttractionOpeningHours {
   updated_at?: number;
 }
 
+/**
+ * Pricing axes for attraction admissions. Modelled as orthogonal dimensions
+ * so a single ticket variant (e.g. "foreign adult student") can be expressed
+ * without combinatorial enums and without conflating age, citizenship, and
+ * status.
+ */
+export const ATTRACTION_ADMISSION_AUDIENCES = [
+  "adult",
+  "child",
+  "senior",
+] as const;
+export type AttractionAdmissionAudience =
+  (typeof ATTRACTION_ADMISSION_AUDIENCES)[number];
+
+export const ATTRACTION_ADMISSION_NATIONALITIES = [
+  "any",
+  "domestic",
+  "foreigner",
+] as const;
+export type AttractionAdmissionNationality =
+  (typeof ATTRACTION_ADMISSION_NATIONALITIES)[number];
+
+export const ATTRACTION_ADMISSION_SOURCE_TYPES = [
+  "official_website",
+  "manual",
+  "estimated",
+  "google_places",
+  "system",
+] as const;
+export type AttractionAdmissionSourceType =
+  (typeof ATTRACTION_ADMISSION_SOURCE_TYPES)[number];
+
+export const ATTRACTION_ADMISSION_CONFIDENCE_LEVELS = [
+  "verified",
+  "estimated",
+  "unknown",
+] as const;
+export type AttractionAdmissionConfidence =
+  (typeof ATTRACTION_ADMISSION_CONFIDENCE_LEVELS)[number];
+
+export interface AttractionAdmissionRule {
+  id: string;
+  attraction_node_id: string;
+  /** Optional denormalised region slug for admin filtering/purge jobs. */
+  region?: string;
+  currency: string;
+  /** `null` means unknown (never silently treated as free/zero). */
+  amount: number | null;
+  /** Age bracket the price applies to. */
+  audience: AttractionAdmissionAudience;
+  /** Citizenship bracket the price applies to. `any` covers all visitors. */
+  nationality: AttractionAdmissionNationality;
+  /** True when the price is restricted to students (orthogonal to audience). */
+  is_student?: boolean;
+  source_type: AttractionAdmissionSourceType;
+  confidence: AttractionAdmissionConfidence;
+  source_url?: string | null;
+  notes?: string | null;
+  /** Local date in YYYY-MM-DD format. */
+  valid_from?: string | null;
+  /** Local date in YYYY-MM-DD format. */
+  valid_until?: string | null;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  verified_by?: string | null;
+  data_version: number;
+}
+
 /** Bump when source-record schema contracts are intentionally versioned. */
 export const CURRENT_DATA_VERSION = 2 as const;
 
@@ -389,6 +457,8 @@ export interface NodeMetadata {
   closing_time?: string;
   /** Optional structured opening-hours schedule loaded from attraction_hours. */
   opening_hours?: AttractionOpeningHours;
+  /** Optional admission rules loaded from attraction_admissions. */
+  admission_rules?: AttractionAdmissionRule[];
   /** Allow any forward-compatible extras without breaking typing. */
   [key: string]: unknown;
 }
@@ -471,18 +541,39 @@ export interface TravellerComposition {
   guest_nationality?: string;
 }
 
+export interface ItineraryBudgetLineItemProvenance {
+  source_type?: DataSourceType;
+  confidence?: DataConfidence;
+  /** Source rule/document id (e.g. `attraction_admissions/{id}`). */
+  rule_id?: string;
+  /** ISO 4217 currency the original source quoted. */
+  currency?: string;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+}
+
 export interface ItineraryBudgetLineItem {
   id: string;
   day_index: number;
-  kind: "stay" | "travel";
+  kind: "stay" | "travel" | "attraction";
   label: string;
   amount: number;
+  /**
+   * Optional structured provenance snapshot. Present for line items derived
+   * from typed source records (e.g. attraction admission rules) so downstream
+   * UIs can display confidence/source without parsing the human label.
+   */
+  provenance?: ItineraryBudgetLineItemProvenance;
 }
 
 export interface ItineraryBudgetBreakdown {
   line_items: ItineraryBudgetLineItem[];
   lodgingSubtotal?: number;
   travelSubtotal?: number;
+  attractionSubtotal?: number;
+  verifiedAttractionCostsCount?: number;
+  estimatedAttractionCostsCount?: number;
+  unknownAttractionCostsCount?: number;
   nightlyAverage?: number;
   totalTripCost?: number;
   requestedBudget?: BudgetRange;

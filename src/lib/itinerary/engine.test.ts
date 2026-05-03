@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type {
+  AttractionAdmissionRule,
   AttractionOpeningHours,
   GenerateItineraryInput,
   GraphEdge,
@@ -65,6 +66,7 @@ function makeAttraction(args: {
   cityId: string;
   recommendedHours?: number;
   openingHours?: AttractionOpeningHours;
+  admissionRules?: AttractionAdmissionRule[];
   openingTime?: string;
   closingTime?: string;
 }): GraphNode {
@@ -82,11 +84,38 @@ function makeAttraction(args: {
       opening_time: args.openingTime,
       closing_time: args.closingTime,
       opening_hours: args.openingHours,
+      admission_rules: args.admissionRules,
     },
     location: {
       lat: 26.9,
       lng: 75.8,
     },
+  };
+}
+
+function makeAdmissionRule(args: {
+  id: string;
+  attractionNodeId: string;
+  amount: number | null;
+  audience?: AttractionAdmissionRule["audience"];
+  nationality?: AttractionAdmissionRule["nationality"];
+  isStudent?: boolean;
+  currency?: string;
+  sourceType?: AttractionAdmissionRule["source_type"];
+  confidence?: AttractionAdmissionRule["confidence"];
+}): AttractionAdmissionRule {
+  return {
+    id: args.id,
+    attraction_node_id: args.attractionNodeId,
+    currency: args.currency ?? "INR",
+    amount: args.amount,
+    audience: args.audience ?? "adult",
+    nationality: args.nationality ?? "any",
+    is_student: args.isStudent ? true : undefined,
+    source_type: args.sourceType ?? "manual",
+    confidence:
+      args.confidence ?? (args.amount === null ? "unknown" : "verified"),
+    data_version: 2,
   };
 }
 
@@ -656,6 +685,331 @@ test("generateItinerary derives a recommended budget and breakdown from the sele
       (item) => item.kind === "travel",
     ),
   );
+});
+
+test("generateItinerary does not treat unknown attraction cost as zero", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const attraction = makeAttraction({
+    id: "attr_unknown_cost",
+    name: "Unknown Cost Fort",
+    cityId: end.id,
+    admissionRules: [
+      makeAdmissionRule({
+        id: "adm_unknown",
+        attractionNodeId: "attr_unknown_cost",
+        amount: null,
+        confidence: "unknown",
+      }),
+    ],
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000 },
+        travellers: { adults: 2, children: 0 },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, attraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [attraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.itinerary.budget_breakdown?.attractionSubtotal, 0);
+  assert.equal(result.itinerary.budget_breakdown?.unknownAttractionCostsCount, 1);
+  assert.equal(
+    result.itinerary.budget_breakdown?.line_items.some(
+      (item) => item.kind === "attraction",
+    ),
+    false,
+  );
+  assert.ok(
+    (result.itinerary.warnings ?? []).some(
+      (warning) =>
+        warning.includes("Unknown Cost Fort") && warning.includes("unknown"),
+    ),
+  );
+});
+
+test("generateItinerary treats verified free attraction as zero but not unknown", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const freeAttraction = makeAttraction({
+    id: "attr_free",
+    name: "Free Memorial",
+    cityId: end.id,
+    admissionRules: [
+      makeAdmissionRule({
+        id: "adm_free",
+        attractionNodeId: "attr_free",
+        amount: 0,
+        confidence: "verified",
+        sourceType: "manual",
+      }),
+    ],
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000 },
+        travellers: { adults: 2, children: 0 },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, freeAttraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [freeAttraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.itinerary.budget_breakdown?.attractionSubtotal, 0);
+  assert.equal(result.itinerary.budget_breakdown?.verifiedAttractionCostsCount, 1);
+  assert.equal(result.itinerary.budget_breakdown?.unknownAttractionCostsCount, 0);
+  // Verified-free should still emit a structured line item so downstream
+  // UIs and analytics can distinguish "we know it's free" from "we never
+  // modelled this attraction". The amount is 0 but the provenance snapshot
+  // is expected to be present.
+  const freeLine = result.itinerary.budget_breakdown?.line_items.find(
+    (item) => item.kind === "attraction",
+  );
+  assert.ok(freeLine, "verified-free attractions should emit a 0 line item");
+  assert.equal(freeLine.amount, 0);
+  assert.equal(freeLine.provenance?.confidence, "verified");
+  assert.equal(freeLine.provenance?.source_type, "manual");
+  assert.equal(freeLine.provenance?.rule_id, "adm_free");
+  assert.equal(freeLine.provenance?.currency, "INR");
+});
+
+test("generateItinerary excludes mismatched-currency admission rules and warns", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const attraction = makeAttraction({
+    id: "attr_currency_mismatch",
+    name: "USD Priced Fort",
+    cityId: end.id,
+    admissionRules: [
+      makeAdmissionRule({
+        id: "adm_usd",
+        attractionNodeId: "attr_currency_mismatch",
+        amount: 25,
+        currency: "USD",
+        confidence: "verified",
+        sourceType: "manual",
+      }),
+    ],
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000, currency: "INR" },
+        travellers: { adults: 2, children: 0 },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, attraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [attraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.itinerary.budget_breakdown?.attractionSubtotal, 0);
+  assert.equal(result.itinerary.budget_breakdown?.unknownAttractionCostsCount, 1);
+  assert.ok(
+    (result.itinerary.warnings ?? []).some(
+      (warning) =>
+        warning.includes("USD Priced Fort") &&
+        warning.includes("USD") &&
+        warning.includes("INR"),
+    ),
+    "expected a currency-mismatch warning that names both currencies",
+  );
+});
+
+test("generateItinerary picks domestic vs foreigner pricing from the attraction's country", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const attraction = {
+    ...makeAttraction({
+      id: "attr_palace",
+      name: "Royal Palace",
+      cityId: end.id,
+      admissionRules: [
+        makeAdmissionRule({
+          id: "adm_palace_domestic",
+          attractionNodeId: "attr_palace",
+          amount: 200,
+          nationality: "domestic",
+          confidence: "verified",
+        }),
+        makeAdmissionRule({
+          id: "adm_palace_foreigner",
+          attractionNodeId: "attr_palace",
+          amount: 1000,
+          nationality: "foreigner",
+          confidence: "verified",
+        }),
+      ],
+    }),
+    country: "india",
+  };
+
+  const indianResult = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000, currency: "INR" },
+        travellers: { adults: 2, children: 0, guest_nationality: "IN" },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, attraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [attraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(indianResult.ok, true);
+  if (!indianResult.ok) return;
+  // 2 adults × INR 200 = 400 (domestic ticket)
+  assert.equal(indianResult.itinerary.budget_breakdown?.attractionSubtotal, 400);
+  const indianLine =
+    indianResult.itinerary.budget_breakdown?.line_items.find(
+      (item) => item.kind === "attraction",
+    );
+  assert.equal(indianLine?.provenance?.rule_id, "adm_palace_domestic");
+
+  const foreignResult = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000, currency: "INR" },
+        travellers: { adults: 2, children: 0, guest_nationality: "DE" },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, attraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [attraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(foreignResult.ok, true);
+  if (!foreignResult.ok) return;
+  // 2 adults × INR 1000 = 2000 (foreigner ticket)
+  assert.equal(
+    foreignResult.itinerary.budget_breakdown?.attractionSubtotal,
+    2000,
+  );
+  const foreignLine =
+    foreignResult.itinerary.budget_breakdown?.line_items.find(
+      (item) => item.kind === "attraction",
+    );
+  assert.equal(foreignLine?.provenance?.rule_id, "adm_palace_foreigner");
+});
+
+test("generateItinerary includes estimated attraction costs and labels them", async () => {
+  const start = makeCity({ id: "node_start", name: "Start", dailyCost: 1800 });
+  const end = makeCity({ id: "node_end", name: "End", dailyCost: 2200 });
+  const estimatedAttraction = makeAttraction({
+    id: "attr_estimated",
+    name: "Estimated Museum",
+    cityId: end.id,
+    admissionRules: [
+      makeAdmissionRule({
+        id: "adm_estimated",
+        attractionNodeId: "attr_estimated",
+        amount: 250,
+        confidence: "estimated",
+        sourceType: "estimated",
+      }),
+    ],
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      end_node: end.id,
+      days: 2,
+      preferences: {
+        travel_style: "balanced",
+        budget: { min: 0, max: 80000 },
+        travellers: { adults: 2, children: 0 },
+        trip_start_date: "2026-05-05",
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, end, estimatedAttraction],
+      [makeRoadEdge({ from: start.id, to: end.id, hours: 2, distance: 110 })],
+      new Map([[end.id, [estimatedAttraction]]]),
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.itinerary.budget_breakdown?.attractionSubtotal, 500);
+  assert.equal(result.itinerary.budget_breakdown?.estimatedAttractionCostsCount, 1);
+  const estimatedLine = result.itinerary.budget_breakdown?.line_items.find(
+    (item) => item.kind === "attraction",
+  );
+  assert.ok(estimatedLine);
+  assert.equal(estimatedLine.amount, 500);
+  assert.match(estimatedLine.label, /estimated/i);
 });
 
 test("generateItinerary treats an infeasible final leg as no feasible route", async () => {

@@ -51,16 +51,22 @@ export default function ItineraryBudgetPanel({
     [breakdown, estimatedCost, requestedBudget, travellers],
   );
   const {
+    attractionSubtotal,
     budgetGap,
     budgetGapLabel,
     biggestDrivers,
     currency,
+    estimatedAttractionCostsCount,
+    hasAttractionSubtotal,
     hasStaySubtotal,
+    hasUnknownAttractionCosts,
     lineItems,
     lodgingSubtotal,
+    unknownAttractionCostsCount,
     recommendedBudget,
     totalTripCost,
     travellerLabel,
+    verifiedAttractionCostsCount,
   } = budgetState;
   const formatMoney = useMemo(() => makeMoneyFormatter(currency), [currency]);
 
@@ -164,7 +170,7 @@ export default function ItineraryBudgetPanel({
         </p>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <BudgetStat
           label="Total trip budget"
           value={formatMoney(requestedBudget.max)}
@@ -178,6 +184,12 @@ export default function ItineraryBudgetPanel({
           value={hasStaySubtotal ? formatMoney(lodgingSubtotal) : "Not itemised"}
         />
         <BudgetStat
+          label="Attraction subtotal"
+          value={
+            hasAttractionSubtotal ? formatMoney(attractionSubtotal) : "Not itemised"
+          }
+        />
+        <BudgetStat
           label={budgetGapLabel}
           value={formatMoney(Math.abs(budgetGap))}
         />
@@ -186,6 +198,22 @@ export default function ItineraryBudgetPanel({
       <p className="mt-3 text-sm text-[var(--color-ink-500)]">
         {describeBudgetBreakdown(budgetState, formatMoney)}
       </p>
+      {verifiedAttractionCostsCount +
+        estimatedAttractionCostsCount +
+        unknownAttractionCostsCount >
+        0 && (
+        <p className="mt-2 text-sm text-[var(--color-ink-500)]">
+          Attraction cost coverage: {verifiedAttractionCostsCount} verified,{" "}
+          {estimatedAttractionCostsCount} estimated, {unknownAttractionCostsCount}{" "}
+          unknown.
+        </p>
+      )}
+      {hasUnknownAttractionCosts && (
+        <p className="mt-2 text-sm text-amber-700">
+          Unknown attraction costs are excluded from the total until they are
+          verified or estimated.
+        </p>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
