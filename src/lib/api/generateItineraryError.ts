@@ -139,10 +139,20 @@ function messageForIssuePath(path: string): string | null {
       return "Choose a starting city.";
     case "days":
       return `Trip length must be between 1 and ${MAX_TRIP_DAYS} days.`;
+    case "preferences.trip_start_date":
+      return "Choose a valid trip start date.";
+    case "preferences.trip_end_date":
+      return "Trip end date must match the selected start date and duration.";
     case "preferences.travellers.adults":
       return "Add at least one adult traveller.";
     case "preferences.travellers.children":
       return "Children can't be a negative number.";
+    case "preferences.travellers.children_ages":
+      return "Add a valid age for each child traveller.";
+    case "preferences.travellers.rooms":
+      return "Select at least one room.";
+    case "preferences.travellers.guest_nationality":
+      return "Enter a valid 2-letter guest nationality code.";
     case "preferences.transport_modes":
       return "Choose at least one transport mode.";
     case "preferences.preferred_start_time":

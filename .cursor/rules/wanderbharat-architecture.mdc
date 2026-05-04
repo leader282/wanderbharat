@@ -1,0 +1,20 @@
+---
+description: Persistent architecture and scope guardrails for wanderbharat
+alwaysApply: true
+---
+
+# WanderBharat Architecture Rules
+
+- Preserve the pure-function core in `src/lib/itinerary/`. Do not call Firestore, network APIs, Google APIs, LiteAPI, or `Date.now()` inside pure engine functions unless provided through explicit dependency injection.
+- Do not add runtime LLM calls in itinerary generation.
+- Call external APIs only from server-side code. Never call them directly from client components.
+- Keep API keys and secrets server-only unless they are explicitly browser-safe and prefixed with `NEXT_PUBLIC_`.
+- Do not introduce Jest or Vitest. Use Node's built-in test runner with `node --import tsx --test`.
+- For every schema change, update TypeScript types, Zod/API validation where relevant, repository logic, and tests.
+- Prototype phase exclusions: do not implement hotel booking, flight booking, payment, refund, cancellation, or affiliate checkout flows.
+- Use LiteAPI only for hotel metadata/rate discovery and prototype price signals.
+- Never store unknown attraction costs as `0`; represent unknown values with `null` and/or explicit confidence metadata.
+- For real-world data, include provenance and trust fields where relevant: `source_type`, `confidence`, and `fetched_at`/`verified_at`.
+- After substantive changes, run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build` when feasible.
+- Avoid broad unrelated refactors; keep changes scoped to the task.
+- Before editing, inspect existing files and follow repository conventions.

@@ -7,6 +7,7 @@ import DayTimeline from "@/components/itinerary/DayTimeline";
 import { ArrowLeftIcon } from "@/components/itinerary/icons";
 import ItineraryFootnote from "@/components/itinerary/ItineraryFootnote";
 import ItineraryHero from "@/components/itinerary/ItineraryHero";
+import ItineraryNotices from "@/components/itinerary/ItineraryNotices";
 import ItinerarySectionNav, {
   type ItineraryNavSection,
 } from "@/components/itinerary/ItinerarySectionNav";
@@ -14,6 +15,8 @@ import PageSection from "@/components/itinerary/PageSection";
 import StaysOverview from "@/components/itinerary/StaysOverview";
 import TripProgressRibbon from "@/components/itinerary/TripProgressRibbon";
 import TripStatsGrid from "@/components/itinerary/TripStatsGrid";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import {
   buildProgressStops,
   buildStayByDayIndex,
@@ -44,6 +47,15 @@ export default async function ItineraryPage({
   const { id } = await params;
   const itinerary = await getItinerary(id);
   if (!itinerary) notFound();
+  const currentUser = await getCurrentUser();
+  if (
+    !canAccessItinerary({
+      itineraryUserId: itinerary.user_id,
+      requesterUserId: currentUser?.uid,
+    })
+  ) {
+    notFound();
+  }
 
   const stayAccommodationIds = itinerary.stays
     .map((stay) => stay.accommodationId)
@@ -87,6 +99,8 @@ export default async function ItineraryPage({
 
       <ItineraryHero itinerary={itinerary} stats={stats} />
 
+      <ItineraryNotices warnings={itinerary.warnings} />
+
       <ItinerarySectionNav sections={NAV_SECTIONS} />
 
       <PageSection id="overview">
@@ -119,6 +133,11 @@ export default async function ItineraryPage({
           preparedDays={preparedDays}
           currency={currency}
           startTime={itinerary.preferences.preferred_start_time}
+          attractionLineItems={
+            itinerary.budget_breakdown?.line_items.filter(
+              (lineItem) => lineItem.kind === "attraction",
+            ) ?? []
+          }
         />
       </PageSection>
 
@@ -132,6 +151,7 @@ export default async function ItineraryPage({
           estimatedCost={itinerary.estimated_cost}
           requestedBudget={itinerary.preferences.budget}
           travellers={itinerary.preferences.travellers}
+          tripDays={itinerary.days}
           breakdown={itinerary.budget_breakdown}
         />
       </PageSection>

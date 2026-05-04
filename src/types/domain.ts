@@ -60,6 +60,348 @@ export type AccommodationPreference =
 export type PreferenceTag = string;
 
 // ============================================================================
+// Real-world data provenance primitives (prototype v2)
+// ============================================================================
+
+export const DATA_SOURCE_TYPES = [
+  "manual",
+  "google_places",
+  "liteapi",
+  "official_website",
+  "estimated",
+  "mock",
+  "system",
+] as const;
+export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
+
+export const DATA_CONFIDENCE_LEVELS = [
+  "live",
+  "verified",
+  "cached",
+  "estimated",
+  "unknown",
+] as const;
+export type DataConfidence = (typeof DATA_CONFIDENCE_LEVELS)[number];
+
+export const OPENING_HOURS_CONFIDENCE_LEVELS = [
+  "live",
+  "verified",
+  "cached",
+  "estimated",
+  "unknown",
+] as const;
+export type OpeningHoursConfidence =
+  (typeof OPENING_HOURS_CONFIDENCE_LEVELS)[number];
+
+export const OPENING_HOURS_WEEKDAYS = [
+  "sun",
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+] as const;
+export type OpeningHoursWeekday = (typeof OPENING_HOURS_WEEKDAYS)[number];
+
+/**
+ * Single-day opening window. `opens`/`closes` are local-time `HH:MM`
+ * strings on the same calendar day — i.e. `closes > opens`.
+ *
+ * Overnight venues (e.g. open Sun 22:00 and closing Mon 02:00) must be
+ * ingested as two separate records, one per calendar day, until v2
+ * introduces explicit cross-midnight resolution. Daytime attractions —
+ * which is what the prototype targets — fit cleanly in this single-day
+ * model and map directly to Google Places `regularOpeningHours.periods`
+ * after splitting any midnight-crossing entries during ingestion.
+ */
+export interface OpeningPeriod {
+  day: OpeningHoursWeekday;
+  opens: string;
+  closes: string;
+}
+
+export interface OpeningTimeRange {
+  opens: string;
+  closes: string;
+}
+
+export interface OpeningHoursException {
+  /** Local date in YYYY-MM-DD format. */
+  date: string;
+  /** Optional hard closure override for the specific date. */
+  closed?: boolean;
+  opens?: string;
+  closes?: string;
+}
+
+export interface AttractionOpeningHours {
+  id: string;
+  attraction_id: string;
+  region: string;
+  timezone?: string | null;
+  weekly_periods: OpeningPeriod[];
+  closed_days?: OpeningHoursWeekday[];
+  /**
+   * Optional placeholder for future one-off overrides. V1 keeps weekly periods
+   * authoritative and does not fully resolve exceptions yet.
+   */
+  exceptions?: OpeningHoursException[];
+  source_type: DataSourceType;
+  confidence: OpeningHoursConfidence;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  updated_at?: number;
+}
+
+/**
+ * Pricing axes for attraction admissions. Modelled as orthogonal dimensions
+ * so a single ticket variant (e.g. "foreign adult student") can be expressed
+ * without combinatorial enums and without conflating age, citizenship, and
+ * status.
+ */
+export const ATTRACTION_ADMISSION_AUDIENCES = [
+  "adult",
+  "child",
+  "senior",
+] as const;
+export type AttractionAdmissionAudience =
+  (typeof ATTRACTION_ADMISSION_AUDIENCES)[number];
+
+export const ATTRACTION_ADMISSION_NATIONALITIES = [
+  "any",
+  "domestic",
+  "foreigner",
+] as const;
+export type AttractionAdmissionNationality =
+  (typeof ATTRACTION_ADMISSION_NATIONALITIES)[number];
+
+export const ATTRACTION_ADMISSION_SOURCE_TYPES = [
+  "official_website",
+  "manual",
+  "estimated",
+  "google_places",
+  "system",
+] as const;
+export type AttractionAdmissionSourceType =
+  (typeof ATTRACTION_ADMISSION_SOURCE_TYPES)[number];
+
+export const ATTRACTION_ADMISSION_CONFIDENCE_LEVELS = [
+  "verified",
+  "estimated",
+  "unknown",
+] as const;
+export type AttractionAdmissionConfidence =
+  (typeof ATTRACTION_ADMISSION_CONFIDENCE_LEVELS)[number];
+
+export interface AttractionAdmissionRule {
+  id: string;
+  attraction_node_id: string;
+  /** Optional denormalised region slug for admin filtering/purge jobs. */
+  region?: string;
+  currency: string;
+  /** `null` means unknown (never silently treated as free/zero). */
+  amount: number | null;
+  /** Age bracket the price applies to. */
+  audience: AttractionAdmissionAudience;
+  /** Citizenship bracket the price applies to. `any` covers all visitors. */
+  nationality: AttractionAdmissionNationality;
+  /** True when the price is restricted to students (orthogonal to audience). */
+  is_student?: boolean;
+  source_type: AttractionAdmissionSourceType;
+  confidence: AttractionAdmissionConfidence;
+  source_url?: string | null;
+  notes?: string | null;
+  /** Local date in YYYY-MM-DD format. */
+  valid_from?: string | null;
+  /** Local date in YYYY-MM-DD format. */
+  valid_until?: string | null;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  verified_by?: string | null;
+  data_version: number;
+}
+
+/** Bump when source-record schema contracts are intentionally versioned. */
+export const CURRENT_DATA_VERSION = 2 as const;
+
+export interface DataProvenance {
+  data_version: number;
+  source_type: DataSourceType;
+  confidence: DataConfidence;
+  source_url?: string | null;
+  fetched_at?: number | null;
+  verified_at?: number | null;
+  verified_by?: string | null;
+}
+
+const REAL_DATA_CONFIDENCE = new Set<DataConfidence>([
+  "live",
+  "verified",
+  "cached",
+]);
+const NON_REAL_DATA_SOURCES = new Set<DataSourceType>(["mock", "estimated"]);
+
+/**
+ * True when data is sourced from a non-mock provider and marked as
+ * live/verified/cached. Estimated and unknown values remain non-real.
+ */
+export function isRealData(
+  provenance: Pick<DataProvenance, "source_type" | "confidence">,
+): boolean {
+  if (NON_REAL_DATA_SOURCES.has(provenance.source_type)) {
+    return false;
+  }
+  return REAL_DATA_CONFIDENCE.has(provenance.confidence);
+}
+
+export const DEFAULT_DATA_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Determines staleness without reading the clock implicitly.
+ * Callers must provide `nowMs` to keep behavior deterministic in tests.
+ */
+export function isStaleData(
+  provenance: Pick<DataProvenance, "confidence" | "fetched_at" | "verified_at">,
+  nowMs: number,
+  staleAfterMs = DEFAULT_DATA_STALE_AFTER_MS,
+): boolean {
+  if (provenance.confidence === "live") {
+    return false;
+  }
+
+  const freshestTimestamp = provenance.verified_at ?? provenance.fetched_at;
+  if (freshestTimestamp == null) {
+    return provenance.confidence === "cached";
+  }
+
+  if (freshestTimestamp >= nowMs) {
+    return false;
+  }
+
+  return nowMs - freshestTimestamp > staleAfterMs;
+}
+
+export interface MockDataAssertionOptions {
+  nodeEnv?: string;
+}
+
+/**
+ * Guards against accidentally serving mock-tagged payloads in production.
+ * It also flags the legacy `source: "mock"` marker during transition periods.
+ */
+export function assertNoMockInProductionData(
+  value: unknown,
+  options: MockDataAssertionOptions = {},
+): void {
+  const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  if (nodeEnv !== "production") {
+    return;
+  }
+
+  const visited = new WeakSet<object>();
+
+  const visit = (candidate: unknown, path: string): void => {
+    if (candidate === null || candidate === undefined) {
+      return;
+    }
+    if (typeof candidate !== "object") {
+      return;
+    }
+
+    if (visited.has(candidate)) {
+      return;
+    }
+    visited.add(candidate);
+
+    if (Array.isArray(candidate)) {
+      for (let index = 0; index < candidate.length; index += 1) {
+        visit(candidate[index], `${path}[${index}]`);
+      }
+      return;
+    }
+
+    const record = candidate as Record<string, unknown>;
+    if (record.source_type === "mock" || record.source === "mock") {
+      throw new Error(`Mock data is not allowed in production at ${path}`);
+    }
+
+    for (const [key, nestedValue] of Object.entries(record)) {
+      visit(nestedValue, `${path}.${key}`);
+    }
+  };
+
+  visit(value, "$");
+}
+
+export const DATA_CONFIDENCE_LABELS: Record<DataConfidence, string> = {
+  live: "Live",
+  verified: "Verified",
+  cached: "Cached",
+  estimated: "Estimated",
+  unknown: "Unknown",
+};
+
+export function formatDataConfidenceLabel(confidence: DataConfidence): string {
+  return DATA_CONFIDENCE_LABELS[confidence];
+}
+
+export const DATA_QUALITY_ENTITY_TYPES = [
+  "region",
+  "city",
+  "attraction",
+  "hotel",
+  "route_edge",
+  "itinerary",
+  "provider_call",
+] as const;
+export type DataQualityEntityType = (typeof DATA_QUALITY_ENTITY_TYPES)[number];
+
+export const DATA_QUALITY_ISSUE_SEVERITIES = [
+  "info",
+  "warning",
+  "critical",
+] as const;
+export type DataQualityIssueSeverity =
+  (typeof DATA_QUALITY_ISSUE_SEVERITIES)[number];
+
+export const DATA_QUALITY_ISSUE_CODES = [
+  "missing_google_place_id",
+  "missing_opening_hours",
+  "missing_admission_cost",
+  "stale_place_data",
+  "mock_data_present",
+  "duplicate_place",
+  "liteapi_error",
+  "no_hotel_rates",
+  "route_edge_missing",
+  "itinerary_warning",
+] as const;
+export type DataQualityIssueCode = (typeof DATA_QUALITY_ISSUE_CODES)[number];
+
+export const DATA_QUALITY_ISSUE_STATUSES = [
+  "open",
+  "ignored",
+  "resolved",
+] as const;
+export type DataQualityIssueStatus =
+  (typeof DATA_QUALITY_ISSUE_STATUSES)[number];
+
+export interface DataQualityIssue {
+  id: string;
+  entity_type: DataQualityEntityType;
+  entity_id?: string;
+  severity: DataQualityIssueSeverity;
+  code: DataQualityIssueCode;
+  message: string;
+  details?: Record<string, unknown>;
+  status: DataQualityIssueStatus;
+  created_at: number;
+  resolved_at?: number;
+  resolved_by?: string;
+}
+
+// ============================================================================
 // Geo primitives
 // ============================================================================
 
@@ -113,6 +455,10 @@ export interface NodeMetadata {
   opening_time?: string;
   /** Optional local closing time ("HH:MM"). */
   closing_time?: string;
+  /** Optional structured opening-hours schedule loaded from attraction_hours. */
+  opening_hours?: AttractionOpeningHours;
+  /** Optional admission rules loaded from attraction_admissions. */
+  admission_rules?: AttractionAdmissionRule[];
   /** Allow any forward-compatible extras without breaking typing. */
   [key: string]: unknown;
 }
@@ -174,23 +520,63 @@ export interface BudgetRange {
   currency?: string;
 }
 
+/** Default itinerary currency for regions that don't provide one. */
+export const DEFAULT_CURRENCY = "INR" as const;
+/** Default guest nationality used for domestic pricing assumptions. */
+export const DEFAULT_GUEST_NATIONALITY = "IN" as const;
+/** Calendar date in local `YYYY-MM-DD` format. */
+export type LocalDateString = string;
+
 export interface TravellerComposition {
   adults: number;
   children: number;
+  /**
+   * Child ages in completed years. Optional for legacy itineraries that only
+   * stored a children count.
+   */
+  children_ages?: number[];
+  /** Number of rooms requested for accommodation discovery. */
+  rooms?: number;
+  /** ISO 3166-1 alpha-2 country code (uppercase), e.g. "IN". */
+  guest_nationality?: string;
+}
+
+export interface ItineraryBudgetLineItemProvenance {
+  source_type?: DataSourceType;
+  confidence?: DataConfidence;
+  /** Source rule/document id (e.g. `attraction_admissions/{id}`). */
+  rule_id?: string;
+  /** ISO 4217 currency the original source quoted. */
+  currency?: string;
+  fetched_at?: number | null;
+  verified_at?: number | null;
 }
 
 export interface ItineraryBudgetLineItem {
   id: string;
   day_index: number;
-  kind: "stay" | "travel";
+  kind: "stay" | "travel" | "attraction";
   label: string;
   amount: number;
+  /**
+   * Optional structured provenance snapshot. Present for line items derived
+   * from typed source records (e.g. attraction admission rules) so downstream
+   * UIs can display confidence/source without parsing the human label.
+   */
+  provenance?: ItineraryBudgetLineItemProvenance;
 }
 
 export interface ItineraryBudgetBreakdown {
   line_items: ItineraryBudgetLineItem[];
   lodgingSubtotal?: number;
+  lodgingRateState?: LodgingRateState;
+  lodgingLastCheckedAt?: number | null;
+  unknownLodgingStaysCount?: number;
   travelSubtotal?: number;
+  attractionSubtotal?: number;
+  verifiedAttractionCostsCount?: number;
+  estimatedAttractionCostsCount?: number;
+  unknownAttractionCostsCount?: number;
   nightlyAverage?: number;
   totalTripCost?: number;
   requestedBudget?: BudgetRange;
@@ -202,6 +588,16 @@ export interface ItineraryPreferences {
   travel_style: TravelStyle;
   budget: BudgetRange;
   travellers: TravellerComposition;
+  /**
+   * Local trip start date ("YYYY-MM-DD"). Required for new itinerary generation
+   * requests via API validation, optional here to preserve legacy reads/tests.
+   */
+  trip_start_date?: LocalDateString;
+  /**
+   * Optional explicit end date ("YYYY-MM-DD"). When omitted it is derived as
+   * `trip_start_date + days - 1`.
+   */
+  trip_end_date?: LocalDateString;
   /** Optional preference tags to prioritise (e.g. ["heritage", "food"]). */
   interests?: PreferenceTag[];
   /** Optional preferred transport modes. Defaults to ["road"]. */
@@ -281,6 +677,11 @@ export interface ItineraryActivity {
   opening_time?: string;
   /** Optional local closing time ("HH:MM"). */
   closing_time?: string;
+  /** Optional resolved windows for the specific itinerary day. */
+  opening_periods?: OpeningTimeRange[];
+  /** `unknown` allows scheduling but should surface a warning. */
+  opening_hours_state?: "known" | "closed" | "unknown";
+  opening_hours_confidence?: OpeningHoursConfidence;
 }
 
 /** A contiguous day within an itinerary. */
@@ -354,15 +755,61 @@ export interface StayRoomAllocationSummary {
   rooms: StayRoomSelection[];
 }
 
+export const LODGING_RATE_STATES = [
+  "lodging_live",
+  "lodging_cached",
+  "lodging_unknown",
+] as const;
+export type LodgingRateState = (typeof LODGING_RATE_STATES)[number];
+
+export interface StayHotelRateOption {
+  provider: "liteapi";
+  provider_hotel_id: string;
+  hotel_name: string;
+  room_type_id: string;
+  room_name: string;
+  board_name?: string | null;
+  refundable_tag?: string | null;
+  currency: string;
+  nightly_amount: number | null;
+  total_amount: number | null;
+  source_type: "liteapi";
+  confidence: DataConfidence;
+  fetched_at?: number | null;
+  expires_at?: number | null;
+  search_snapshot_id?: string | null;
+  offer_snapshot_id?: string | null;
+  address?: string | null;
+  star_rating?: number | null;
+  guest_rating?: number | null;
+  review_count?: number | null;
+  distance_from_anchor_km?: number | null;
+}
+
 export interface StayAssignment {
   nodeId: string;
   startDay: number;
   endDay: number;
   nights: number;
   accommodationId: string | null;
-  nightlyCost: number;
-  totalCost: number;
+  nightlyCost: number | null;
+  totalCost: number | null;
   roomAllocation?: StayRoomAllocationSummary;
+  hotelRateStatus?: "live" | "cached" | "unknown";
+  hotelRateUnavailableReason?:
+    | "provider_disabled"
+    | "provider_timeout"
+    | "provider_error"
+    | "no_rates"
+    | "no_hotels"
+    | "call_limit_exceeded"
+    | "missing_anchor"
+    | "missing_trip_start_date";
+  hotelRateLastCheckedAt?: number | null;
+  hotelSearchSnapshotId?: string | null;
+  hotelOfferSnapshotId?: string | null;
+  hotelRateOptions?: StayHotelRateOption[];
+  selectedHotelRateOptionIndex?: number | null;
 }
 
 /** Full itinerary — persisted to Firestore as-is. */

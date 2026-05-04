@@ -6,6 +6,7 @@ import type {
   ItineraryPreferences,
   StayAssignment,
 } from "@/types/domain";
+import { DEFAULT_CURRENCY } from "@/types/domain";
 import { getAdminDb, withFirestoreDiagnostics } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 import { deriveOptimalBudget } from "@/lib/itinerary/budget";
@@ -168,6 +169,18 @@ function normaliseBudgetBreakdown(
     ...args.warnings,
     ...(Array.isArray(breakdown?.warnings) ? breakdown.warnings : []),
   ]);
+  const lodgingRateState = normaliseLodgingRateState(
+    breakdown?.lodgingRateState,
+    args.stays,
+  );
+  const unknownLodgingStaysCount = normaliseOptionalCount(
+    breakdown?.unknownLodgingStaysCount,
+    deriveUnknownLodgingStaysCount(args.stays),
+  );
+  const lodgingLastCheckedAt = normaliseOptionalTimestamp(
+    breakdown?.lodgingLastCheckedAt,
+    deriveLodgingLastCheckedAt(args.stays),
+  );
   const lodgingSubtotal =
     breakdown?.lodgingSubtotal !== undefined
       ? normaliseCostAmount(breakdown.lodgingSubtotal, 0)
@@ -180,6 +193,37 @@ function normaliseBudgetBreakdown(
       : line_items.some((item) => item.kind === "travel")
         ? sumLineItems(line_items, "travel")
         : undefined;
+  const attractionSubtotal =
+    breakdown?.attractionSubtotal !== undefined
+      ? normaliseCostAmount(breakdown.attractionSubtotal, 0)
+      : line_items.some((item) => item.kind === "attraction")
+        ? sumLineItems(line_items, "attraction")
+        : undefined;
+  const attractionLineItems = line_items.filter(
+    (item) => item.kind === "attraction",
+  );
+  const { verified: derivedVerifiedAttractionCount, estimated: derivedEstimatedAttractionCount } =
+    deriveAttractionConfidenceCounts(attractionLineItems);
+  const hasAttractionCounts =
+    breakdown?.verifiedAttractionCostsCount !== undefined ||
+    breakdown?.estimatedAttractionCostsCount !== undefined ||
+    breakdown?.unknownAttractionCostsCount !== undefined ||
+    attractionLineItems.length > 0;
+  const verifiedAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(
+        breakdown?.verifiedAttractionCostsCount,
+        Math.max(0, derivedVerifiedAttractionCount),
+      )
+    : undefined;
+  const estimatedAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(
+        breakdown?.estimatedAttractionCostsCount,
+        Math.max(0, derivedEstimatedAttractionCount),
+      )
+    : undefined;
+  const unknownAttractionCostsCount = hasAttractionCounts
+    ? normaliseOptionalCount(breakdown?.unknownAttractionCostsCount, 0)
+    : undefined;
   const nightlyAverage =
     breakdown?.nightlyAverage !== undefined
       ? normaliseCostAmount(breakdown.nightlyAverage, 0)
@@ -199,7 +243,14 @@ function normaliseBudgetBreakdown(
   return {
     line_items,
     lodgingSubtotal,
+    lodgingRateState,
+    lodgingLastCheckedAt,
+    unknownLodgingStaysCount,
     travelSubtotal,
+    attractionSubtotal,
+    verifiedAttractionCostsCount,
+    estimatedAttractionCostsCount,
+    unknownAttractionCostsCount,
     nightlyAverage,
     totalTripCost,
     requestedBudget,
@@ -220,22 +271,26 @@ function normaliseBudgetRange(
   );
   const currency =
     typeof budget?.currency === "string" && budget.currency.trim()
-      ? budget.currency
-      : fallbackCurrency;
+      ? budget.currency.trim().toUpperCase()
+      : (fallbackCurrency ?? DEFAULT_CURRENCY);
 
-  return currency ? { min, max, currency } : { min, max };
+  return { min, max, currency };
 }
 
 function computeNightlyAverage(stays: StayAssignment[]): number {
-  const totalNights = stays.reduce((sum, stay) => sum + stay.nights, 0);
+  const knownStays = stays.filter((stay) => Number.isFinite(stay.totalCost));
+  const totalNights = knownStays.reduce((sum, stay) => sum + stay.nights, 0);
   if (totalNights <= 0) return 0;
-  const totalCost = stays.reduce((sum, stay) => sum + stay.totalCost, 0);
+  const totalCost = knownStays.reduce(
+    (sum, stay) => sum + Number(stay.totalCost),
+    0,
+  );
   return normaliseCostAmount(totalCost / totalNights, 0);
 }
 
 function sumLineItems(
   lineItems: NonNullable<ItineraryBudgetBreakdown["line_items"]>,
-  kind: "stay" | "travel",
+  kind: "stay" | "travel" | "attraction",
 ): number {
   return normaliseCostAmount(
     lineItems
@@ -243,6 +298,96 @@ function sumLineItems(
       .reduce((sum, item) => sum + item.amount, 0),
     0,
   );
+}
+
+function deriveAttractionConfidenceCounts(
+  attractionLineItems: NonNullable<ItineraryBudgetBreakdown["line_items"]>,
+): { verified: number; estimated: number } {
+  let verified = 0;
+  let estimated = 0;
+  for (const item of attractionLineItems) {
+    const confidence = item.provenance?.confidence;
+    if (confidence === "estimated") {
+      estimated += 1;
+      continue;
+    }
+    if (
+      confidence === "verified" ||
+      confidence === "live" ||
+      confidence === "cached"
+    ) {
+      verified += 1;
+      continue;
+    }
+    if (
+      confidence === undefined &&
+      item.label.toLowerCase().includes("estimated")
+    ) {
+      estimated += 1;
+    } else {
+      verified += 1;
+    }
+  }
+  return { verified, estimated };
+}
+
+function normaliseOptionalCount(
+  value: unknown,
+  fallback: number | undefined,
+): number | undefined {
+  if (Number.isFinite(value)) {
+    return Math.max(0, Math.round(Number(value)));
+  }
+  if (fallback === undefined) return undefined;
+  return Math.max(0, Math.round(fallback));
+}
+
+function normaliseOptionalTimestamp(
+  value: unknown,
+  fallback: number | null,
+): number | null {
+  if (Number.isFinite(value)) return Math.max(0, Math.round(Number(value)));
+  return fallback;
+}
+
+function normaliseLodgingRateState(
+  value: unknown,
+  stays: StayAssignment[],
+): ItineraryBudgetBreakdown["lodgingRateState"] {
+  if (
+    value === "lodging_live" ||
+    value === "lodging_cached" ||
+    value === "lodging_unknown"
+  ) {
+    return value;
+  }
+
+  const unknown = stays.some(
+    (stay) => stay.hotelRateStatus === "unknown" || !Number.isFinite(stay.totalCost),
+  );
+  if (unknown) return "lodging_unknown";
+  if (stays.some((stay) => stay.hotelRateStatus === "live")) return "lodging_live";
+  if (stays.some((stay) => stay.hotelRateStatus === "cached")) {
+    return "lodging_cached";
+  }
+  return "lodging_unknown";
+}
+
+function deriveUnknownLodgingStaysCount(stays: StayAssignment[]): number {
+  return stays.reduce((count, stay) => {
+    if (stay.hotelRateStatus === "unknown") return count + 1;
+    if (!Number.isFinite(stay.totalCost)) return count + 1;
+    return count;
+  }, 0);
+}
+
+function deriveLodgingLastCheckedAt(stays: StayAssignment[]): number | null {
+  let latest = 0;
+  for (const stay of stays) {
+    if (!Number.isFinite(stay.hotelRateLastCheckedAt)) continue;
+    latest = Math.max(latest, Math.round(Number(stay.hotelRateLastCheckedAt)));
+  }
+  return latest > 0 ? latest : null;
 }
 
 function normaliseBudgetAmount(value: unknown, fallback: number): number {

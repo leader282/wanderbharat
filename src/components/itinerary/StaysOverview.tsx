@@ -3,6 +3,7 @@ import {
   makeMoneyFormatter,
   titleCaseWords,
 } from "@/lib/itinerary/presentation";
+import DataStateBadge from "@/components/itinerary/DataStateBadge";
 
 import { BedIcon, PinIcon } from "./icons";
 
@@ -39,9 +40,13 @@ export default function StaysOverview({
     0,
   );
   const totalCost = entries.reduce(
-    (sum, entry) => sum + entry.stay.totalCost,
+    (sum, entry) =>
+      entry.stay.totalCost !== null ? sum + entry.stay.totalCost : sum,
     0,
   );
+  const unknownRateCount = entries.filter(
+    (entry) => entry.stay.totalCost === null,
+  ).length;
 
   return (
     <div>
@@ -53,8 +58,12 @@ export default function StaysOverview({
           </h2>
           <p className="mt-2 max-w-2xl text-[var(--color-ink-500)]">
             {entries.length} {entries.length === 1 ? "stay" : "stays"} ·{" "}
-            {totalNights} {totalNights === 1 ? "night" : "nights"} · lodging
-            subtotal {formatMoney(totalCost)}
+            {totalNights} {totalNights === 1 ? "night" : "nights"} ·{" "}
+            {unknownRateCount > 0
+              ? totalCost > 0
+                ? `known lodging subtotal ${formatMoney(totalCost)}; ${unknownRateCount} ${unknownRateCount === 1 ? "stay has" : "stays have"} unavailable rates`
+                : `${unknownRateCount} ${unknownRateCount === 1 ? "stay has" : "stays have"} unavailable rates`
+              : `lodging subtotal ${formatMoney(totalCost)}`}
           </p>
         </div>
       </div>
@@ -84,6 +93,11 @@ function StayCard({
 }) {
   const formatMoney = makeMoneyFormatter(currency);
   const { stay, accommodation, cityName } = entry;
+  const selectedRateOption = resolveSelectedHotelRateOption(stay);
+  const confidenceState = normaliseHotelDataState(
+    selectedRateOption?.confidence ?? stay.hotelRateStatus ?? "unknown",
+  );
+  const lastCheckedLabel = formatLastChecked(stay.hotelRateLastCheckedAt);
   const dayRangeLabel =
     stay.nights === 1
       ? `Day ${stay.startDay + 1}`
@@ -103,7 +117,11 @@ function StayCard({
             </span>
           </p>
           <h3 className="mt-1.5 text-lg font-bold tracking-tight text-[var(--color-ink-900)] truncate">
-            {accommodation ? accommodation.name : `Stay in ${cityName}`}
+            {accommodation
+              ? accommodation.name
+              : selectedRateOption
+                ? selectedRateOption.hotel_name
+                : `Stay in ${cityName}`}
           </h3>
           <p className="mt-0.5 text-xs text-[var(--color-ink-500)]">
             {accommodation ? (
@@ -111,6 +129,13 @@ function StayCard({
                 {titleCaseWords(accommodation.category)} · ★
                 {accommodation.rating.toFixed(1)} (
                 {accommodation.reviewCount.toLocaleString("en-IN")} reviews)
+              </>
+            ) : selectedRateOption ? (
+              <>
+                {selectedRateOption.room_name}
+                {selectedRateOption.board_name
+                  ? ` · ${selectedRateOption.board_name}`
+                  : ""}
               </>
             ) : (
               "No specific property matched — your nights here stay flexible"
@@ -131,7 +156,7 @@ function StayCard({
         <Cell label="When" value={dayRangeLabel} />
         <Cell
           label="Per night"
-          value={stay.nightlyCost > 0 ? formatMoney(stay.nightlyCost) : "—"}
+          value={stay.nightlyCost !== null ? formatMoney(stay.nightlyCost) : "Rate unavailable"}
         />
       </div>
 
@@ -156,9 +181,36 @@ function StayCard({
       <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-[var(--color-ink-500)]">Subtotal</span>
         <span className="font-bold text-[var(--color-ink-900)]">
-          {formatMoney(stay.totalCost)}
+          {stay.totalCost !== null ? formatMoney(stay.totalCost) : "Unavailable"}
         </span>
       </div>
+      <p className="mt-2 text-xs text-[var(--color-ink-500)]">
+        <span className="inline-flex items-center gap-1.5">
+          <span>Rate status</span>
+          <DataStateBadge state={confidenceState} size="xs" />
+          {lastCheckedLabel ? <span>· Last checked {lastCheckedLabel}</span> : null}
+        </span>
+      </p>
+      <p className="mt-1 text-xs text-[var(--color-ink-500)]">
+        Prices may change. Hotel booking is not available here.
+      </p>
+      {stay.hotelRateOptions && stay.hotelRateOptions.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-[var(--color-ink-600)]">
+          {stay.hotelRateOptions.slice(0, 5).map((option) => (
+            <li
+              key={`${option.provider_hotel_id}:${option.room_type_id}`}
+              className="flex items-center justify-between gap-3"
+            >
+              <span className="truncate">{option.hotel_name}</span>
+              <span className="font-semibold whitespace-nowrap">
+                {option.nightly_amount !== null
+                  ? `${formatMoney(option.nightly_amount)} / night`
+                  : "Price unavailable"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </article>
   );
 }
@@ -174,4 +226,36 @@ function Cell({ label, value }: { label: string; value: string }) {
       </p>
     </div>
   );
+}
+
+function resolveSelectedHotelRateOption(entry: ItineraryStayEntry["stay"]) {
+  const options = entry.hotelRateOptions ?? [];
+  if (options.length === 0) return null;
+  const preferredIndex = entry.selectedHotelRateOptionIndex ?? 0;
+  const safeIndex = Math.max(0, Math.min(preferredIndex, options.length - 1));
+  return options[safeIndex] ?? null;
+}
+
+function formatLastChecked(value: number | null | undefined): string | null {
+  if (!Number.isFinite(value) || Number(value) <= 0) return null;
+  try {
+    return new Date(Number(value)).toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function normaliseHotelDataState(
+  value: unknown,
+): "live" | "verified" | "cached" | "estimated" | "unknown" {
+  return value === "live" ||
+    value === "verified" ||
+    value === "cached" ||
+    value === "estimated" ||
+    value === "unknown"
+    ? value
+    : "unknown";
 }

@@ -6,10 +6,21 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
+import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import { validateBudget } from "@/lib/itinerary/constraints";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
+import { resolveLiteApiProviderConfig } from "@/lib/providers/hotels/liteApiConfig";
+import { LiteApiHotelDataProvider } from "@/lib/providers/hotels/liteApiHotelDataProvider";
 import { getByNode } from "@/lib/repositories/accommodationRepository";
+import {
+  findLatestHotelOfferSnapshotByCacheKey,
+  saveHotelOfferSnapshot,
+} from "@/lib/repositories/hotelOfferSnapshotRepository";
+import {
+  findLatestHotelSearchSnapshotByQueryKey,
+  saveHotelSearchSnapshot,
+} from "@/lib/repositories/hotelSearchSnapshotRepository";
 import {
   deleteItinerary,
   getItinerary,
@@ -19,7 +30,12 @@ import {
   getItineraryMapData,
   precacheItineraryRouteGeometry,
 } from "@/lib/services/itineraryMapService";
-import type { Itinerary, ItineraryDetail, TransportMode } from "@/types/domain";
+import type {
+  Coordinates,
+  Itinerary,
+  ItineraryDetail,
+  TransportMode,
+} from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,8 +60,15 @@ interface ItineraryRouteDependencies {
 async function defaultPlanAccommodations(
   input: Parameters<typeof runAccommodationPlanner>[0],
 ) {
+  const liteApiConfig = resolveLiteApiProviderConfig();
   return runAccommodationPlanner(input, {
     getByNode,
+    hotelDataProvider: new LiteApiHotelDataProvider({ config: liteApiConfig }),
+    findLatestHotelSearchSnapshotByQueryKey,
+    saveHotelSearchSnapshot,
+    findLatestHotelOfferSnapshotByCacheKey,
+    saveHotelOfferSnapshot,
+    maxHotelProviderCalls: liteApiConfig.maxProviderCallsPerItinerary,
   });
 }
 
@@ -73,6 +96,7 @@ const defaultDependencies: ItineraryRouteDependencies = {
 export async function handleGetItinerary(
   id: string,
   deps: ItineraryRouteDependencies = defaultDependencies,
+  request?: Request,
 ) {
   if (!id) {
     return NextResponse.json(
@@ -89,6 +113,42 @@ export async function handleGetItinerary(
         { status: 404 },
       );
     }
+
+    if (itinerary.user_id) {
+      const resolveUserIdFromRequest =
+        deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
+      const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
+      let requesterUserId: string | null = null;
+      try {
+        requesterUserId = request
+          ? await resolveUserIdFromRequest(request)
+          : ((await resolveCurrentUser())?.uid ?? null);
+      } catch {
+        requesterUserId = null;
+      }
+
+      if (!requesterUserId) {
+        return NextResponse.json(
+          { error: "unauthorized", message: "Sign in to view saved itineraries." },
+          { status: 401 },
+        );
+      }
+      if (
+        !canAccessItinerary({
+          itineraryUserId: itinerary.user_id,
+          requesterUserId,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: "forbidden",
+            message: "You can only view itineraries saved to your account.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const map = await deps.getItineraryMapData(itinerary);
     const payload: ItineraryDetail = { itinerary, map };
     return NextResponse.json(payload);
@@ -195,7 +255,7 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  if (parsed.data.apply && existingItinerary.user_id) {
+  if (existingItinerary.user_id) {
     const resolveUserIdFromRequest =
       deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
     let requesterUserId: string | null = null;
@@ -215,7 +275,12 @@ export async function handleUpdateItineraryBudget(
       );
     }
 
-    if (requesterUserId !== existingItinerary.user_id) {
+    if (
+      !canAccessItinerary({
+        itineraryUserId: existingItinerary.user_id,
+        requesterUserId,
+      })
+    ) {
       return NextResponse.json(
         {
           error: "forbidden",
@@ -288,6 +353,9 @@ export async function handleUpdateItineraryBudget(
       travelStyle: input.preferences.travel_style,
       accommodationPreference: input.preferences.accommodation_preference,
       interests: input.preferences.interests,
+      tripStartDate: input.preferences.trip_start_date,
+      region: hydratedItinerary.region,
+      cityLocationsByNodeId: buildCityLocationsByNodeId(ctx.nodes),
     });
     hydratedItinerary = integrateAccommodationPlanIntoItinerary({
       itinerary: hydratedItinerary,
@@ -362,11 +430,11 @@ export async function handleUpdateItineraryBudget(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  return handleGetItinerary(id);
+  return handleGetItinerary(id, defaultDependencies, request);
 }
 
 export async function PATCH(
@@ -404,4 +472,14 @@ async function defaultResolveUserIdFromRequest(
   } catch {
     return null;
   }
+}
+
+function buildCityLocationsByNodeId(
+  nodes: Array<{ id: string; location: Coordinates }>,
+): Record<string, Coordinates> {
+  const locationsByNodeId: Record<string, Coordinates> = {};
+  for (const node of nodes) {
+    locationsByNodeId[node.id] = node.location;
+  }
+  return locationsByNodeId;
 }

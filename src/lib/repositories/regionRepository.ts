@@ -30,9 +30,31 @@ function db() {
 export async function listRegions(): Promise<RegionSummary[]> {
   return withFirestoreDiagnostics("listRegions", async () => {
     const fromDenorm = await readDenormalisedRegions();
-    if (fromDenorm.length > 0) return fromDenorm;
-    return scanRegionsFromNodes();
+    const all = fromDenorm.length > 0 ? fromDenorm : await scanRegionsFromNodes();
+    return applyRegionAllowlist(all);
   });
+}
+
+/**
+ * Optional deployment-level allowlist controlling which regions are
+ * exposed to the public plan form. Comma-separated slug list, e.g.
+ * `WB_ALLOWED_REGIONS=rajasthan` for a Rajasthan-only demo.
+ *
+ * Unset/empty → every region in Firestore is returned (current behaviour).
+ * Admin tooling, seed scripts, and the data-quality scanner do not use this
+ * helper, so they continue to see every region.
+ */
+function applyRegionAllowlist(regions: RegionSummary[]): RegionSummary[] {
+  const raw = process.env.WB_ALLOWED_REGIONS?.trim();
+  if (!raw) return regions;
+  const allowed = new Set(
+    raw
+      .split(",")
+      .map((slug) => slug.trim().toLowerCase())
+      .filter((slug) => slug.length > 0),
+  );
+  if (allowed.size === 0) return regions;
+  return regions.filter((r) => allowed.has(r.region.toLowerCase()));
 }
 
 async function readDenormalisedRegions(): Promise<RegionSummary[]> {

@@ -4,6 +4,8 @@ import { getTravelStyleConfig } from "@/lib/config/travelStyle";
 import { averageSpeedKmH } from "@/lib/config/transportMode";
 import { findEdges } from "@/lib/repositories/edgeRepository";
 import { findNodes, getNodes } from "@/lib/repositories/nodeRepository";
+import { getAttractionOpeningHoursByAttractionIds } from "@/lib/repositories/attractionHoursRepository";
+import { listByAttractionIds } from "@/lib/repositories/attractionAdmissionRepository";
 import { haversineKm } from "@/lib/services/distanceService";
 
 /**
@@ -97,8 +99,49 @@ export async function loadEngineContextForPlan(
     );
   }
 
+  // Drop admin-disabled attractions before any downstream wiring. The flag is
+  // a soft-delete signal admins set in /admin/attractions and we honor it here
+  // so disabled records don't appear as itinerary candidates, don't count
+  // toward open-hours/admission coverage, and don't trigger Google/LiteAPI
+  // lookups in derived services.
+  const activeAttractions = attractions.filter(
+    (attraction) => !isAttractionDisabled(attraction),
+  );
+
+  const attractionIds = activeAttractions.map((attraction) => attraction.id);
+  const [attractionHours, attractionAdmissions] = await Promise.all([
+    getAttractionOpeningHoursByAttractionIds(attractionIds),
+    listByAttractionIds(attractionIds),
+  ]);
+  const openingHoursByAttractionId = new Map(
+    attractionHours.map((entry) => [entry.attraction_id, entry]),
+  );
+  const admissionRulesByAttractionId = new Map<string, typeof attractionAdmissions>();
+  for (const rule of attractionAdmissions) {
+    const list = admissionRulesByAttractionId.get(rule.attraction_node_id) ?? [];
+    list.push(rule);
+    admissionRulesByAttractionId.set(rule.attraction_node_id, list);
+  }
+  const attractionsWithHours = activeAttractions.map((attraction) => {
+    const openingHours = openingHoursByAttractionId.get(attraction.id);
+    const admissionRules = admissionRulesByAttractionId.get(attraction.id) ?? [];
+    if (!openingHours && admissionRules.length === 0) return attraction;
+    // Build the metadata patch as a spread instead of explicit `undefined`
+    // assignments so we never clobber pre-existing fields with `undefined`
+    // (which would otherwise be persisted as a real undefined value and
+    // confuse downstream consumers).
+    const metadata: typeof attraction.metadata = { ...attraction.metadata };
+    if (openingHours) {
+      metadata.opening_hours = openingHours;
+    }
+    if (admissionRules.length > 0) {
+      metadata.admission_rules = admissionRules;
+    }
+    return { ...attraction, metadata };
+  });
+
   const attractionsByCity = new Map<string, GraphNode[]>();
-  for (const a of attractions) {
+  for (const a of attractionsWithHours) {
     const parent = a.parent_node_id;
     if (!parent) continue;
     const list = attractionsByCity.get(parent) ?? [];
@@ -110,7 +153,7 @@ export async function loadEngineContextForPlan(
   //    limits `in` to 10 ids so we fan out in batches.
   const edges = await loadEdgesForCities(Array.from(cityIds), regions);
 
-  const nodes = dedupeById([...pinned, ...selectedCities, ...attractions]);
+  const nodes = dedupeById([...pinned, ...selectedCities, ...attractionsWithHours]);
 
   return {
     nodes,
@@ -165,4 +208,14 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
     out.push(item);
   }
   return out;
+}
+
+/**
+ * True when an attraction has been soft-disabled in the admin panel.
+ * Disabled attractions are skipped by the planner and the data quality
+ * scanner so retiring junk records actually clears warnings without
+ * requiring a destructive Firestore delete.
+ */
+export function isAttractionDisabled(attraction: GraphNode): boolean {
+  return attraction.metadata?.disabled === true;
 }

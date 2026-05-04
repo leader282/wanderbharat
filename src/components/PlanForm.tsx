@@ -17,6 +17,8 @@ import {
 } from "@/lib/planFormNumberFields";
 import {
   ACCOMMODATION_PREFERENCES,
+  DEFAULT_CURRENCY,
+  DEFAULT_GUEST_NATIONALITY,
   TRANSPORT_MODES,
   TRAVEL_STYLES,
   type AccommodationPreference,
@@ -38,8 +40,12 @@ interface FormState {
   region: string;
   start_node: string;
   requested_city_ids: string[];
+  trip_start_date: string;
   adults: PlanFormNumberValue;
   children: PlanFormNumberValue;
+  children_ages: string[];
+  rooms: PlanFormNumberValue;
+  guest_nationality: string;
   total_budget: PlanFormNumberValue;
   days: number;
   travel_style: TravelStyle;
@@ -116,8 +122,12 @@ const INITIAL_STATE: FormState = {
   region: "",
   start_node: "",
   requested_city_ids: [],
+  trip_start_date: todayLocalDateInput(),
   adults: 1,
   children: 0,
+  children_ages: [],
+  rooms: 1,
+  guest_nationality: DEFAULT_GUEST_NATIONALITY,
   total_budget: 30000,
   days: 5,
   travel_style: "balanced",
@@ -129,6 +139,71 @@ const INITIAL_STATE: FormState = {
 };
 
 const TRIP_LENGTH_OPTIONS = [3, 4, 5, 6, 7] as const;
+
+function todayLocalDateInput(): string {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 10);
+}
+
+function isValidLocalDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [yearRaw, monthRaw, dayRaw] = value.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return false;
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return (
+    candidate.getUTCFullYear() === year &&
+    candidate.getUTCMonth() === month - 1 &&
+    candidate.getUTCDate() === day
+  );
+}
+
+function parseGuestNationality(value: string): string | null {
+  const cleaned = value.trim().toUpperCase();
+  if (/^[A-Z]{2}$/.test(cleaned)) return cleaned;
+  return null;
+}
+
+function resizeChildAgeInputs(current: string[], childrenCount: number): string[] {
+  if (childrenCount <= 0) return [];
+  if (current.length === childrenCount) return current;
+  const next = current.slice(0, childrenCount);
+  while (next.length < childrenCount) next.push("");
+  return next;
+}
+
+function areValidChildAges(childrenAges: string[], childrenCount: number): boolean {
+  return normaliseChildAges(childrenAges, childrenCount) !== null;
+}
+
+function normaliseChildAges(
+  childrenAges: string[],
+  childrenCount: number,
+): number[] | null {
+  if (childrenCount <= 0) return [];
+  if (childrenAges.length !== childrenCount) return null;
+  const normalised: number[] = [];
+  for (const ageValue of childrenAges) {
+    const trimmed = ageValue.trim();
+    if (trimmed === "") return null;
+    const parsedAge = Number(trimmed);
+    if (!Number.isInteger(parsedAge) || parsedAge < 0 || parsedAge > 17) {
+      return null;
+    }
+    normalised.push(parsedAge);
+  }
+  return normalised;
+}
 
 export default function PlanForm() {
   const router = useRouter();
@@ -229,6 +304,7 @@ export default function PlanForm() {
     () =>
       !!state.region &&
       !!state.start_node &&
+      isValidLocalDate(state.trip_start_date) &&
       state.days >= 1 &&
       typeof state.total_budget === "number" &&
       state.total_budget > 0 &&
@@ -236,6 +312,11 @@ export default function PlanForm() {
       state.adults >= 1 &&
       typeof state.children === "number" &&
       state.children >= 0 &&
+      typeof state.rooms === "number" &&
+      state.rooms >= 1 &&
+      /^[A-Za-z]{2}$/.test(state.guest_nationality.trim()) &&
+      (state.children === 0 ||
+        areValidChildAges(state.children_ages, state.children)) &&
       state.transport_modes.length > 0,
     [state],
   );
@@ -244,10 +325,11 @@ export default function PlanForm() {
     () => regions.find((r) => r.region === state.region),
     [regions, state.region],
   );
-  const currency = activeRegion?.default_currency ?? "INR";
+  const currency = activeRegion?.default_currency ?? DEFAULT_CURRENCY;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const tripStartDate = state.trip_start_date.trim();
     const adults = normalisePlanFormNumberInput(state.adults, {
       min: 1,
       max: 20,
@@ -258,6 +340,13 @@ export default function PlanForm() {
       max: 20,
       fallback: 0,
     });
+    const rooms = normalisePlanFormNumberInput(state.rooms, {
+      min: 1,
+      max: 20,
+      fallback: 1,
+    });
+    const guestNationality = parseGuestNationality(state.guest_nationality);
+    const childrenAges = normaliseChildAges(state.children_ages, children);
     const totalBudget = normalisePlanFormNumberInput(state.total_budget, {
       min: 0,
       fallback: 0,
@@ -266,18 +355,33 @@ export default function PlanForm() {
     if (
       !state.region ||
       !state.start_node ||
+      !isValidLocalDate(tripStartDate) ||
       state.days < 1 ||
       totalBudget <= 0 ||
       adults < 1 ||
       children < 0 ||
+      rooms < 1 ||
+      guestNationality === null ||
+      childrenAges === null ||
       state.transport_modes.length === 0
     ) {
       setState((s) => ({
         ...s,
+        trip_start_date: tripStartDate,
         adults,
         children,
+        children_ages: resizeChildAgeInputs(s.children_ages, children),
+        rooms,
+        guest_nationality: s.guest_nationality.trim().toUpperCase(),
         total_budget: totalBudget,
       }));
+      if (!isValidLocalDate(tripStartDate)) {
+        setError("Choose a valid trip start date.");
+      } else if (childrenAges === null) {
+        setError("Add one valid age (0-17) for each child.");
+      } else if (guestNationality === null) {
+        setError("Enter a valid 2-letter guest nationality code.");
+      }
       return;
     }
 
@@ -304,9 +408,13 @@ export default function PlanForm() {
           preferences: {
             travel_style: state.travel_style,
             budget: { min: 0, max: totalBudget, currency },
+            trip_start_date: tripStartDate,
             travellers: {
               adults,
               children,
+              children_ages: childrenAges,
+              rooms,
+              guest_nationality: guestNationality,
             },
             accommodation_preference: state.accommodation_preference,
             interests: state.interests,
@@ -459,7 +567,7 @@ export default function PlanForm() {
         title="Who&apos;s travelling & what&apos;s the budget?"
         subtitle="We use your group size for room selection and budget checks."
       >
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Adults">
             <input
               type="number"
@@ -500,10 +608,52 @@ export default function PlanForm() {
               inputMode="numeric"
               value={state.children}
               onChange={(e) =>
+                setState((s) => {
+                  const children = parsePlanFormNumberInput(e.target.value, {
+                    min: 0,
+                    max: 20,
+                  });
+                  return {
+                    ...s,
+                    children,
+                    children_ages:
+                      typeof children === "number"
+                        ? resizeChildAgeInputs(s.children_ages, children)
+                        : s.children_ages,
+                  };
+                })
+              }
+              onBlur={() =>
+                setState((s) => {
+                  const children = normalisePlanFormNumberInput(s.children, {
+                    min: 0,
+                    max: 20,
+                    fallback: 0,
+                  });
+                  return {
+                    ...s,
+                    children,
+                    children_ages: resizeChildAgeInputs(s.children_ages, children),
+                  };
+                })
+              }
+              className="input"
+            />
+          </Field>
+
+          <Field label="Rooms">
+            <input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              inputMode="numeric"
+              value={state.rooms}
+              onChange={(e) =>
                 setState((s) => ({
                   ...s,
-                  children: parsePlanFormNumberInput(e.target.value, {
-                    min: 0,
+                  rooms: parsePlanFormNumberInput(e.target.value, {
+                    min: 1,
                     max: 20,
                   }),
                 }))
@@ -511,14 +661,37 @@ export default function PlanForm() {
               onBlur={() =>
                 setState((s) => ({
                   ...s,
-                  children: normalisePlanFormNumberInput(s.children, {
-                    min: 0,
+                  rooms: normalisePlanFormNumberInput(s.rooms, {
+                    min: 1,
                     max: 20,
-                    fallback: 0,
+                    fallback: 1,
                   }),
                 }))
               }
               className="input"
+            />
+          </Field>
+
+          <Field label="Guest nationality" hint="ISO code">
+            <input
+              type="text"
+              inputMode="text"
+              maxLength={2}
+              value={state.guest_nationality}
+              onChange={(e) =>
+                setState((s) => ({
+                  ...s,
+                  guest_nationality: e.target.value.toUpperCase(),
+                }))
+              }
+              onBlur={() =>
+                setState((s) => ({
+                  ...s,
+                  guest_nationality: s.guest_nationality.trim().toUpperCase(),
+                }))
+              }
+              className="input uppercase"
+              placeholder={DEFAULT_GUEST_NATIONALITY}
             />
           </Field>
 
@@ -550,6 +723,55 @@ export default function PlanForm() {
             />
           </Field>
         </div>
+        {typeof state.children === "number" && state.children > 0 && (
+          <Field
+            label="Children ages"
+            hint={`${state.children} age${state.children === 1 ? "" : "s"} required`}
+          >
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: state.children }, (_, index) => (
+                <input
+                  key={index}
+                  type="number"
+                  min={0}
+                  max={17}
+                  step={1}
+                  inputMode="numeric"
+                  value={state.children_ages[index] ?? ""}
+                  onChange={(e) =>
+                    setState((s) => {
+                      const next = [...s.children_ages];
+                      next[index] = e.target.value;
+                      return { ...s, children_ages: next };
+                    })
+                  }
+                  onBlur={() =>
+                    setState((s) => {
+                      const next = [...s.children_ages];
+                      const current = next[index] ?? "";
+                      if (current.trim() === "") return s;
+                      const parsed = Number(current);
+                      if (
+                        Number.isInteger(parsed) &&
+                        parsed >= 0 &&
+                        parsed <= 17
+                      ) {
+                        next[index] = parsed.toString();
+                      }
+                      return { ...s, children_ages: next };
+                    })
+                  }
+                  className="input"
+                  placeholder={`Child ${index + 1} age`}
+                  aria-label={`Child ${index + 1} age`}
+                />
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-ink-500)]">
+              Enter ages in completed years (0-17) for real pricing requests.
+            </p>
+          </Field>
+        )}
         <p className="text-sm text-[var(--color-ink-500)]">
           We treat this as your total trip budget for the full group, not a
           per-person number.
@@ -561,7 +783,18 @@ export default function PlanForm() {
         title="How long & how fast?"
         subtitle="Your pace shapes the route — we'll respect it."
       >
-        <div className="grid gap-4 sm:grid-cols-[1fr_2fr]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_1fr_2fr]">
+          <Field label="Trip start date">
+            <input
+              type="date"
+              value={state.trip_start_date}
+              onChange={(e) =>
+                setState((s) => ({ ...s, trip_start_date: e.target.value }))
+              }
+              className="input"
+            />
+          </Field>
+
           <Field label="Trip length">
             <select
               value={state.days}
@@ -594,7 +827,9 @@ export default function PlanForm() {
                       aria-pressed={active}
                       className="tile"
                     >
-                      <p className="font-bold">{copy.label}</p>
+                      <p className="break-words font-bold leading-tight">
+                        {copy.label}
+                      </p>
                       <p className="tile-sub mt-1 text-xs leading-snug">
                         {copy.tagline}
                       </p>

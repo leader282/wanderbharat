@@ -108,6 +108,23 @@ export async function getNode(id: string): Promise<GraphNode | null> {
   return snap.exists ? (snap.data() as GraphNode) : null;
 }
 
+export async function findAttractionsByGooglePlaceId(
+  googlePlaceId: string,
+): Promise<GraphNode[]> {
+  const placeId = googlePlaceId.trim();
+  if (!placeId) return [];
+
+  const snap = await db()
+    .collection(COLLECTIONS.nodes)
+    .where("metadata.google_place_id", "==", placeId)
+    .limit(25)
+    .get();
+
+  return snap.docs
+    .map((doc) => doc.data() as GraphNode)
+    .filter((node) => node.type === "attraction");
+}
+
 /** Multi-get over a list of ids. Batches of 10 (Firestore `in` cap). */
 export async function getNodes(ids: string[]): Promise<GraphNode[]> {
   if (ids.length === 0) return [];
@@ -126,6 +143,13 @@ export async function upsertNode(node: GraphNode): Promise<void> {
   await db().collection(COLLECTIONS.nodes).doc(node.id).set(node, { merge: true });
 }
 
+export async function replaceNode(node: GraphNode): Promise<void> {
+  await db()
+    .collection(COLLECTIONS.nodes)
+    .doc(node.id)
+    .set(stripUndefinedDeep(node), { merge: false });
+}
+
 export async function upsertNodes(nodes: GraphNode[]): Promise<void> {
   if (nodes.length === 0) return;
   const batchSize = 400; // Firestore cap is 500 writes per batch
@@ -138,4 +162,26 @@ export async function upsertNodes(nodes: GraphNode[]): Promise<void> {
       await batch.commit();
     }
   });
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      if (nested === undefined) continue;
+      const cleaned = stripUndefinedDeep(nested);
+      if (cleaned !== undefined) {
+        out[key] = cleaned;
+      }
+    }
+    return out as T;
+  }
+
+  return value;
 }

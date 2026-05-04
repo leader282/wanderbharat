@@ -8,13 +8,11 @@ import SignInButton from "@/components/SignInButton";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
 /**
- * Auth-aware header slot. Renders one of three states:
- *   1. Loading skeleton (waiting on Firebase to rehydrate)
- *   2. "Sign in with Google" button + transient error toast
- *   3. Avatar trigger + profile dropdown menu
+ * Auth-aware header slot. Signed-out visitors see a stable sign-in CTA
+ * immediately; signed-in visitors see the account menu once auth resolves.
  */
 export default function AuthHeader() {
-  const { user, loading, signOut, error } = useAuth();
+  const { user, signOut, error } = useAuth();
   const router = useRouter();
 
   const [open, setOpen] = useState(false);
@@ -53,15 +51,6 @@ export default function AuthHeader() {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  if (loading) {
-    return (
-      <div
-        aria-hidden
-        className="ml-1 h-9 w-9 sm:w-28 rounded-lg bg-[var(--color-sand-200)]/60 animate-pulse"
-      />
-    );
-  }
 
   if (!user) {
     return (

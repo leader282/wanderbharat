@@ -2,7 +2,13 @@ import { readdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { GraphEdge, GraphNode, RegionSummary } from "@/types/domain";
+import type {
+  AttractionAdmissionRule,
+  AttractionOpeningHours,
+  GraphEdge,
+  GraphNode,
+  RegionSummary,
+} from "@/types/domain";
 
 /**
  * Shape that every seed-data module must export. Seed scripts load datasets
@@ -16,8 +22,17 @@ export interface SeedDataset {
   /** Optional metadata written to the denormalised `regions/<slug>` doc. */
   summary?: Partial<RegionSummary>;
   cities: () => GraphNode[];
+  /**
+   * Optional deterministic attraction records. Prefer this for curated v2
+   * datasets where we don't want live provider dependence during reseed.
+   */
+  attractions?: () => GraphNode[];
   /** Optional base road/train/flight edges. Curated seed data. */
   edges?: () => GraphEdge[];
+  /** Optional seed payload for the `attraction_hours` collection. */
+  attractionHours?: () => AttractionOpeningHours[];
+  /** Optional seed payload for the `attraction_admissions` collection. */
+  attractionAdmissions?: () => AttractionAdmissionRule[];
   /** Optional list used by `seedAttractions` for Places queries. */
   placesQueries?: () => Array<{
     city_id: string;

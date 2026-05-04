@@ -255,7 +255,10 @@ function resolveLodgingSubtotal(itinerary: Itinerary): number {
   if (typeof itinerary.budget_breakdown?.lodgingSubtotal === "number") {
     return itinerary.budget_breakdown.lodgingSubtotal;
   }
-  return itinerary.stays.reduce((sum, stay) => sum + stay.totalCost, 0);
+  return itinerary.stays.reduce(
+    (sum, stay) => (stay.totalCost !== null ? sum + stay.totalCost : sum),
+    0,
+  );
 }
 
 function resolveNightlyAverage(itinerary: Itinerary): number {
