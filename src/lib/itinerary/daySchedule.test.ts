@@ -101,10 +101,11 @@ test("buildDaySchedule inserts a 15-min buffer between back-to-back activities",
     startTime: "09:00",
   });
 
-  assert.equal(blocks.length, 2);
-  assert.equal(blocks[0].endMin, 10 * 60);
+  const activityBlocks = blocks.filter((b) => b.kind === "activity");
+  assert.equal(activityBlocks.length, 2);
+  assert.equal(activityBlocks[0].endMin, 10 * 60);
   // 15-min gap → next activity starts at 10:15
-  assert.equal(blocks[1].startMin, 10 * 60 + 15);
+  assert.equal(activityBlocks[1].startMin, 10 * 60 + 15);
 });
 
 test("buildDaySchedule inserts a 60-min lunch at the first natural break inside the lunch window", () => {
@@ -118,16 +119,79 @@ test("buildDaySchedule inserts a 60-min lunch at the first natural break inside 
   });
 
   // Cursor after first activity = 11:30, +15 buffer = 11:45 → not yet in window
-  // Activity 2: 11:45 – 13:45, +15 buffer = 14:00 → in window → lunch inserted
+  // Activity 2: 11:45 – 13:45 → lunch inserted at that natural break
   // Activity 3 starts after lunch
   const meals = blocks.filter((b) => b.kind === "meal");
   assert.equal(meals.length, 1);
-  assert.equal(meals[0].startMin, 14 * 60);
-  assert.equal(meals[0].endMin, 15 * 60);
+  assert.equal(meals[0].startMin, 13 * 60 + 45);
+  assert.equal(meals[0].endMin, 14 * 60 + 45);
 
   const lastActivity = blocks[blocks.length - 1];
   assert.equal(lastActivity.kind, "activity");
   assert.equal(lastActivity.startMin, 15 * 60);
+});
+
+test("buildDaySchedule inserts lunch when an activity ends at the lunch-window boundary", () => {
+  const blocks = buildDaySchedule({
+    day: dayOf([
+      activity("A", 2), // 9:00 – 11:00
+      activity("Long hillside activity", 3.25), // 11:15 – 14:30
+      activity("C", 1),
+    ]),
+    startTime: "09:00",
+  });
+
+  const meals = blocks.filter((b) => b.kind === "meal");
+  assert.equal(meals.length, 1);
+  assert.equal(meals[0].startMin, 14 * 60 + 30);
+  assert.equal(meals[0].endMin, 15 * 60 + 30);
+});
+
+test("buildDaySchedule keeps a late natural lunch break after a long activity", () => {
+  const blocks = buildDaySchedule({
+    day: dayOf(
+      [
+        activity("Deer Park Institute", 1, {
+          opening_time: "09:00",
+          closing_time: "17:00",
+        }),
+        activity("Chokling Monastery", 1, {
+          opening_time: "06:00",
+          closing_time: "18:00",
+        }),
+        activity("Bir Billing Paragliding Takeoff", 3, {
+          opening_time: "07:00",
+          closing_time: "18:00",
+        }),
+        activity("Bangoru Hidden Waterfall", 2, {
+          opening_time: "09:00",
+          closing_time: "18:00",
+        }),
+      ],
+      2,
+    ),
+    startTime: "07:00",
+  });
+
+  const meals = blocks.filter((b) => b.kind === "meal");
+  const activityBlocks = blocks.filter((b) => b.kind === "activity");
+  assert.equal(meals.length, 1);
+  assert.equal(meals[0].startMin, 14 * 60 + 45);
+  assert.equal(meals[0].endMin, 15 * 60 + 45);
+  assert.equal(activityBlocks.length, 4);
+  assert.equal(activityBlocks.at(-1)?.endMin, 18 * 60);
+});
+
+test("buildDaySchedule inserts midday lunch after a multi-activity morning", () => {
+  const blocks = buildDaySchedule({
+    day: dayOf([activity("Morning fort", 1), activity("Temple stop", 1)]),
+    startTime: "09:00",
+  });
+
+  const meals = blocks.filter((b) => b.kind === "meal");
+  assert.equal(meals.length, 1);
+  assert.equal(meals[0].startMin, 12 * 60 + 30);
+  assert.equal(meals[0].endMin, 13 * 60 + 30);
 });
 
 test("buildDaySchedule inserts lunch at most once even with many activities", () => {

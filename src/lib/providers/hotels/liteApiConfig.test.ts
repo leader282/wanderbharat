@@ -13,6 +13,7 @@ test("resolveLiteApiProviderConfig applies safe defaults", () => {
   assert.equal(config.baseUrl, "https://api.liteapi.travel/v3.0");
   assert.equal(config.timeoutMs, 12000);
   assert.equal(config.maxResults, 20);
+  assert.equal(config.maxProviderCallsPerItinerary, 6);
 });
 
 test("resolveLiteApiProviderConfig normalises custom env values", () => {
@@ -22,12 +23,14 @@ test("resolveLiteApiProviderConfig normalises custom env values", () => {
     LITEAPI_BASE_URL: "https://example.com/root/",
     LITEAPI_TIMEOUT_MS: "9000",
     LITEAPI_MAX_RESULTS: "50",
+    LITEAPI_MAX_PROVIDER_CALLS_PER_ITINERARY: "12",
   });
   assert.equal(config.enabled, true);
   assert.equal(config.apiKey, "test_key");
   assert.equal(config.baseUrl, "https://example.com/root");
   assert.equal(config.timeoutMs, 9000);
   assert.equal(config.maxResults, 50);
+  assert.equal(config.maxProviderCallsPerItinerary, 12);
 });
 
 test("parseBooleanEnv handles expected true/false aliases", () => {

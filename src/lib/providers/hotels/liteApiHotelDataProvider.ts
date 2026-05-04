@@ -175,7 +175,9 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
 
     const limit = clampLimit(input.limit ?? this.config.maxResults, this.config.maxResults);
     const url = new URL(HOTEL_SEARCH_ENDPOINT, `${this.config.baseUrl}/`);
-    if (input.city_name) {
+    // LiteAPI treats cityName as an additional filter; with coordinates it can
+    // over-constrain smaller places like Khajjiar to zero results.
+    if (input.city_name && !input.anchor) {
       url.searchParams.set("cityName", input.city_name.trim());
     }
     if (input.country_code) {
@@ -185,7 +187,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
       url.searchParams.set("latitude", String(input.anchor.lat));
       url.searchParams.set("longitude", String(input.anchor.lng));
       if (Number.isFinite(input.radius_km)) {
-        url.searchParams.set("radius", String(Math.max(1, Math.round(input.radius_km!))));
+        url.searchParams.set("radius", String(toLiteApiRadiusMeters(input.radius_km!)));
       }
     }
     url.searchParams.set("limit", String(limit));
@@ -726,6 +728,12 @@ function clampLimit(limit: number, maxLimit: number): number {
   const int = Math.trunc(limit);
   if (!Number.isFinite(int) || int <= 0) return Math.max(1, maxLimit);
   return Math.max(1, Math.min(int, maxLimit));
+}
+
+function toLiteApiRadiusMeters(radiusKm: number): number {
+  const roundedMeters = Math.round(radiusKm * 1000);
+  // LiteAPI rejects hotel search radii at or below 1000m.
+  return Math.max(1001, roundedMeters);
 }
 
 function assertServerRuntime(): void {

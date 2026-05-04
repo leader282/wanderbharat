@@ -18,6 +18,7 @@ const BASE_CONFIG = {
   baseUrl: "https://api.liteapi.travel/v3.0",
   timeoutMs: 250,
   maxResults: 10,
+  maxProviderCallsPerItinerary: 6,
 };
 
 test("searchHotels throws ProviderDisabledError when provider is disabled", async () => {
@@ -109,6 +110,8 @@ test("searchHotels uses injected fetch and normalises results", async () => {
   assert.equal(results[0]?.provider, "liteapi");
   assert.equal(results[0]?.location?.lat, 26.9239);
   assert.ok(urls[0]?.includes("/v3.0/data/hotels"));
+  assert.equal(new URL(urls[0]!).searchParams.get("cityName"), null);
+  assert.equal(new URL(urls[0]!).searchParams.get("radius"), "12000");
   assert.ok(!urls[0]?.includes("/rates/prebook"));
   assert.equal(logs[0]?.status, "success");
   assert.equal(logs[0]?.result_count, 2);

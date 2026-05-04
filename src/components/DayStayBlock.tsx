@@ -110,7 +110,7 @@ export default function DayStayBlock({
               </span>
             </p>
             <p className="mt-1 text-xs text-[var(--color-ink-500)]">
-              Prices may change. Booking disabled in prototype.
+              Prices may change. Hotel booking is not available here.
             </p>
             {stay.hotelRateOptions && stay.hotelRateOptions.length > 1 && (
               <div className="mt-3 rounded-xl border border-[rgba(26,23,20,0.08)] bg-white px-3.5 py-3">
@@ -157,7 +157,7 @@ export default function DayStayBlock({
             {lastCheckedLabel ? <span>· Last checked {lastCheckedLabel}</span> : null}
           </span>
         </p>
-        <p className="mt-1 text-xs">Prices may change. Booking disabled in prototype.</p>
+        <p className="mt-1 text-xs">Prices may change. Hotel booking is not available here.</p>
       </div>
     );
   }

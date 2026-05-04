@@ -471,7 +471,9 @@ function buildSearchQueryKey(input: HotelSearchInput): string {
     provider: "liteapi",
     region: input.region.trim().toLowerCase(),
     node_id: input.node_id.trim(),
-    city_name: input.city_name?.trim().toLowerCase() ?? null,
+    city_name: input.anchor
+      ? null
+      : (input.city_name?.trim().toLowerCase() ?? null),
     country_code: input.country_code?.trim().toUpperCase() ?? null,
     anchor: input.anchor
       ? {

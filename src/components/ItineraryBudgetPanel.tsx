@@ -302,8 +302,8 @@ export default function ItineraryBudgetPanel({
         </p>
       )}
       <p className="mt-2 text-sm text-[var(--color-ink-500)]">
-        Hotel prices may change between checks. Booking is disabled in this
-        prototype.
+        Hotel prices may change between checks. Hotel booking is not available
+        here.
       </p>
       {verifiedAttractionCostsCount +
         estimatedAttractionCostsCount +

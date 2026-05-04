@@ -827,7 +827,9 @@ export default function PlanForm() {
                       aria-pressed={active}
                       className="tile"
                     >
-                      <p className="font-bold">{copy.label}</p>
+                      <p className="break-words font-bold leading-tight">
+                        {copy.label}
+                      </p>
                       <p className="tile-sub mt-1 text-xs leading-snug">
                         {copy.tagline}
                       </p>

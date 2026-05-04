@@ -1,6 +1,7 @@
 const DEFAULT_BASE_URL = "https://api.liteapi.travel/v3.0";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_MAX_RESULTS = 20;
+const DEFAULT_MAX_PROVIDER_CALLS_PER_ITINERARY = 6;
 
 const TRUTHY_VALUES = new Set(["1", "true", "yes", "y", "on"]);
 const FALSY_VALUES = new Set(["0", "false", "no", "n", "off"]);
@@ -11,6 +12,7 @@ export interface LiteApiProviderConfig {
   baseUrl: string;
   timeoutMs: number;
   maxResults: number;
+  maxProviderCallsPerItinerary: number;
 }
 
 export function resolveLiteApiProviderConfig(
@@ -32,6 +34,12 @@ export function resolveLiteApiProviderConfig(
       DEFAULT_MAX_RESULTS,
       1,
       100,
+    ),
+    maxProviderCallsPerItinerary: parsePositiveInt(
+      env.LITEAPI_MAX_PROVIDER_CALLS_PER_ITINERARY,
+      DEFAULT_MAX_PROVIDER_CALLS_PER_ITINERARY,
+      0,
+      50,
     ),
   };
 }

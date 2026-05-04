@@ -38,7 +38,7 @@ export const SCHEDULE_RULES = {
   /** Buffer between consecutive activities. */
   betweenActivitiesBufferMin: 15,
   /** Lunch is anchored at the first natural break inside this window. */
-  lunchWindow: { startMin: 12 * 60 + 30, endMin: 14 * 60 + 30 },
+  lunchWindow: { startMin: 12 * 60 + 30, endMin: 15 * 60 },
   lunchDurationMin: 60,
 } as const;
 
@@ -108,11 +108,15 @@ export interface DayScheduleResult {
  *        AND there's at least one activity left to schedule:
  *       push lunch block, cursor += 60
  *     push activity block, cursor += duration
+ *     if lunch not yet placed AND activity ended inside the lunch window:
+ *       push lunch block, cursor += 60
+ *   if lunch not yet placed AND the active day wrapped before lunch:
+ *     push lunch at the start of the lunch window
  *
  * Lunch is intentionally only inserted at *natural breaks* (between
- * activities or right before the first one), never mid-activity. If the
- * day starts after the lunch window or has no activities, no lunch is
- * inserted.
+ * activities, right before an activity, or after a multi-activity morning),
+ * never mid-activity. If the day starts after the lunch window or has no
+ * activities, no lunch is inserted.
  */
 export function buildDaySchedule(args: BuildDayScheduleArgs): ScheduleBlock[] {
   return buildDayScheduleResult(args).blocks;
@@ -153,9 +157,13 @@ export function buildDayScheduleResult({
   const hadTravelBlock = blocks.length > 0;
   let activitiesScheduled = 0;
 
-  for (const activity of activities) {
+  for (let index = 0; index < activities.length; index++) {
+    const activity = activities[index];
     const durationMin = hoursToMinutes(activity.duration_hours);
     if (durationMin <= 0) continue;
+    const hasRemainingActivities = activities
+      .slice(index + 1)
+      .some((candidate) => hoursToMinutes(candidate.duration_hours) > 0);
 
     let nextCursor = cursor;
     if (activitiesScheduled === 0 && hadTravelBlock) {
@@ -178,7 +186,7 @@ export function buildDayScheduleResult({
     if (
       !lunchPlaced &&
       activityStart >= SCHEDULE_RULES.lunchWindow.startMin &&
-      activityStart <= SCHEDULE_RULES.lunchWindow.endMin
+      canPlaceLunchAt(activityStart, latestEndMin)
     ) {
       const afterLunchStart = resolveActivityStart({
         cursor: activityStart + SCHEDULE_RULES.lunchDurationMin,
@@ -187,13 +195,7 @@ export function buildDayScheduleResult({
         latestEndMin,
       });
       if (afterLunchStart !== null) {
-        blocks.push({
-          kind: "meal",
-          startMin: activityStart,
-          endMin: activityStart + SCHEDULE_RULES.lunchDurationMin,
-          durationMin: SCHEDULE_RULES.lunchDurationMin,
-          label: "Lunch",
-        });
+        blocks.push(makeLunchBlock(activityStart));
         lunchPlaced = true;
         activityStart = afterLunchStart;
       }
@@ -208,6 +210,25 @@ export function buildDayScheduleResult({
     });
     cursor = activityStart + durationMin;
     activitiesScheduled += 1;
+
+    if (
+      !lunchPlaced &&
+      hasRemainingActivities &&
+      canPlaceLunchAt(cursor, latestEndMin)
+    ) {
+      blocks.push(makeLunchBlock(cursor));
+      lunchPlaced = true;
+      cursor += SCHEDULE_RULES.lunchDurationMin;
+    }
+  }
+
+  if (
+    !lunchPlaced &&
+    activitiesScheduled > 1 &&
+    cursor < SCHEDULE_RULES.lunchWindow.startMin &&
+    canPlaceLunchAt(SCHEDULE_RULES.lunchWindow.startMin, latestEndMin)
+  ) {
+    blocks.push(makeLunchBlock(SCHEDULE_RULES.lunchWindow.startMin));
   }
 
   return {
@@ -324,6 +345,23 @@ function resolveActivityStart(args: {
 
   if (args.latestEndMin !== undefined && endMin > args.latestEndMin) return null;
   return startMin;
+}
+
+function canPlaceLunchAt(startMin: number, latestEndMin?: number): boolean {
+  if (startMin < SCHEDULE_RULES.lunchWindow.startMin) return false;
+  if (startMin > SCHEDULE_RULES.lunchWindow.endMin) return false;
+  const endMin = startMin + SCHEDULE_RULES.lunchDurationMin;
+  return latestEndMin === undefined || endMin <= latestEndMin;
+}
+
+function makeLunchBlock(startMin: number): MealScheduleBlock {
+  return {
+    kind: "meal",
+    startMin,
+    endMin: startMin + SCHEDULE_RULES.lunchDurationMin,
+    durationMin: SCHEDULE_RULES.lunchDurationMin,
+    label: "Lunch",
+  };
 }
 
 function parseActivityPeriods(

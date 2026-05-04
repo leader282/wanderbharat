@@ -192,7 +192,7 @@ function StayCard({
         </span>
       </p>
       <p className="mt-1 text-xs text-[var(--color-ink-500)]">
-        Prices may change. Booking disabled in prototype.
+        Prices may change. Hotel booking is not available here.
       </p>
       {stay.hotelRateOptions && stay.hotelRateOptions.length > 0 && (
         <ul className="mt-3 space-y-1 text-xs text-[var(--color-ink-600)]">

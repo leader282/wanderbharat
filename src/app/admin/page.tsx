@@ -43,7 +43,7 @@ export default function AdminHomePage() {
           Admin control plane
         </p>
         <h2 className="mt-2 text-2xl font-bold tracking-tight text-[var(--color-ink-900)]">
-          Real-data prototype v2
+          Real-data operations
         </h2>
         <p className="mt-3 max-w-2xl text-[var(--color-ink-600)]">
           This area is now protected by server-side admin checks and is ready

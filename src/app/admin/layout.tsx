@@ -68,8 +68,8 @@ export default async function AdminLayout({
           Data operations workspace
         </h1>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[var(--color-ink-600)]">
-          Manage prototype v2 ingestion, quality checks, and snapshot tooling
-          from a single protected area.
+          Manage ingestion, quality checks, and snapshot tooling from a single
+          protected area.
         </p>
         <p className="mt-3 text-sm text-[var(--color-ink-500)]">
           Signed in as {formatIdentity(auth.user)}

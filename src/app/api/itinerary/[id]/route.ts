@@ -10,6 +10,7 @@ import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import { validateBudget } from "@/lib/itinerary/constraints";
 import { generateItinerary } from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
+import { resolveLiteApiProviderConfig } from "@/lib/providers/hotels/liteApiConfig";
 import { LiteApiHotelDataProvider } from "@/lib/providers/hotels/liteApiHotelDataProvider";
 import { getByNode } from "@/lib/repositories/accommodationRepository";
 import {
@@ -59,14 +60,15 @@ interface ItineraryRouteDependencies {
 async function defaultPlanAccommodations(
   input: Parameters<typeof runAccommodationPlanner>[0],
 ) {
+  const liteApiConfig = resolveLiteApiProviderConfig();
   return runAccommodationPlanner(input, {
     getByNode,
-    hotelDataProvider: new LiteApiHotelDataProvider(),
+    hotelDataProvider: new LiteApiHotelDataProvider({ config: liteApiConfig }),
     findLatestHotelSearchSnapshotByQueryKey,
     saveHotelSearchSnapshot,
     findLatestHotelOfferSnapshotByCacheKey,
     saveHotelOfferSnapshot,
-    maxHotelProviderCalls: 6,
+    maxHotelProviderCalls: liteApiConfig.maxProviderCallsPerItinerary,
   });
 }
 

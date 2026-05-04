@@ -12,7 +12,7 @@ export default function AdminPlaceholderPage({
   return (
     <section className="card p-6 sm:p-8">
       <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-[var(--color-ink-500)]">
-        Prototype v2
+        Admin workspace
       </p>
       <h1 className="mt-2 text-2xl font-bold tracking-tight text-[var(--color-ink-900)]">
         {title}

@@ -118,13 +118,15 @@ LITEAPI_API_KEY=...                          # server-only
 LITEAPI_BASE_URL=                            # optional override
 LITEAPI_TIMEOUT_MS=12000
 LITEAPI_MAX_RESULTS=20
+LITEAPI_MAX_PROVIDER_CALLS_PER_ITINERARY=6
 ```
 
 ### 3. Seed Firestore
 
 Three regions ship out of the box: **rajasthan**, **gujarat**, **himachal**.
-Prototype v2 validation is currently Rajasthan-focused, and Rajasthan's
-seeded default transport mode is `road` until curated rail edges land.
+Prototype v2 curated attractions, hours, admissions, road edges, and
+accommodation fixtures now cover all three shipped regions. Seeded default
+transport modes are `road` until curated rail edges land.
 
 ```bash
 # (optional) preview the Rajasthan purge scope safely:
@@ -136,12 +138,12 @@ npm run seed:all
 # …or one collection at a time. Region selection is required — pass
 # --all / --regions / --region (plus optional --dry-run):
 npm run seed:nodes        -- --all
-npm run seed:attractions  -- --region rajasthan
-npm run seed:attraction-hours -- --region rajasthan
-npm run seed:attraction-admissions -- --region rajasthan
+npm run seed:attractions  -- --all
+npm run seed:attraction-hours -- --all
+npm run seed:attraction-admissions -- --all
 npm run seed:edges        -- --regions gujarat,himachal
-# Places fallback mode for datasets that do not define curated attractions():
-npm run seed:attractions  -- --region himachal --per-city 8     # needs GOOGLE_MAPS_API_KEY
+# Places fallback mode for future datasets that do not define curated attractions():
+npm run seed:attractions  -- --region <new-region> --per-city 8 # needs GOOGLE_MAPS_API_KEY
 ```
 
 Region selection (one of these is required on every seed/purge script):
@@ -467,8 +469,9 @@ PRs for GitHub Actions versions, so the CI itself stays patched.
 - `WB_ALLOWED_REGIONS` — optional comma-separated allowlist for `/api/regions`
   and the public plan dropdown (for example, `rajasthan` during v2 rollout).
 - `LITEAPI_ENABLED`, `LITEAPI_API_KEY`, `LITEAPI_BASE_URL`,
-  `LITEAPI_TIMEOUT_MS`, `LITEAPI_MAX_RESULTS` — server-only LiteAPI controls
-  for hotel discovery/rate snapshots. Keep `LITEAPI_ENABLED=false` until the
+  `LITEAPI_TIMEOUT_MS`, `LITEAPI_MAX_RESULTS`,
+  `LITEAPI_MAX_PROVIDER_CALLS_PER_ITINERARY` — server-only LiteAPI controls for
+  hotel discovery/rate snapshots. Keep `LITEAPI_ENABLED=false` until the
   environment is ready for controlled provider traffic.
 
 3. Pull env vars locally with the Vercel CLI when you need parity:

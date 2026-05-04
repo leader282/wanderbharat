@@ -360,12 +360,14 @@ h1 {
  * a calm, ink-based active treatment.
  */
 .tile {
+  min-width: 0;
   text-align: left;
   border-radius: 0.875rem;
   padding: 0.85rem 0.95rem;
   border: 1px solid var(--hairline);
   background: white;
   color: var(--color-ink-800);
+  overflow-wrap: break-word;
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
