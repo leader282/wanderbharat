@@ -1,0 +1,170 @@
+name: Weekly Cursor Bug Fixes
+
+on:
+  # GitHub schedules use UTC. 12:07 UTC = 17:37 IST.
+  schedule:
+    - cron: "7 12 * * 5"
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-cursor-bug-fixes-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CURSOR_MODEL: gpt-5.5-extra-high
+  FORCE_COLOR: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  bug-fix:
+    name: Find and Fix Critical Bugs
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Use Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create working branch
+        run: |
+          FIX_DATE="$(TZ=Asia/Kolkata date +%F)"
+          BRANCH_NAME="cursor/weekly-bug-fixes-${FIX_DATE}-${GITHUB_RUN_NUMBER}"
+          DOC_PATH="docs/bug-fixes/${FIX_DATE}/fix.md"
+
+          git switch -c "$BRANCH_NAME"
+
+          {
+            echo "FIX_DATE=$FIX_DATE"
+            echo "BRANCH_NAME=$BRANCH_NAME"
+            echo "DOC_PATH=$DOC_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Check Cursor CLI
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "::error::Missing required CURSOR_API_KEY repository secret."
+            exit 1
+          fi
+
+          agent --version
+          agent models | tee /tmp/cursor-models.txt
+          grep -F "$CURSOR_MODEL" /tmp/cursor-models.txt || {
+            echo "::error::Cursor model '$CURSOR_MODEL' is not available to this API key."
+            exit 1
+          }
+
+      - name: Run Cursor bug-fix agent
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          cat > /tmp/cursor-bug-fix-prompt.md <<EOF
+          You are working in the WanderBharat repository on a fresh branch from main.
+
+          Goal:
+          - Audit the codebase for the top 5 critical bugs, if any exist.
+          - Fix those bugs end-to-end with focused code and test changes.
+          - Document the work in ${DOC_PATH}.
+
+          Constraints:
+          - Respect .cursor/rules/wanderbharat-architecture.mdc.
+          - Keep changes scoped to production-impacting correctness, security, data-loss, crash, or build-breaking bugs.
+          - Do not add runtime LLM calls to itinerary generation.
+          - Do not call external APIs from client components or pure itinerary engine functions.
+          - Do not introduce Jest or Vitest; use the existing Node test runner patterns.
+          - Do not create hotel booking, flight booking, payment, refund, cancellation, or affiliate checkout flows.
+          - Do not commit, push, create branches, or create pull requests. This workflow handles git and GitHub.
+
+          Documentation requirements:
+          - Always create ${DOC_PATH}.
+          - Include the audit date (${FIX_DATE}), model (${CURSOR_MODEL}), bugs found, fixes made, files changed, validation run, and residual risks.
+          - If fewer than 5 critical bugs exist, document only the bugs that actually exist.
+          - If no critical bugs exist, do not invent changes; create the document explaining that no critical bugs were found and why.
+
+          Validation expectation:
+          - Run the most relevant checks while developing.
+          - Leave the repository in a state where npm run lint, npm run typecheck, npm test, and npm run build are expected to pass.
+          EOF
+
+          PROMPT="$(sed 's/^          //' /tmp/cursor-bug-fix-prompt.md)"
+          agent -p --force --trust --model "$CURSOR_MODEL" "$PROMPT"
+
+      - name: Require bug-fix report
+        run: test -f "$DOC_PATH"
+
+      - name: Validate fixes
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-stub
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.example.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-stub
+          NEXT_PUBLIC_FIREBASE_DATABASE_ID: ""
+          FIREBASE_PROJECT_ID: ci-stub
+          GOOGLE_MAPS_API_KEY: ci-stub
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Commit changes
+        id: commit_changes
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: apply weekly Cursor bug audit"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push branch
+        if: steps.commit_changes.outputs.has_changes == 'true'
+        run: git push --set-upstream origin "$BRANCH_NAME"
+
+      - name: Create pull request
+        if: steps.commit_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "Weekly Cursor bug fixes - ${FIX_DATE}" \
+            --body "$(cat <<EOF
+          ## Summary
+          - Runs Cursor Agent with \`${CURSOR_MODEL}\` against a fresh branch from \`main\`.
+          - Fixes up to five critical bugs found during the audit.
+          - Documents the audit in \`${DOC_PATH}\`.
+
+          ## Validation
+          - \`npm run lint\`
+          - \`npm run typecheck\`
+          - \`npm test\`
+          - \`npm run build\`
+          EOF
+          )"
