@@ -31,6 +31,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
 
       - name: Use Node 22
         uses: actions/setup-node@v6
@@ -149,7 +150,7 @@ jobs:
       - name: Create pull request
         if: steps.commit_changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
         run: |
           gh pr create \
             --base main \
