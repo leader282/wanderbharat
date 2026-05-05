@@ -34,6 +34,7 @@ test("resolveTravelMatrix fetches and caches missing legs", async () => {
       now: () => 123456,
     },
     {
+      fetchTravelMatrix: async () => [],
       fetchTravelTime: async () => ({
         distance_km: 392.8,
         travel_time_hours: 6.75,
@@ -72,6 +73,7 @@ test("resolveTravelMatrix leaves unresolved pairs infeasible when lookup returns
       modes: ["road"],
     },
     {
+      fetchTravelMatrix: async () => [],
       fetchTravelTime: async () => null,
       persistEdges: async (edges) => {
         persistedCount += edges.length;
@@ -82,4 +84,50 @@ test("resolveTravelMatrix leaves unresolved pairs infeasible when lookup returns
   assert.equal(matrix.get(ajmer.id, pushkar.id), null);
   assert.equal(matrix.get(pushkar.id, ajmer.id), null);
   assert.equal(persistedCount, 0);
+});
+
+test("resolveTravelMatrix fetches a unique-node matrix instead of pair-squared inputs", async () => {
+  const nodes = [
+    makeCity("node_a", "A"),
+    makeCity("node_b", "B"),
+    makeCity("node_c", "C"),
+    makeCity("node_d", "D"),
+  ];
+  let observedOriginCount = 0;
+  let observedDestinationCount = 0;
+
+  const matrix = await resolveTravelMatrix(
+    {
+      nodes,
+      edges: [],
+      regions: ["test-region"],
+      modes: ["road"],
+      now: () => 123456,
+    },
+    {
+      fetchTravelMatrix: async ({ origins, destinations }) => {
+        observedOriginCount = origins.length;
+        observedDestinationCount = destinations.length;
+        return origins.flatMap((_origin, origin_index) =>
+          destinations.map((_destination, destination_index) => ({
+            origin_index,
+            destination_index,
+            leg:
+              origin_index === destination_index
+                ? null
+                : {
+                    distance_km: 100 + origin_index + destination_index,
+                    travel_time_hours: 2 + origin_index + destination_index / 10,
+                  },
+          })),
+        );
+      },
+      persistEdges: async () => {},
+    },
+  );
+
+  assert.equal(observedOriginCount, nodes.length);
+  assert.equal(observedDestinationCount, nodes.length);
+  assert.equal(matrix.get("node_a", "node_b")?.travel_time_hours, 2.1);
+  assert.equal(matrix.get("node_d", "node_c")?.travel_time_hours, 4.3);
 });

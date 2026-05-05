@@ -29,18 +29,19 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   warnings?: string[];
   requestedBudget?: BudgetRange;
 }): Itinerary {
+  const stays = args.stays.map(normaliseStayAssignment);
   const existingLineItems = args.itinerary.budget_breakdown?.line_items ?? [];
   const travelLineItems = existingLineItems.filter((item) => item.kind === "travel");
   const attractionLineItems = existingLineItems.filter(
     (item) => item.kind === "attraction",
   );
   const stayLineItems = buildStayBudgetLineItems(
-    args.stays,
+    stays,
     buildCityNameMap(args.itinerary),
   );
-  const lodgingRateSummary = deriveLodgingRateSummary(args.stays);
+  const lodgingRateSummary = deriveLodgingRateSummary(stays);
 
-  const lodgingSubtotal = computeLodgingSubtotal(args.stays);
+  const lodgingSubtotal = computeLodgingSubtotal(stays);
   const travelSubtotal = roundCurrency(
     travelLineItems.reduce((sum, item) => sum + item.amount, 0),
   );
@@ -60,7 +61,7 @@ export function integrateAccommodationPlanIntoItinerary(args: {
   const totalTripCost = roundCurrency(
     lodgingSubtotal + travelSubtotal + (attractionSubtotal ?? 0),
   );
-  const nightlyAverage = computeNightlyAverage(args.stays);
+  const nightlyAverage = computeNightlyAverage(stays);
   // Itinerary-level warnings are the single source of truth: engine warnings
   // (opening hours, closed days, ...) merged with accommodation warnings.
   // We deliberately do NOT mirror them onto `budget_breakdown.warnings`
@@ -96,11 +97,31 @@ export function integrateAccommodationPlanIntoItinerary(args: {
 
   return {
     ...args.itinerary,
-    stays: args.stays,
+    stays,
     estimated_cost: Math.round(totalTripCost),
     budget_breakdown: budgetBreakdown,
     warnings: warnings.length > 0 ? warnings : undefined,
   };
+}
+
+function normaliseStayAssignment(stay: StayAssignment): StayAssignment {
+  const hasSelectedRate = Boolean(resolveSelectedHotelRateOption(stay));
+  if (
+    stay.accommodationId === null &&
+    !hasSelectedRate &&
+    stay.nightlyCost === 0 &&
+    stay.totalCost === 0
+  ) {
+    return {
+      ...stay,
+      nightlyCost: null,
+      totalCost: null,
+      hotelRateStatus: stay.hotelRateStatus ?? "unknown",
+      hotelRateUnavailableReason: stay.hotelRateUnavailableReason ?? "no_rates",
+    };
+  }
+
+  return stay;
 }
 
 function buildStayBudgetLineItems(

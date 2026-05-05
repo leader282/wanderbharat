@@ -164,6 +164,17 @@ test("handleGetItinerary rejects users who do not own a saved itinerary", async 
   assert.equal(response.status, 403);
 });
 
+test("handleGetItinerary does not expose malformed blank-owner itineraries", async () => {
+  const response = await handleGetItinerary("it_test", {
+    getItinerary: async () => makeItinerary({ user_id: "" }),
+    deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => null,
+  });
+
+  assert.equal(response.status, 401);
+});
+
 test("handleGetItinerary allows guest itineraries without auth", async () => {
   const response = await handleGetItinerary("it_test", {
     getItinerary: async () => makeItinerary({ user_id: null }),
@@ -344,6 +355,39 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   };
   assert.equal(payload.preview.direction, "downgrade");
   assert.ok(payload.preview.impacts.some((impact) => impact.id === "stays"));
+  assert.equal(saveCalls, 0);
+});
+
+test("handleUpdateItineraryBudget rejects applying guest itineraries", async () => {
+  let saveCalls = 0;
+  let generateCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 65000, apply: true }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: null }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {
+        saveCalls += 1;
+      },
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      generateItinerary: async () => {
+        generateCalls += 1;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary({ user_id: null }),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      precacheItineraryRouteGeometry: async () => [],
+      resolveUserIdFromRequest: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(generateCalls, 0);
   assert.equal(saveCalls, 0);
 });
 

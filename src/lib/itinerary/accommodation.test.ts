@@ -218,7 +218,7 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
       {
         nodeId: "node_mount_abu",
         accommodationId: null,
-        totalCost: 0,
+        totalCost: null,
       },
     ],
   );
@@ -453,6 +453,46 @@ test("planAccommodations continues with unknown stay when provider is disabled",
   assert.equal(result.stays[0]?.hotelRateStatus, "unknown");
   assert.equal(result.stays[0]?.hotelRateUnavailableReason, "provider_disabled");
   assert.ok(result.warnings.some((warning) => warning.includes("disabled")));
+});
+
+test("planAccommodations does not price children as zero when child ages are missing", async () => {
+  let providerCalls = 0;
+  const provider: HotelDataProvider = {
+    provider: "liteapi",
+    searchHotels: async () => {
+      providerCalls += 1;
+      return [makeHotel("h_1", "Family Stay")];
+    },
+    searchRates: async () => {
+      providerCalls += 1;
+      return makeRatesSnapshot({
+        hotelIds: ["h_1"],
+        offers: [{ hotelId: "h_1", roomId: "r_1", total: 5200 }],
+      });
+    },
+  };
+
+  const result = await planAccommodations(
+    {
+      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      budget: { min: 0, max: 20000, currency: "INR" },
+      travellers: { adults: 2, children: 2, rooms: 1, guest_nationality: "IN" },
+      travelStyle: "balanced",
+      tripStartDate: "2026-06-10",
+      region: "rajasthan",
+      cityLocationsByNodeId: { node_jaipur: { lat: 26.9124, lng: 75.7873 } },
+    },
+    {
+      getByNode: async () => [],
+      hotelDataProvider: provider,
+      nowMs: () => 1_700_000_000_000,
+    },
+  );
+
+  assert.equal(providerCalls, 0);
+  assert.equal(result.stays[0]?.nightlyCost, null);
+  assert.equal(result.stays[0]?.hotelRateUnavailableReason, "missing_child_ages");
+  assert.ok(result.warnings.some((warning) => warning.includes("child ages")));
 });
 
 test("planAccommodations continues with warning when provider returns an error", async () => {

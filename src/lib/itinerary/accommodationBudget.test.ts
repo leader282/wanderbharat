@@ -279,3 +279,26 @@ test("integrateAccommodationPlanIntoItinerary marks lodging state from LiteAPI-b
   );
   assert.equal(stayLine?.provenance?.source_type, "liteapi");
 });
+
+test("integrateAccommodationPlanIntoItinerary normalises unassigned zero-cost stays to unknown", () => {
+  const itinerary = integrateAccommodationPlanIntoItinerary({
+    itinerary: makeItinerary(),
+    stays: [
+      {
+        nodeId: "node_jaipur",
+        startDay: 0,
+        endDay: 0,
+        nights: 1,
+        accommodationId: null,
+        nightlyCost: 0,
+        totalCost: 0,
+      },
+    ],
+    requestedBudget: { min: 0, max: 999999, currency: "INR" },
+  });
+
+  assert.equal(itinerary.stays[0]?.nightlyCost, null);
+  assert.equal(itinerary.stays[0]?.totalCost, null);
+  assert.equal(itinerary.budget_breakdown?.lodgingSubtotal, 0);
+  assert.equal(itinerary.budget_breakdown?.unknownLodgingStaysCount, 1);
+});
