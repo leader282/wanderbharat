@@ -114,7 +114,7 @@ export async function handleGetItinerary(
       );
     }
 
-    if (itinerary.user_id) {
+    if (itinerary.user_id !== null) {
       const resolveUserIdFromRequest =
         deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
       const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
@@ -255,7 +255,17 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  if (existingItinerary.user_id) {
+  if (existingItinerary.user_id === null && parsed.data.apply) {
+    return NextResponse.json(
+      {
+        error: "unauthorized",
+        message: "Guest itineraries are read-only. Sign in to save updates.",
+      },
+      { status: 401 },
+    );
+  }
+
+  if (existingItinerary.user_id !== null) {
     const resolveUserIdFromRequest =
       deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
     let requesterUserId: string | null = null;

@@ -151,28 +151,42 @@ export async function resolveTravelMatrix(
 
     if (missingPairs.length === 0) continue;
 
-    const origins = missingPairs.map((p) => p.from.location);
-    const destinations = missingPairs.map((p) => p.to.location);
+    const matrixNodes = uniqueNodes(
+      missingPairs.flatMap((pair) => [pair.from, pair.to]),
+    );
+    const matrixNodeIndexById = new Map(
+      matrixNodes.map((node, index) => [node.id, index] as const),
+    );
+    const matrixLocations = matrixNodes.map((node) => node.location);
 
     // Try batched matrix first. Fall back to sequential single-leg calls
     // only if batching throws (so tests that inject `fetchTravelTime` keep
     // working).
     let cells: TravelMatrixCell[] | null = null;
     try {
-      cells = await fetchMatrix({ origins, destinations, mode });
+      cells = await fetchMatrix({
+        origins: matrixLocations,
+        destinations: matrixLocations,
+        mode,
+      });
     } catch {
       cells = null;
     }
 
     if (cells && cells.length > 0) {
-      const forwardLeg = new Map<number, TravelMatrixCell>();
+      const cellsByPair = new Map<string, TravelMatrixCell>();
       for (const cell of cells) {
-        if (cell.origin_index === cell.destination_index) {
-          forwardLeg.set(cell.origin_index, cell);
-        }
+        if (cell.origin_index === cell.destination_index) continue;
+        const origin = matrixNodes[cell.origin_index];
+        const destination = matrixNodes[cell.destination_index];
+        if (!origin || !destination) continue;
+        cellsByPair.set(makeMatrixKey(origin.id, destination.id), cell);
       }
-      missingPairs.forEach((pair, idx) => {
-        const cell = forwardLeg.get(idx);
+      missingPairs.forEach((pair) => {
+        const fromIndex = matrixNodeIndexById.get(pair.from.id);
+        const toIndex = matrixNodeIndexById.get(pair.to.id);
+        if (fromIndex === undefined || toIndex === undefined) return;
+        const cell = cellsByPair.get(makeMatrixKey(pair.from.id, pair.to.id));
         if (!cell || !cell.leg) return;
         const edge = createResolvedEdge({
           from: pair.from,

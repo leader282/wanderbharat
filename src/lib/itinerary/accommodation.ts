@@ -259,28 +259,12 @@ async function planWithLegacyAccommodations(args: {
       if (selectionPool.length === 0) {
         if (baseMatches.length > 0 && feasibleMatches.length === 0) {
           return {
-            stay: {
-              nodeId: block.nodeId,
-              startDay: block.startDay,
-              endDay: block.endDay,
-              nights: block.nights,
-              accommodationId: null,
-              nightlyCost: 0,
-              totalCost: 0,
-            },
+            stay: toUnknownLegacyStay(block),
             warning: `No room configuration in ${block.nodeName} could fit ${formatTravellerParty(args.input.travellers)}.`,
           };
         }
         return {
-          stay: {
-            nodeId: block.nodeId,
-            startDay: block.startDay,
-            endDay: block.endDay,
-            nights: block.nights,
-            accommodationId: null,
-            nightlyCost: 0,
-            totalCost: 0,
-          },
+          stay: toUnknownLegacyStay(block),
           warning: `No active accommodations matched the travel-style filters for ${block.nodeName}.`,
         };
       }
@@ -311,15 +295,7 @@ async function planWithLegacyAccommodations(args: {
       const best = ranked[0];
       if (!best) {
         return {
-          stay: {
-            nodeId: block.nodeId,
-            startDay: block.startDay,
-            endDay: block.endDay,
-            nights: block.nights,
-            accommodationId: null,
-            nightlyCost: 0,
-            totalCost: 0,
-          },
+          stay: toUnknownLegacyStay(block),
           warning: `No active accommodations were available for ${block.nodeName}.`,
         };
       }
@@ -352,6 +328,22 @@ async function planWithLegacyAccommodations(args: {
         .map((entry) => entry.warning)
         .filter((warning): warning is string => Boolean(warning)),
     ),
+  };
+}
+
+function toUnknownLegacyStay(
+  block: ReturnType<typeof deriveStayBlocks>[number],
+): StayAssignment {
+  return {
+    nodeId: block.nodeId,
+    startDay: block.startDay,
+    endDay: block.endDay,
+    nights: block.nights,
+    accommodationId: null,
+    nightlyCost: null,
+    totalCost: null,
+    hotelRateStatus: "unknown",
+    hotelRateUnavailableReason: "no_rates",
   };
 }
 

@@ -8,6 +8,10 @@ export function canAccessItinerary(args: {
   itineraryUserId: Itinerary["user_id"];
   requesterUserId: string | null | undefined;
 }): boolean {
-  if (!args.itineraryUserId) return true;
-  return args.itineraryUserId === (args.requesterUserId ?? null);
+  if (args.itineraryUserId === null) return true;
+
+  const ownerId = args.itineraryUserId.trim();
+  if (!ownerId) return false;
+
+  return ownerId === (args.requesterUserId?.trim() ?? null);
 }

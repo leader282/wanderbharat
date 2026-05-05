@@ -42,3 +42,20 @@ test("canAccessItinerary blocks unauthenticated access to saved itineraries", ()
     false,
   );
 });
+
+test("canAccessItinerary does not treat blank owner ids as public", () => {
+  assert.equal(
+    canAccessItinerary({
+      itineraryUserId: "",
+      requesterUserId: null,
+    }),
+    false,
+  );
+  assert.equal(
+    canAccessItinerary({
+      itineraryUserId: "   ",
+      requesterUserId: null,
+    }),
+    false,
+  );
+});

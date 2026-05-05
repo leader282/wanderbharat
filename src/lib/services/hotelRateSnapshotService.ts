@@ -35,6 +35,7 @@ type HotelUnavailableReason =
   | "no_hotels"
   | "call_limit_exceeded"
   | "missing_anchor"
+  | "missing_child_ages"
   | "missing_trip_start_date";
 
 export interface StayHotelRatePlan {
@@ -116,6 +117,30 @@ export async function resolveStayHotelRatePlans(
   let providerCallsUsed = 0;
   const warnings: string[] = [];
   const plans: StayHotelRatePlan[] = [];
+
+  if (
+    travellers.children > 0 &&
+    (!Array.isArray(travellers.children_ages) ||
+      travellers.children_ages.length !== travellers.children)
+  ) {
+    for (const block of orderedBlocks) {
+      const blockKey = buildBlockKey(block);
+      warnings.push(
+        `Hotel rates are unavailable for ${block.nodeName}: child ages are missing.`,
+      );
+      plans.push(
+        unknownPlan(block, blockKey, "missing_child_ages", {
+          searchSnapshotId: null,
+          offerSnapshotId: null,
+        }),
+      );
+    }
+    return {
+      plans,
+      warnings: dedupeWarnings(warnings),
+      providerCallsUsed,
+    };
+  }
 
   for (const block of orderedBlocks) {
     const blockKey = buildBlockKey(block);

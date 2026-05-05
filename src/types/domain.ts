@@ -804,6 +804,7 @@ export interface StayAssignment {
     | "no_hotels"
     | "call_limit_exceeded"
     | "missing_anchor"
+    | "missing_child_ages"
     | "missing_trip_start_date";
   hotelRateLastCheckedAt?: number | null;
   hotelSearchSnapshotId?: string | null;
