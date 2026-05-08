@@ -259,9 +259,15 @@ function buildLegs(
       day.travel.to_node_id,
       day.travel.transport_mode,
     );
+    const directionalEdge = findDirectionalEdge(
+      edges,
+      day.travel.from_node_id,
+      day.travel.to_node_id,
+      day.travel.transport_mode,
+    );
     const encodedPolyline =
-      typeof edge?.metadata?.encoded_polyline === "string"
-        ? edge.metadata.encoded_polyline
+      typeof directionalEdge?.metadata?.encoded_polyline === "string"
+        ? directionalEdge.metadata.encoded_polyline
         : undefined;
 
     return [
@@ -334,7 +340,7 @@ async function ensureRouteGeometry(
   const upserts: GraphEdge[] = [];
 
   for (const spec of uniqueSpecs(specs)) {
-    const existing = findMatchingEdge(
+    const existing = findDirectionalEdge(
       resolvedEdges,
       spec.from.id,
       spec.to.id,
@@ -480,18 +486,14 @@ function mergeResolvedEdge(args: {
     };
   }
 
-  const [left, right] = [args.spec.from.id, args.spec.to.id].sort((a, b) =>
-    a.localeCompare(b),
-  );
-
   return {
-    id: `edge_resolved_${args.spec.mode}_${left}__${right}`,
-    from: left,
-    to: right,
+    id: `edge_resolved_${args.spec.mode}_${args.spec.from.id}__${args.spec.to.id}`,
+    from: args.spec.from.id,
+    to: args.spec.to.id,
     type: args.spec.mode,
     distance_km: Number(args.liveLeg.distance_km.toFixed(1)),
     travel_time_hours: Number(args.liveLeg.travel_time_hours.toFixed(2)),
-    bidirectional: true,
+    bidirectional: false,
     regions: uniqueStrings([args.spec.from.region, args.spec.to.region]),
     metadata,
   };
@@ -509,7 +511,28 @@ function findMatchingEdge(
   toId: string,
   mode: TransportMode,
 ): GraphEdge | undefined {
-  return edges.find((edge) => edgeMatches(edge, fromId, toId, mode));
+  return (
+    findDirectionalEdge(edges, fromId, toId, mode) ??
+    edges.find(
+      (edge) =>
+        edge.type === mode &&
+        edge.bidirectional !== false &&
+        !isDirectionalProviderEdge(edge) &&
+        edge.from === toId &&
+        edge.to === fromId,
+    )
+  );
+}
+
+function findDirectionalEdge(
+  edges: GraphEdge[],
+  fromId: string,
+  toId: string,
+  mode: TransportMode,
+): GraphEdge | undefined {
+  return edges.find(
+    (edge) => edge.type === mode && edge.from === fromId && edge.to === toId,
+  );
 }
 
 function edgeMatches(
@@ -521,8 +544,15 @@ function edgeMatches(
   if (edge.type !== mode) return false;
   if (edge.from === fromId && edge.to === toId) return true;
   return (
-    edge.bidirectional !== false && edge.from === toId && edge.to === fromId
+    edge.bidirectional !== false &&
+    !isDirectionalProviderEdge(edge) &&
+    edge.from === toId &&
+    edge.to === fromId
   );
+}
+
+function isDirectionalProviderEdge(edge: GraphEdge): boolean {
+  return edge.metadata?.provider === "google_routes";
 }
 
 function uniqueSpecs(specs: TravelSpec[]): TravelSpec[] {
@@ -530,12 +560,7 @@ function uniqueSpecs(specs: TravelSpec[]): TravelSpec[] {
   const out: TravelSpec[] = [];
 
   for (const spec of specs) {
-    const key = [
-      spec.mode,
-      ...[spec.from.id, spec.to.id].sort((left, right) =>
-        left.localeCompare(right),
-      ),
-    ].join("::");
+    const key = [spec.mode, spec.from.id, spec.to.id].join("::");
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(spec);
