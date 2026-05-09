@@ -1,0 +1,267 @@
+name: Itinerary Stress Failure Agent
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: itinerary-stress-agent-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+env:
+  CURSOR_MODEL: gpt-5.5-extra-high
+  FORCE_COLOR: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  triage:
+    name: Triage failed PR stress report
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout automation scripts
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Preserve automation helper
+        run: cp scripts/itineraryStressAgentReport.mjs /tmp/itineraryStressAgentReport.mjs
+
+      - name: Resolve PR context
+        id: pr_context
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          CURRENT_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+            echo "has_pr=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$PR_HEAD_BRANCH" == cursor/itinerary-stress-fix-* ]]; then
+            {
+              echo "has_pr=false"
+              echo "skipped_recursive=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          trusted="false"
+          if [ "$PR_HEAD_REPO" = "$CURRENT_REPO" ]; then
+            trusted="true"
+          fi
+
+          {
+            echo "has_pr=true"
+            echo "trusted=$trusted"
+            echo "number=$PR_NUMBER"
+            echo "head_branch=$PR_HEAD_BRANCH"
+            echo "head_sha=$PR_HEAD_SHA"
+            echo "head_repo=$PR_HEAD_REPO"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download quick stress artifact
+        id: artifact
+        if: steps.pr_context.outputs.has_pr == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p reports/itinerary-robustness
+          if gh run download "$SOURCE_RUN_ID" --name itinerary-robustness-quick --dir reports/itinerary-robustness; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare PR stress report
+        id: stress_report
+        if: steps.artifact.outputs.found == 'true'
+        run: |
+          REPORT_DATE="$(TZ=Asia/Kolkata date +%F)"
+          BRANCH_NAME="cursor/itinerary-stress-fix-pr-${{ steps.pr_context.outputs.number }}-${{ github.event.workflow_run.id }}"
+          REPORT_PATH="docs/testing/itinerary-robustness/agent-reports/${REPORT_DATE}/pr-${{ steps.pr_context.outputs.number }}-${{ github.event.workflow_run.id }}.md"
+
+          node /tmp/itineraryStressAgentReport.mjs \
+            --reports-dir reports/itinerary-robustness \
+            --context "PR #${{ steps.pr_context.outputs.number }} quick stress run ${{ github.event.workflow_run.id }}" \
+            --report-path "$REPORT_PATH" \
+            --prompt-file /tmp/itinerary-stress-agent-prompt.md \
+            --comment-file /tmp/itinerary-stress-agent-comment.md \
+            --replay-script-file /tmp/itinerary-stress-replay.sh \
+            --github-output "$GITHUB_OUTPUT"
+
+          mkdir -p /tmp/itinerary-stress-artifacts
+          cp -R reports/itinerary-robustness /tmp/itinerary-stress-artifacts/
+
+          {
+            echo "branch_name=$BRANCH_NAME"
+            echo "report_path=$REPORT_PATH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted PR head
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.pr_context.outputs.head_sha }}
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Restore stress artifact
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        run: |
+          mkdir -p reports
+          cp -R /tmp/itinerary-stress-artifacts/itinerary-robustness reports/
+
+      - name: Install dependencies
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        run: npm ci
+
+      - name: Install Cursor CLI
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Check Cursor CLI
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "::error::Missing required CURSOR_API_KEY repository secret."
+            exit 1
+          fi
+
+          agent --version
+          agent models | tee /tmp/cursor-models.txt
+          grep -F "$CURSOR_MODEL" /tmp/cursor-models.txt || {
+            echo "::error::Cursor model '$CURSOR_MODEL' is not available to this API key."
+            exit 1
+          }
+
+      - name: Create trusted stress fix branch
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        run: git switch -c "${{ steps.stress_report.outputs.branch_name }}"
+
+      - name: Run Cursor stress-failure agent
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          PROMPT="$(cat /tmp/itinerary-stress-agent-prompt.md)"
+          agent -p --force --trust --model "$CURSOR_MODEL" "$PROMPT"
+
+      - name: Detect stress agent changes
+        id: stress_agent_changes
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh report-only comment with agent analysis
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true' && steps.stress_agent_changes.outputs.has_changes != 'true'
+        run: |
+          node /tmp/itineraryStressAgentReport.mjs \
+            --reports-dir reports/itinerary-robustness \
+            --context "PR #${{ steps.pr_context.outputs.number }} quick stress run ${{ github.event.workflow_run.id }}" \
+            --agent-analysis-file reports/itinerary-robustness/agent-analysis.md \
+            --comment-file /tmp/itinerary-stress-agent-comment.md
+
+      - name: Validate stress agent fixes
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          LITEAPI_ENABLED: "false"
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-stub
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.example.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-stub
+          NEXT_PUBLIC_FIREBASE_DATABASE_ID: ""
+          FIREBASE_PROJECT_ID: ci-stub
+          GOOGLE_MAPS_API_KEY: ci-stub
+        run: |
+          bash /tmp/itinerary-stress-replay.sh
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run test:itinerary:stress:quick -- --cases=150 --seed="${{ steps.stress_report.outputs.seed }}" --total-timeout-ms=120000 --out-dir=reports/itinerary-robustness/agent-validation-pr-${{ steps.pr_context.outputs.number }}-${{ github.event.workflow_run.id }}
+
+      - name: Require stress agent report
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        run: test -f "${{ steps.stress_report.outputs.report_path }}"
+
+      - name: Commit stress agent fixes
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: address PR itinerary stress failures"
+
+      - name: Push stress fix branch
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          BOT_GITHUB_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$BOT_GITHUB_TOKEN" ]; then
+            echo "::error::Missing required BOT_GITHUB_TOKEN repository secret."
+            exit 1
+          fi
+          git remote set-url origin "https://x-access-token:${BOT_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --set-upstream origin "${{ steps.stress_report.outputs.branch_name }}"
+
+      - name: Create stress fix pull request
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base "${{ steps.pr_context.outputs.head_branch }}" \
+            --head "${{ steps.stress_report.outputs.branch_name }}" \
+            --title "Fix itinerary stress failures for PR #${{ steps.pr_context.outputs.number }}" \
+            --body "$(cat <<EOF
+          ## Summary
+          - Runs Cursor Agent with \`${CURSOR_MODEL}\` against PR #${{ steps.pr_context.outputs.number }} quick stress failures.
+          - Opens this fix branch against the original PR branch \`${{ steps.pr_context.outputs.head_branch }}\`.
+          - Documents the analysis in \`${{ steps.stress_report.outputs.report_path }}\`.
+
+          ## Validation
+          - Replay commands from the failing report
+          - \`npm run lint\`
+          - \`npm run typecheck\`
+          - \`npm test\`
+          - \`npm run test:itinerary:stress:quick -- --cases=150 --seed="${{ steps.stress_report.outputs.seed }}" --total-timeout-ms=120000\`
+          EOF
+          )"
+
+      - name: Comment report-only stress analysis
+        if: steps.stress_report.outputs.has_failure_report == 'true' && (steps.pr_context.outputs.trusted != 'true' || steps.stress_agent_changes.outputs.has_changes != 'true')
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Missing required BOT_GITHUB_TOKEN repository secret."
+            exit 1
+          fi
+          gh pr comment "${{ steps.pr_context.outputs.number }}" --body-file /tmp/itinerary-stress-agent-comment.md
+
+      - name: Summarize no stress report
+        if: steps.pr_context.outputs.has_pr == 'true' && (steps.artifact.outputs.found != 'true' || steps.stress_report.outputs.has_failure_report != 'true')
+        run: |
+          echo "No failing itinerary quick stress report was found for workflow run ${{ github.event.workflow_run.id }}." >> "$GITHUB_STEP_SUMMARY"

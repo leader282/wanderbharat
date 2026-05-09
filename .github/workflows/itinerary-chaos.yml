@@ -1,0 +1,261 @@
+name: Itinerary Chaos Stress
+
+on:
+  schedule:
+    - cron: "23 1 * * 6"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Optional deterministic seed override
+        required: false
+        type: string
+      cases:
+        description: Optional scenario count override
+        required: false
+        type: string
+      total_timeout_ms:
+        description: Optional total timeout override in milliseconds
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: itinerary-chaos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stress:
+    name: Heavy itinerary robustness stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Use Node 22.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve stress defaults
+        env:
+          DISPATCH_SEED: ${{ github.event.inputs.seed }}
+          DISPATCH_CASES: ${{ github.event.inputs.cases }}
+          DISPATCH_TOTAL_TIMEOUT_MS: ${{ github.event.inputs.total_timeout_ms }}
+        run: |
+          seed="${DISPATCH_SEED:-}"
+          if [ -z "$seed" ]; then
+            seed="scheduled-${GITHUB_RUN_ID}"
+          elif ! [[ "$seed" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Invalid seed override. Allowed characters: A-Z, a-z, 0-9, ., _, -"
+            exit 1
+          fi
+
+          cases="${DISPATCH_CASES:-}"
+          if [ -z "$cases" ]; then
+            cases="2000"
+          elif ! [[ "$cases" =~ ^[0-9]+$ ]] || [ "$cases" -lt 1 ]; then
+            echo "::error::Invalid cases override. Must be a positive integer."
+            exit 1
+          fi
+
+          total_timeout_ms="${DISPATCH_TOTAL_TIMEOUT_MS:-}"
+          if [ -z "$total_timeout_ms" ]; then
+            total_timeout_ms="2700000"
+          elif ! [[ "$total_timeout_ms" =~ ^[0-9]+$ ]] || [ "$total_timeout_ms" -lt 1 ]; then
+            echo "::error::Invalid total_timeout_ms override. Must be a positive integer."
+            exit 1
+          fi
+
+          {
+            echo "WB_STRESS_PROFILE=heavy"
+            echo "WB_STRESS_SEED=$seed"
+            echo "WB_STRESS_CASES=$cases"
+            echo "WB_STRESS_TOTAL_TIMEOUT_MS=$total_timeout_ms"
+            echo "WB_STRESS_MAX_FAILURES=25"
+            echo "WB_STRESS_OUT_DIR=reports/itinerary-robustness/heavy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "NEXT_TELEMETRY_DISABLED=1"
+            echo "LITEAPI_ENABLED=false"
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=offline-stub"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=offline.example.com"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=offline-stub"
+            echo "NEXT_PUBLIC_FIREBASE_DATABASE_ID="
+            echo "FIREBASE_PROJECT_ID=offline-stub"
+            echo "GOOGLE_MAPS_API_KEY=offline-stub"
+          } >> "$GITHUB_ENV"
+
+      - name: Heavy itinerary robustness stress
+        id: stress
+        continue-on-error: true
+        run: npm run test:itinerary:stress:heavy
+
+      - name: Upload itinerary robustness heavy report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: itinerary-robustness-heavy-${{ github.run_id }}
+          path: reports/itinerary-robustness/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Prepare stress agent report
+        id: stress_report
+        if: steps.stress.outcome == 'failure'
+        run: |
+          AGENT_DATE="$(TZ=Asia/Kolkata date +%F)"
+          BRANCH_NAME="cursor/itinerary-stress-fix-${AGENT_DATE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          REPORT_PATH="docs/testing/itinerary-robustness/agent-reports/${AGENT_DATE}/heavy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.md"
+
+          node scripts/itineraryStressAgentReport.mjs \
+            --reports-dir reports/itinerary-robustness \
+            --context "scheduled/manual heavy chaos run ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" \
+            --report-path "$REPORT_PATH" \
+            --prompt-file /tmp/itinerary-stress-agent-prompt.md \
+            --comment-file /tmp/itinerary-stress-agent-comment.md \
+            --replay-script-file /tmp/itinerary-stress-replay.sh \
+            --github-output "$GITHUB_OUTPUT"
+
+          {
+            echo "branch_name=$BRANCH_NAME"
+            echo "report_path=$REPORT_PATH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Cursor CLI
+        if: steps.stress_report.outputs.has_failure_report == 'true'
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Check Cursor CLI
+        if: steps.stress_report.outputs.has_failure_report == 'true'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_MODEL: gpt-5.5-extra-high
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "::error::Missing required CURSOR_API_KEY repository secret."
+            exit 1
+          fi
+
+          agent --version
+          agent models | tee /tmp/cursor-models.txt
+          grep -F "$CURSOR_MODEL" /tmp/cursor-models.txt || {
+            echo "::error::Cursor model '$CURSOR_MODEL' is not available to this API key."
+            exit 1
+          }
+
+      - name: Create stress fix branch
+        if: steps.stress_report.outputs.has_failure_report == 'true'
+        run: git switch -c "${{ steps.stress_report.outputs.branch_name }}"
+
+      - name: Run Cursor stress-failure agent
+        if: steps.stress_report.outputs.has_failure_report == 'true'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_MODEL: gpt-5.5-extra-high
+        run: |
+          PROMPT="$(cat /tmp/itinerary-stress-agent-prompt.md)"
+          agent -p --force --trust --model "$CURSOR_MODEL" "$PROMPT"
+
+      - name: Detect stress agent changes
+        id: stress_agent_changes
+        if: steps.stress_report.outputs.has_failure_report == 'true'
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Validate stress agent fixes
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          LITEAPI_ENABLED: "false"
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-stub
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.example.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-stub
+          NEXT_PUBLIC_FIREBASE_DATABASE_ID: ""
+          FIREBASE_PROJECT_ID: ci-stub
+          GOOGLE_MAPS_API_KEY: ci-stub
+        run: |
+          bash /tmp/itinerary-stress-replay.sh
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run test:itinerary:stress:quick -- --cases=150 --seed="$WB_STRESS_SEED" --total-timeout-ms=120000 --out-dir=reports/itinerary-robustness/agent-validation-quick-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+
+      - name: Require stress agent report
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        run: test -f "${{ steps.stress_report.outputs.report_path }}"
+
+      - name: Commit stress agent fixes
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: address itinerary stress failures"
+
+      - name: Push stress fix branch
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          BOT_GITHUB_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$BOT_GITHUB_TOKEN" ]; then
+            echo "::error::Missing required BOT_GITHUB_TOKEN repository secret."
+            exit 1
+          fi
+          git remote set-url origin "https://x-access-token:${BOT_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --set-upstream origin "${{ steps.stress_report.outputs.branch_name }}"
+
+      - name: Create stress fix pull request
+        if: steps.stress_agent_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.stress_report.outputs.branch_name }}" \
+            --title "Fix itinerary stress failures - ${{ steps.stress_report.outputs.seed }}" \
+            --body "$(cat <<EOF
+          ## Summary
+          - Runs Cursor Agent with \`gpt-5.5-extra-high\` against a failed heavy itinerary stress report.
+          - Fixes root causes found in \`${{ steps.stress_report.outputs.summary_md }}\`.
+          - Documents the analysis in \`${{ steps.stress_report.outputs.report_path }}\`.
+
+          ## Validation
+          - Replay commands from the failing report
+          - \`npm run lint\`
+          - \`npm run typecheck\`
+          - \`npm test\`
+          - \`npm run test:itinerary:stress:quick -- --cases=150 --seed="${WB_STRESS_SEED}" --total-timeout-ms=120000\`
+          EOF
+          )"
+
+      - name: Refresh report-only summary with agent analysis
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.stress_agent_changes.outputs.has_changes != 'true'
+        run: |
+          node scripts/itineraryStressAgentReport.mjs \
+            --reports-dir reports/itinerary-robustness \
+            --context "scheduled/manual heavy chaos run ${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}" \
+            --agent-analysis-file reports/itinerary-robustness/agent-analysis.md \
+            --comment-file /tmp/itinerary-stress-agent-comment.md
+
+      - name: Report stress failure without automated fix
+        if: steps.stress_report.outputs.has_failure_report == 'true' && steps.stress_agent_changes.outputs.has_changes != 'true'
+        run: |
+          cat /tmp/itinerary-stress-agent-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve unresolved stress failure status
+        if: steps.stress.outcome == 'failure' && steps.stress_agent_changes.outputs.has_changes != 'true'
+        run: exit 1
