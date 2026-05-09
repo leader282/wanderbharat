@@ -2,7 +2,7 @@ name: Itinerary Chaos Stress
 
 on:
   schedule:
-    - cron: "23 1 * * 1"
+    - cron: "23 1 * * 6"
   workflow_dispatch:
     inputs:
       seed:
