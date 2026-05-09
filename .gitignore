@@ -42,3 +42,5 @@ next-env.d.ts
 
 # secrets
 /secrets
+/reports/
+/artifacts/itinerary-robustness/

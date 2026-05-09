@@ -57,6 +57,34 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Quick itinerary robustness stress
+        if: matrix.node-version == '22.x'
+        env:
+          WB_STRESS_PROFILE: quick
+          WB_STRESS_SEED: wb-ci-quick-v1
+          WB_STRESS_CASES: "150"
+          WB_STRESS_TOTAL_TIMEOUT_MS: "120000"
+          WB_STRESS_MAX_FAILURES: "10"
+          WB_STRESS_OUT_DIR: reports/itinerary-robustness/quick-${{ github.run_id }}-${{ github.run_attempt }}
+          NEXT_TELEMETRY_DISABLED: "1"
+          LITEAPI_ENABLED: "false"
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-stub
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.example.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-stub
+          NEXT_PUBLIC_FIREBASE_DATABASE_ID: ""
+          FIREBASE_PROJECT_ID: ci-stub
+          GOOGLE_MAPS_API_KEY: ci-stub
+        run: npm run test:itinerary:stress
+
+      - name: Upload itinerary robustness quick report
+        if: always() && matrix.node-version == '22.x'
+        uses: actions/upload-artifact@v7
+        with:
+          name: itinerary-robustness-quick
+          path: reports/itinerary-robustness/
+          if-no-files-found: ignore
+          retention-days: 7
+
       # Test coverage is generated only on the primary Node version to
       # avoid duplicate uploads from the matrix.
       - name: Test coverage
