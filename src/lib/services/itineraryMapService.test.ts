@@ -211,20 +211,23 @@ test("getItineraryMapData backfills geometry and builds stop/stay/attraction mar
     persistedEdges[0]?.metadata?.encoded_polyline,
     "encoded-road-leg",
   );
+  assert.equal(persistedEdges[0]?.from, "city_start");
+  assert.equal(persistedEdges[0]?.to, "city_end");
+  assert.equal(persistedEdges[0]?.bidirectional, false);
 });
 
 test("getItineraryMapData refreshes geometry on a cached edge without changing engine distance/time", async () => {
   let persistedEdges: GraphEdge[] = [];
   const cachedEdgeWithoutGeometry: GraphEdge = {
-    id: "edge_resolved_road_city_end__city_start",
-    from: "city_end",
-    to: "city_start",
+    id: "edge_resolved_road_city_start__city_end",
+    from: "city_start",
+    to: "city_end",
     type: "road",
     // Engine values intentionally differ from the live ones below; the map
     // should keep the engine's values so it agrees with the day-by-day timeline.
     distance_km: 395,
     travel_time_hours: 6.8,
-    bidirectional: true,
+    bidirectional: false,
     regions: ["rajasthan"],
     metadata: {
       provider: "google_routes",
@@ -255,6 +258,50 @@ test("getItineraryMapData refreshes geometry on a cached edge without changing e
   assert.equal(persistedEdges[0]?.metadata?.encoded_polyline, "live-polyline");
 });
 
+test("getItineraryMapData does not reuse reverse-direction cached geometry", async () => {
+  let fetchCalls = 0;
+  let persistedEdges: GraphEdge[] = [];
+  const reverseCachedEdge: GraphEdge = {
+    id: "edge_resolved_road_city_end__city_start",
+    from: "city_end",
+    to: "city_start",
+    type: "road",
+    distance_km: 410,
+    travel_time_hours: 7.1,
+    bidirectional: true,
+    regions: ["rajasthan"],
+    metadata: {
+      provider: "google_routes",
+      resolved_at: 1700000001111,
+      encoded_polyline: "reverse-polyline",
+    },
+  };
+
+  const result = await getItineraryMapData(makeItinerary(), {
+    getNodes: async () => nodes,
+    getAccommodations: async () => [accommodation],
+    findEdges: async () => [reverseCachedEdge],
+    upsertEdges: async (edges) => {
+      persistedEdges = edges;
+    },
+    getTravelTime: async () => {
+      fetchCalls += 1;
+      return {
+        distance_km: 392.8,
+        travel_time_hours: 6.75,
+        encoded_polyline: "forward-polyline",
+      };
+    },
+    now: () => 1700000099999,
+  });
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(result.legs[0]?.encoded_polyline, "forward-polyline");
+  assert.equal(persistedEdges[0]?.from, "city_start");
+  assert.equal(persistedEdges[0]?.to, "city_end");
+  assert.equal(persistedEdges[0]?.bidirectional, false);
+});
+
 test("getItineraryMapData survives a slow Google Routes call without blocking", async () => {
   const result = await getItineraryMapData(makeItinerary(), {
     getNodes: async () => nodes,
@@ -278,13 +325,13 @@ test("getItineraryMapData survives a slow Google Routes call without blocking", 
 test("getItineraryMapData reuses cached geometry without another Google call", async () => {
   let fetchCalls = 0;
   const cachedEdge: GraphEdge = {
-    id: "edge_resolved_road_city_end__city_start",
-    from: "city_end",
-    to: "city_start",
+    id: "edge_resolved_road_city_start__city_end",
+    from: "city_start",
+    to: "city_end",
     type: "road",
     distance_km: 392.8,
     travel_time_hours: 6.75,
-    bidirectional: true,
+    bidirectional: false,
     regions: ["rajasthan"],
     metadata: {
       provider: "google_routes",

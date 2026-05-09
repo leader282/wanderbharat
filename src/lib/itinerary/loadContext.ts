@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { EngineContext } from "@/lib/itinerary/engine";
 import type { GraphNode, TransportMode } from "@/types/domain";
 import { getTravelStyleConfig } from "@/lib/config/travelStyle";
@@ -159,6 +161,8 @@ export async function loadEngineContextForPlan(
     nodes,
     edges,
     attractionsByCity,
+    now: () => Date.now(),
+    makeId: makeItineraryId,
   };
 }
 
@@ -208,6 +212,10 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
     out.push(item);
   }
   return out;
+}
+
+function makeItineraryId(prefix: string): string {
+  return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 18)}`;
 }
 
 /**

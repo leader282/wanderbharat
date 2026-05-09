@@ -70,10 +70,10 @@ export interface EngineContext {
   edges: GraphEdge[];
   /** Attraction nodes grouped by parent city id (optional). */
   attractionsByCity?: Map<string, GraphNode[]>;
-  /** Clock injected for deterministic tests. */
-  now?: () => number;
-  /** Id generator injected for deterministic tests. */
-  makeId?: (prefix: string) => string;
+  /** Clock injected by the server boundary for deterministic pure planning. */
+  now: () => number;
+  /** Id generator injected by the server boundary for deterministic pure planning. */
+  makeId: (prefix: string) => string;
   /** Per-region / per-deploy tunables layered on top of defaults. */
   tuningOverride?: EngineTuningOverride;
 }
@@ -357,8 +357,8 @@ export async function generateItinerary(
     maxTravelHoursPerDay: cfg.maxTravelHoursPerDay,
   });
 
-  const now = ctx.now?.() ?? Date.now();
-  const id = ctx.makeId?.("it") ?? `it_${now.toString(36)}_${randomSuffix()}`;
+  const now = ctx.now();
+  const id = ctx.makeId("it");
 
   const itinerary: Itinerary = {
     id,
@@ -2189,14 +2189,6 @@ function invalidInput(message: string): ConstraintError {
     reason: "invalid_input",
     message,
   };
-}
-
-function randomSuffix(): string {
-  const fallback = Math.random().toString(36).slice(2, 10);
-  const uuid =
-    globalThis.crypto?.randomUUID?.() ??
-    `${fallback}-${Date.now().toString(36)}`;
-  return uuid.replace(/-/g, "").slice(0, 12);
 }
 
 function titleCase(s: string): string {

@@ -12,6 +12,15 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeContext() {
+  return {
+    nodes: [],
+    edges: [],
+    now: () => 1700000000000,
+    makeId: (prefix: string) => `${prefix}_test`,
+  };
+}
+
 function makeItinerary(): Itinerary {
   return {
     id: "it_test",
@@ -109,7 +118,7 @@ test("handleGenerateItinerary returns structured validation issues for invalid i
       },
     }),
     {
-      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async () => {
         generateCalls += 1;
         return {
@@ -139,10 +148,7 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   let savedId: string | null = null;
 
   const response = await handleGenerateItinerary(makeRequest(validBody), {
-    loadEngineContextForPlan: async () => ({
-      nodes: [],
-      edges: [],
-    }),
+    loadEngineContextForPlan: async () => makeContext(),
     generateItinerary: async () => ({
       ok: true as const,
       itinerary: makeItinerary(),
@@ -164,10 +170,7 @@ test("handleGenerateItinerary returns 422 without persisting failed plans", asyn
   let saveCalls = 0;
 
   const response = await handleGenerateItinerary(makeRequest(validBody), {
-    loadEngineContextForPlan: async () => ({
-      nodes: [],
-      edges: [],
-    }),
+    loadEngineContextForPlan: async () => makeContext(),
     generateItinerary: async () => ({
       ok: false as const,
       error: {
@@ -196,7 +199,7 @@ test("handleGenerateItinerary attaches the verified user_id to the itinerary inp
   const response = await handleGenerateItinerary(
     makeRequest({ ...validBody, user_id: "client_lied" }),
     {
-      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async (input) => {
         observedUserId = input.user_id;
         return {
@@ -222,10 +225,7 @@ test("handleGenerateItinerary integrates stay assignments into the persisted iti
   let savedItinerary: Itinerary | undefined;
 
   const response = await handleGenerateItinerary(makeRequest(validBody), {
-    loadEngineContextForPlan: async () => ({
-      nodes: [],
-      edges: [],
-    }),
+    loadEngineContextForPlan: async () => makeContext(),
     generateItinerary: async () => ({
       ok: true as const,
       itinerary: makeItinerary(),
@@ -284,10 +284,7 @@ test("handleGenerateItinerary returns 422 when room allocations push the final t
       },
     }),
     {
-      loadEngineContextForPlan: async () => ({
-        nodes: [],
-        edges: [],
-      }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async () => ({
         ok: true as const,
         itinerary: makeItinerary(),

@@ -16,6 +16,15 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeContext() {
+  return {
+    nodes: [],
+    edges: [],
+    now: () => 1700000000000,
+    makeId: (prefix: string) => `${prefix}_test`,
+  };
+}
+
 function makeItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
   return {
     id: "it_test",
@@ -281,7 +290,7 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
         saveCalls += 1;
       },
       getItineraryMapData: async () => makeMapData(),
-      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async (input) => ({
         ok: true as const,
         itinerary: makeItinerary({
@@ -372,7 +381,7 @@ test("handleUpdateItineraryBudget rejects applying guest itineraries", async () 
         saveCalls += 1;
       },
       getItineraryMapData: async () => makeMapData(),
-      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async () => {
         generateCalls += 1;
         return {
@@ -425,7 +434,7 @@ test("handleUpdateItineraryBudget applies the regenerated itinerary in place", a
         savedItinerary = itinerary;
       },
       getItineraryMapData: async () => makeMapData(),
-      loadEngineContextForPlan: async () => ({ nodes: [], edges: [] }),
+      loadEngineContextForPlan: async () => makeContext(),
       generateItinerary: async (input) => ({
         ok: true as const,
         itinerary: makeItinerary({

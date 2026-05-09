@@ -56,7 +56,7 @@ export interface ResolveTravelMatrixInput {
   edges: GraphEdge[];
   regions?: string[];
   modes: TransportMode[];
-  now?: () => number;
+  now: () => number;
   /** Cap on outbound HTTP calls; defaults to tuning.networkConcurrency. */
   concurrency?: number;
   /** Cap on pair-wise resolutions; defaults to tuning.maxMatrixPairs. */
@@ -140,11 +140,14 @@ export async function resolveTravelMatrix(
       for (let j = i + 1; j < nodes.length; j += 1) {
         const from = nodes[i];
         const to = nodes[j];
-        const forward = lookup.bestEdge(from.id, to.id, [mode]);
-        const backward = lookup.bestEdge(to.id, from.id, [mode]);
-        if (forward && backward) continue;
-        missingPairs.push({ from, to });
-        if (missingPairs.length >= maxPairs) break;
+        if (!lookup.bestEdge(from.id, to.id, [mode])) {
+          missingPairs.push({ from, to });
+          if (missingPairs.length >= maxPairs) break;
+        }
+        if (!lookup.bestEdge(to.id, from.id, [mode])) {
+          missingPairs.push({ from: to, to: from });
+          if (missingPairs.length >= maxPairs) break;
+        }
       }
       if (missingPairs.length >= maxPairs) break;
     }
@@ -196,10 +199,7 @@ export async function resolveTravelMatrix(
           regions: regionSetFor(pair, regionSet),
           now: input.now,
         });
-        if (
-          !lookup.bestEdge(edge.from, edge.to, [mode]) ||
-          !lookup.bestEdge(edge.to, edge.from, [mode])
-        ) {
+        if (!lookup.bestEdge(edge.from, edge.to, [mode])) {
           lookup.add(edge);
           freshEdges.push(edge);
         }
@@ -226,10 +226,7 @@ export async function resolveTravelMatrix(
           regions: regionSetFor(pair, regionSet),
           now: input.now,
         });
-        if (
-          !lookup.bestEdge(edge.from, edge.to, [mode]) ||
-          !lookup.bestEdge(edge.to, edge.from, [mode])
-        ) {
+        if (!lookup.bestEdge(edge.from, edge.to, [mode])) {
           lookup.add(edge);
           freshEdges.push(edge);
         }
@@ -268,21 +265,18 @@ function createResolvedEdge(args: {
     encoded_polyline?: string;
   };
   regions: string[];
-  now?: () => number;
+  now: () => number;
 }): GraphEdge {
-  const [left, right] = [args.from.id, args.to.id].sort((a, b) =>
-    a.localeCompare(b),
-  );
-  const resolvedAt = args.now?.() ?? Date.now();
+  const resolvedAt = args.now();
 
   return {
-    id: `edge_resolved_${args.mode}_${left}__${right}`,
-    from: left,
-    to: right,
+    id: `edge_resolved_${args.mode}_${args.from.id}__${args.to.id}`,
+    from: args.from.id,
+    to: args.to.id,
     type: args.mode,
     distance_km: Number(args.leg.distance_km.toFixed(1)),
     travel_time_hours: Number(args.leg.travel_time_hours.toFixed(2)),
-    bidirectional: true,
+    bidirectional: false,
     regions: args.regions.length > 0 ? args.regions : [args.from.region],
     metadata: {
       provider: "google_routes",
@@ -370,7 +364,7 @@ function createEdgeLookup(seedEdges: GraphEdge[]) {
     }
 
     addDirectional(edge);
-    if (edge.bidirectional !== false) {
+    if (edge.bidirectional !== false && !isDirectionalProviderEdge(edge)) {
       addDirectional({
         ...edge,
         from: edge.to,
@@ -402,6 +396,10 @@ function createEdgeLookup(seedEdges: GraphEdge[]) {
       current.travel_time_hours < best.travel_time_hours ? current : best,
     );
   }
+}
+
+function isDirectionalProviderEdge(edge: GraphEdge): boolean {
+  return edge.metadata?.provider === "google_routes";
 }
 
 function uniqueNodes(nodes: GraphNode[]): GraphNode[] {
