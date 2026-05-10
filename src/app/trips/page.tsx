@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import DeleteItineraryButton from "@/components/DeleteItineraryButton";
@@ -12,6 +13,13 @@ import type { Itinerary } from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  title: "My Trips",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 export default async function TripsPage() {
   const user = await getCurrentUser();
@@ -146,8 +154,8 @@ function SignedOutState() {
           </div>
 
           <p className="mt-4 text-xs text-[var(--color-ink-500)]">
-            We only store what&apos;s needed to attribute trips to you — your
-            Google ID and basic profile.
+            We only store what&apos;s needed to link trips to your account —
+            your Google ID, name, and email.
           </p>
         </div>
 

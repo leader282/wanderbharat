@@ -32,9 +32,9 @@ interface GenerateItineraryErrorPayload {
 
 const REASON_MESSAGES: Record<string, string> = {
   travel_time_exceeded:
-    "This trip needs more travel time than your selected pace allows. Try a faster pace, fewer stops, or another day.",
+    "This trip needs more travel time than your selected pace allows. Try a faster pace, fewer stops, or one more day.",
   total_time_exceeded:
-    "At least one day runs longer than your selected pace allows. Try a faster pace, fewer stops, or another day.",
+    "At least one day runs longer than your selected pace allows. Try a faster pace, fewer stops, or one more day.",
   budget_too_low:
     "This route comes in below the budget range attached to this request. Try adding another stop or another day.",
   budget_exceeded:

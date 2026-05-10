@@ -102,7 +102,7 @@ const STYLE_COPY: Record<
   },
   adventurous: {
     label: "Adventurous",
-    tagline: "Pack it in. More cities, earlier starts, full days.",
+    tagline: "Cover more ground. Earlier starts, longer days.",
   },
 };
 
@@ -1073,7 +1073,7 @@ export default function PlanForm() {
       {/* ----- transport ----- */}
       <Section
         title="How do you want to get around?"
-        subtitle="We&apos;ll test the route and room plan against your total trip budget."
+        subtitle="Pick how you&apos;ll move between cities."
       >
         <Field label="How do you want to travel?">
           <div className="flex flex-wrap gap-2">
@@ -1151,7 +1151,7 @@ export default function PlanForm() {
           {submitting ? (
             <>
               <Spinner />
-              Crafting your trip…
+              Building your plan…
             </>
           ) : (
             <>
@@ -1354,10 +1354,10 @@ function Field({
 function EmptyState() {
   return (
     <div className="card p-10 text-center">
-      <p className="text-lg font-bold">Our itineraries are being prepared.</p>
+      <p className="text-lg font-bold">Regions coming soon.</p>
       <p className="mt-2 text-[var(--color-ink-500)] max-w-md mx-auto">
-        We&apos;re putting the finishing touches on a new set of trips.
-        Please check back shortly.
+        We&apos;re loading the first set of destinations. Please check back
+        shortly.
       </p>
     </div>
   );

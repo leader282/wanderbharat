@@ -1,10 +1,22 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 
+import PublicBetaNotice from "@/components/marketing/PublicBetaNotice";
+import { betaBannerContent } from "@/lib/content/launchContent";
+import { createPageMetadata } from "@/lib/seo/metadata";
 import PlanForm from "@/components/PlanForm";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = createPageMetadata({
+  title: "Plan an India Trip",
+  description:
+    "Enter your destination, duration, budget, pace, and group size to generate a day-by-day India itinerary with routes, drive-time estimates, and budget context.",
+  path: "/plan",
+});
 
 export default function PlanPage() {
+  const notice = betaBannerContent.planner;
+
   return (
     <section className="mt-10 md:mt-14 max-w-3xl">
       <p className="eyebrow">Plan a trip</p>
@@ -15,6 +27,14 @@ export default function PlanPage() {
         A few quick choices and we&apos;ll build a day-by-day plan that fits your
         pace, your group, and your total trip budget.
       </p>
+
+      <PublicBetaNotice
+        className="mt-7"
+        eyebrow={notice.eyebrow}
+        body={notice.body}
+        links={[notice.link]}
+        compact
+      />
 
       <div className="mt-10">
         <Suspense fallback={<FormSkeleton />}>

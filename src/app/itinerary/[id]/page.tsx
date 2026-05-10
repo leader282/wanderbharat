@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -15,7 +16,9 @@ import PageSection from "@/components/itinerary/PageSection";
 import StaysOverview from "@/components/itinerary/StaysOverview";
 import TripProgressRibbon from "@/components/itinerary/TripProgressRibbon";
 import TripStatsGrid from "@/components/itinerary/TripStatsGrid";
+import PublicBetaNotice from "@/components/marketing/PublicBetaNotice";
 import { getCurrentUser } from "@/lib/auth/session";
+import { betaBannerContent } from "@/lib/content/launchContent";
 import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import {
   buildProgressStops,
@@ -30,6 +33,13 @@ import { getItineraryMapData } from "@/lib/services/itineraryMapService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  title: "Itinerary",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 const NAV_SECTIONS: ItineraryNavSection[] = [
   { id: "overview", label: "Overview" },
@@ -86,6 +96,7 @@ export default async function ItineraryPage({
     day_index: day.day_index,
     label: `Day ${day.day_index + 1}`,
   }));
+  const planningNotice = betaBannerContent.planner;
 
   return (
     <section className="mt-8 md:mt-10">
@@ -100,6 +111,13 @@ export default async function ItineraryPage({
       <ItineraryHero itinerary={itinerary} stats={stats} />
 
       <ItineraryNotices warnings={itinerary.warnings} />
+      <PublicBetaNotice
+        className="mt-6"
+        eyebrow={planningNotice.eyebrow}
+        body={planningNotice.body}
+        links={[planningNotice.link]}
+        compact
+      />
 
       <ItinerarySectionNav sections={NAV_SECTIONS} />
 
