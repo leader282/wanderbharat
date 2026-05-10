@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import OptionalCitiesMiniMap, {
+  type OptionalCitiesMiniMapCity,
+} from "@/components/plan/OptionalCitiesMiniMap";
 import SignInButton from "@/components/SignInButton";
 import { presentGenerateItineraryError } from "@/lib/api/generateItineraryError";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -15,6 +18,13 @@ import {
   parsePlanFormNumberInput,
   type PlanFormNumberValue,
 } from "@/lib/planFormNumberFields";
+import {
+  DISTANCE_UNAVAILABLE_TEXT,
+  formatDistanceKm,
+  formatDriveTime,
+  getOptionalCityDistanceInfo,
+  sortOptionalCitiesByDriveTime,
+} from "@/lib/optionalCityDistance";
 import {
   ACCOMMODATION_PREFERENCES,
   DEFAULT_CURRENCY,
@@ -217,6 +227,9 @@ export default function PlanForm() {
   const [loadingCities, setLoadingCities] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emphasizedOptionalCityId, setEmphasizedOptionalCityId] = useState<
+    string | null
+  >(null);
   const [state, setState] = useState<FormState>(INITIAL_STATE);
 
   useEffect(() => {
@@ -326,6 +339,58 @@ export default function PlanForm() {
     [regions, state.region],
   );
   const currency = activeRegion?.default_currency ?? DEFAULT_CURRENCY;
+  const startCity = useMemo(
+    () => cities.find((city) => city.id === state.start_node),
+    [cities, state.start_node],
+  );
+  const optionalCityCards = useMemo(
+    () =>
+      sortOptionalCitiesByDriveTime(
+        cities
+          .filter((city) => city.id !== state.start_node)
+          .map((city) =>
+            getOptionalCityDistanceInfo(startCity, city, state.region),
+          ),
+      ),
+    [cities, startCity, state.region, state.start_node],
+  );
+  const cityById = useMemo(
+    () => new Map(cities.map((city) => [city.id, city])),
+    [cities],
+  );
+  const optionalCityMapCities = useMemo<OptionalCitiesMiniMapCity[]>(
+    () =>
+      optionalCityCards.map((city) => {
+        const node = cityById.get(city.cityId);
+        return {
+          cityId: city.cityId,
+          cityName: city.cityName,
+          coordinates: node?.location ?? null,
+          isSelected: state.requested_city_ids.includes(city.cityId),
+        };
+      }),
+    [cityById, optionalCityCards, state.requested_city_ids],
+  );
+  const visibleOptionalCityIds = useMemo(
+    () => new Set(optionalCityCards.map((city) => city.cityId)),
+    [optionalCityCards],
+  );
+  const activeEmphasizedOptionalCityId =
+    emphasizedOptionalCityId &&
+    visibleOptionalCityIds.has(emphasizedOptionalCityId)
+      ? emphasizedOptionalCityId
+      : null;
+  const mapStartCity = useMemo(
+    () =>
+      startCity
+        ? {
+            cityId: startCity.id,
+            cityName: startCity.name,
+            coordinates: startCity.location,
+          }
+        : null,
+    [startCity],
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -471,9 +536,10 @@ export default function PlanForm() {
           <Field label="Region">
             <select
               value={state.region}
-              onChange={(e) =>
-                setState((s) => ({ ...s, region: e.target.value }))
-              }
+              onChange={(e) => {
+                setEmphasizedOptionalCityId(null);
+                setState((s) => ({ ...s, region: e.target.value }));
+              }}
               className="input"
               disabled={regions.length === 0}
             >
@@ -489,15 +555,16 @@ export default function PlanForm() {
           <Field label="Starting city">
             <select
               value={state.start_node}
-              onChange={(e) =>
+              onChange={(e) => {
+                setEmphasizedOptionalCityId(null);
                 setState((s) => ({
                   ...s,
                   start_node: e.target.value,
                   requested_city_ids: s.requested_city_ids.filter(
                     (cityId) => cityId !== e.target.value,
                   ),
-                }))
-              }
+                }));
+              }}
               className="input"
               disabled={loadingCities || cities.length === 0}
             >
@@ -518,31 +585,10 @@ export default function PlanForm() {
         <Field
           label="Optional extra cities"
           hint="We’ll try to include every city you pick."
+          asLabel={false}
         >
-          <div className="flex flex-wrap gap-2">
-            {cities.filter((city) => city.id !== state.start_node).length > 0 ? (
-              cities
-                .filter((city) => city.id !== state.start_node)
-                .map((city) => (
-                  <button
-                    key={city.id}
-                    type="button"
-                    className="chip"
-                    aria-pressed={state.requested_city_ids.includes(city.id)}
-                    onClick={() =>
-                      setState((s) => ({
-                        ...s,
-                        requested_city_ids: toggleSelection(
-                          s.requested_city_ids,
-                          city.id,
-                        ),
-                      }))
-                    }
-                  >
-                    {city.name}
-                  </button>
-                ))
-            ) : loadingCities ? (
+          <div className="space-y-2">
+            {loadingCities ? (
               <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
                 Loading the extra cities you can request for this trip.
               </p>
@@ -550,6 +596,90 @@ export default function PlanForm() {
               <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
                 Choose a starting city first to request extra stops.
               </p>
+            ) : optionalCityCards.length > 0 ? (
+              <div className="space-y-3">
+                <OptionalCitiesMiniMap
+                  startCity={mapStartCity}
+                  optionalCities={optionalCityMapCities}
+                  emphasizedCityId={activeEmphasizedOptionalCityId}
+                  onEmphasizeCity={setEmphasizedOptionalCityId}
+                />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {optionalCityCards.map((city) => {
+                    const selected = state.requested_city_ids.includes(city.cityId);
+                    const emphasized = activeEmphasizedOptionalCityId === city.cityId;
+                    const distanceLabel = formatDistanceKm(
+                      city.distanceKm,
+                      city.isApproximate,
+                    );
+                    const driveTimeLabel = formatDriveTime(
+                      city.driveTimeMinutes,
+                      city.isApproximate,
+                    );
+                    const travelSummary =
+                      city.distanceKm === null || city.driveTimeMinutes === null
+                        ? DISTANCE_UNAVAILABLE_TEXT
+                        : `${distanceLabel} · ${driveTimeLabel} estimated drive`;
+                    const fitLabel = city.fitLabel;
+
+                    return (
+                      <button
+                        key={city.cityId}
+                        type="button"
+                        aria-pressed={selected}
+                        aria-label={
+                          selected
+                            ? `Remove ${city.cityName} from optional cities`
+                            : `Add ${city.cityName} to optional cities`
+                        }
+                        onClick={() => {
+                          setEmphasizedOptionalCityId(city.cityId);
+                          setState((s) => ({
+                            ...s,
+                            requested_city_ids: toggleSelection(
+                              s.requested_city_ids,
+                              city.cityId,
+                            ),
+                          }));
+                        }}
+                        onMouseEnter={() => setEmphasizedOptionalCityId(city.cityId)}
+                        onMouseLeave={() => setEmphasizedOptionalCityId(null)}
+                        onFocus={() => setEmphasizedOptionalCityId(city.cityId)}
+                        onBlur={() => setEmphasizedOptionalCityId(null)}
+                        className={`rounded-xl border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ink-700)] focus-visible:ring-offset-2 ${
+                          selected
+                            ? "border-[var(--color-ink-900)] bg-[var(--color-ink-900)] text-white"
+                            : "border-[var(--hairline)] bg-white text-[var(--color-ink-900)] hover:border-[var(--color-ink-700)]"
+                        } ${
+                          emphasized
+                            ? "ring-2 ring-[var(--color-teal-500)] ring-offset-1"
+                            : ""
+                        }`}
+                      >
+                        <p className="font-semibold truncate">{city.cityName}</p>
+                        <p
+                          className={`mt-1 text-sm ${
+                            selected
+                              ? "text-white/85"
+                              : "text-[var(--color-ink-600)]"
+                          }`}
+                        >
+                          {travelSummary}
+                        </p>
+                        {fitLabel && (
+                          <p
+                            className={`mt-2 text-xs font-semibold ${
+                              selected ? "text-white/80" : "text-[var(--color-ink-600)]"
+                            }`}
+                          >
+                            {fitLabel}
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ) : (
               <p className="rounded-xl border border-[var(--hairline)] bg-[var(--color-sand-50)] px-4 py-3 text-sm text-[var(--color-ink-500)]">
                 No additional cities are available in this region yet.
@@ -1182,12 +1312,30 @@ function Section({
 function Field({
   label,
   hint,
+  asLabel = true,
   children,
 }: {
   label: string;
   hint?: string;
+  asLabel?: boolean;
   children: React.ReactNode;
 }) {
+  if (!asLabel) {
+    return (
+      <div className="block">
+        <span className="flex items-baseline justify-between gap-2 mb-1.5">
+          <span className="text-sm font-semibold text-[var(--color-ink-700)]">
+            {label}
+          </span>
+          {hint && (
+            <span className="text-xs text-[var(--color-ink-500)]">{hint}</span>
+          )}
+        </span>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <label className="block">
       <span className="flex items-baseline justify-between gap-2 mb-1.5">
