@@ -1,10 +1,20 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
+import PublicBetaNotice from "@/components/marketing/PublicBetaNotice";
+import { betaBannerContent } from "@/lib/content/launchContent";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { createPageMetadata } from "@/lib/seo/metadata";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 import type { GraphNode } from "@/types/domain";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = createPageMetadata({
+  title: "India Trip Planner - Day-by-Day Itineraries",
+  description:
+    "Build a practical India itinerary from your dates, pace, budget, and group size. WanderBharat creates day-by-day routes with travel-time and cost estimates.",
+  path: "/",
+});
 
 export default async function Home() {
   const destinations = await loadDestinationHighlights();
@@ -13,6 +23,7 @@ export default async function Home() {
     <>
       <Hero />
       <TrustStrip />
+      <PublicBetaSection />
       <Destinations items={destinations} />
       <HowItWorks />
       <ClosingCTA />
@@ -29,7 +40,7 @@ function Hero() {
     <section className="pt-12 md:pt-20">
       <div className="grid items-center gap-12 md:grid-cols-[1.1fr_0.9fr]">
         <div className="animate-fadeUp">
-          <p className="eyebrow">Intelligent trip planner · India</p>
+          <p className="eyebrow">India trip planner · Public beta</p>
           <h1 className="mt-4 text-[2.6rem] sm:text-5xl md:text-[3.5rem] font-bold leading-[1.04] tracking-tight text-[var(--color-ink-900)]">
             India, planned
             <br className="hidden sm:block" />{" "}
@@ -38,9 +49,8 @@ function Hero() {
             </span>
           </h1>
           <p className="mt-6 max-w-xl text-[1.05rem] md:text-lg leading-relaxed text-[var(--color-ink-600)]">
-            Tell us how long you have and how fast you like to move. We&apos;ll
-            hand you a day-by-day plan that actually fits, plus a budget that
-            feels justified — no endless blog tabs, no guesswork.
+            Share your dates, pace, and budget. We&apos;ll build a day-by-day plan
+            with real drive times and a clear cost estimate.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/plan" className="btn-primary">
@@ -55,7 +65,7 @@ function Hero() {
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-x-6 gap-y-2 border-t border-[var(--hairline)] pt-6">
             <HeroStat value="10+" label="cities mapped" />
             <HeroStat value="1–7" label="day itineraries" />
-            <HeroStat value="0" label="generic tours" />
+            <HeroStat value="Now" label="in public beta" />
           </dl>
         </div>
 
@@ -179,7 +189,7 @@ function HeroPreview() {
               Mumbai → Hampi → Goa → Kochi
             </p>
             <p className="mt-0.5 text-xs text-[var(--color-ink-500)]">
-              Balanced pace · ~14 h on the road · justified budget
+              Balanced pace · ~14 h on the road · cost estimate included
             </p>
           </div>
         </div>
@@ -232,7 +242,7 @@ function TrustStrip() {
   const items = [
     { label: "Map-aware planner" },
     { label: "Real drive times" },
-    { label: "Justified budgets" },
+    { label: "Transparent budgets" },
     { label: "Day-by-day schedule" },
     { label: "Pace-aware routing" },
   ];
@@ -257,6 +267,22 @@ function TrustStrip() {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function PublicBetaSection() {
+  const notice = betaBannerContent.homepage;
+  return (
+    <section className="mt-9 md:mt-10">
+      <PublicBetaNotice
+        eyebrow={notice.eyebrow}
+        body={notice.body}
+        links={notice.links}
+        compact
+      />
     </section>
   );
 }
@@ -314,7 +340,7 @@ function Destinations({ items }: { items: Destination[] }) {
         <div className="max-w-xl">
           <p className="eyebrow">Where to go</p>
           <h2 className="mt-3 text-3xl md:text-[2.5rem] font-bold leading-[1.1] tracking-tight text-[var(--color-ink-900)]">
-            Destinations we know inside-out
+            Regions ready to plan
           </h2>
           <p className="mt-3 text-[var(--color-ink-600)]">
             Curated regions with mapped cities, drive times, and hand-picked
@@ -435,7 +461,7 @@ function HowItWorks() {
     {
       title: "You travel with a plan",
       body:
-        "Day-by-day stops, drive times, activity hours, and a justified budget range — ready to go.",
+        "Day-by-day stops, drive times, activity hours, and a clear cost estimate.",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
       ),
@@ -447,7 +473,7 @@ function HowItWorks() {
       <div className="max-w-2xl">
         <p className="eyebrow">How it works</p>
         <h2 className="mt-3 text-3xl md:text-[2.5rem] font-bold leading-[1.1] tracking-tight text-[var(--color-ink-900)]">
-          From a blank page to a ready-to-travel itinerary in under a minute.
+          Three short steps from your dates to a day-by-day plan.
         </h2>
       </div>
 
@@ -478,7 +504,7 @@ function HowItWorks() {
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Bullet title="Respects your pace" body="Relaxed, balanced, or adventurous — the plan follows your tempo." />
         <Bullet title="Budget aware" body="Every itinerary comes with a justified budget range and a clear explanation of where the money goes." />
-        <Bullet title="Real drive times" body="Stops are chosen with actual road distances, not wishful thinking." />
+        <Bullet title="Real drive times" body="Stops are sequenced using actual road distances between cities." />
         <Bullet title="Always a fresh plan" body="Generated on the spot from your exact preferences." />
       </div>
     </section>
@@ -510,12 +536,11 @@ function ClosingCTA() {
             Ready when you are
           </p>
           <h2 className="mt-4 text-3xl md:text-[2.6rem] font-bold leading-[1.1] tracking-tight">
-            Build a proper itinerary in a minute.
+            Build a real day-by-day itinerary.
           </h2>
           <p className="mt-4 max-w-xl text-base md:text-[1.05rem] leading-relaxed text-white/75">
-            Your next trip deserves more than a Google Doc of links. Get a
-            day-by-day plan that fits your pace, with a budget that&apos;s
-            actually defensible.
+            More than a Google Doc of links. Get a day-by-day plan paced to
+            your style, with a clear cost estimate.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -5,6 +6,13 @@ import { requireAdminUser } from "@/lib/auth/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  title: "Admin",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 const ADMIN_LINKS: Array<{ href: string; label: string }> = [
   { href: "/admin", label: "Overview" },

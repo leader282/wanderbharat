@@ -178,7 +178,7 @@ function friendlyAuthError(code: string, fallback: string): string {
     case "auth/account-exists-with-different-credential":
       return "An account already exists with this email under a different sign-in method.";
     case "auth/unauthorized-domain":
-      return "This domain isn't authorised for Google sign-in. Add it in Firebase Console → Authentication → Settings.";
+      return "Sign-in isn't available from this address right now. Please try again later or contact support.";
     default:
       return fallback || "Sign-in failed. Please try again.";
   }
