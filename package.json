@@ -30,8 +30,8 @@
     "seed:all": "tsx scripts/seedNodes.ts --all && tsx scripts/seedAttractions.ts --all && tsx scripts/seedAttractionHours.ts --all && tsx scripts/seedAttractionAdmissions.ts --all && tsx scripts/seedEdges.ts --all && tsx scripts/seedAccommodations.ts --all"
   },
   "dependencies": {
-    "firebase": "^12.12.1",
-    "firebase-admin": "^13.6.0",
+    "firebase": "^12.13.0",
+    "firebase-admin": "^13.9.0",
     "firebase-tools": "^15.17.0",
     "next": "16.2.4",
     "react": "19.2.5",
