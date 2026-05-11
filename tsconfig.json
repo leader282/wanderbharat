@@ -22,7 +22,10 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
+    "types": [
+      "node",
+      "google.maps"
+    ],
     "paths": {
       "@/*": [
         "./src/*"
