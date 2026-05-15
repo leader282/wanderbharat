@@ -440,6 +440,65 @@ test("generateItinerary includes explicitly requested cities when they are feasi
   assert.ok(result.itinerary.nodes.includes(requested.id));
 });
 
+test("generateItinerary prefers a budget-feasible route when requested-city coverage ties", async () => {
+  const start = makeCity({
+    id: "node_start",
+    name: "Start",
+    dailyCost: 1000,
+  });
+  const cheapStop = makeCity({
+    id: "node_budget_stop",
+    name: "Budget Stop",
+    dailyCost: 500,
+  });
+  const requested = makeCity({
+    id: "node_requested",
+    name: "Requested",
+    dailyCost: 15000,
+  });
+
+  const result = await generateItinerary(
+    {
+      regions: ["test-region"],
+      start_node: start.id,
+      days: 3,
+      requested_city_ids: [requested.id],
+      preferences: {
+        travel_style: "adventurous",
+        budget: { min: 0, max: 25000 },
+        travellers: { adults: 1, children: 0 },
+        transport_modes: ["road"],
+      },
+    },
+    makeContext(
+      [start, cheapStop, requested],
+      [
+        makeRoadEdge({ from: start.id, to: requested.id, hours: 1, distance: 10 }),
+        makeRoadEdge({ from: requested.id, to: start.id, hours: 1, distance: 10 }),
+        makeRoadEdge({ from: start.id, to: cheapStop.id, hours: 1.5, distance: 100 }),
+        makeRoadEdge({
+          from: cheapStop.id,
+          to: requested.id,
+          hours: 1.5,
+          distance: 100,
+        }),
+      ],
+    ),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.itinerary.nodes, [
+    start.id,
+    cheapStop.id,
+    requested.id,
+    start.id,
+  ]);
+  assert.ok(result.itinerary.estimated_cost <= 25000);
+});
+
 test("generateItinerary reports how many extra days requested cities would need", async () => {
   const start = makeCity({ id: "node_start", name: "Start" });
   const ajmer = makeCity({ id: "node_ajmer", name: "Ajmer" });

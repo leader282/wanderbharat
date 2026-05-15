@@ -57,6 +57,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
     makeDay(1, "node_jaipur", "Jaipur"),
     makeDay(2, "node_udaipur", "Udaipur"),
     makeDay(3, "node_jaipur", "Jaipur"),
+    makeDay(4, "node_jaipur", "Jaipur"),
   ];
 
   const getByNode = async (nodeId: string): Promise<Accommodation[]> => {
@@ -169,6 +170,7 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
       days: [
         makeDay(0, "node_ajmer", "Ajmer"),
         makeDay(1, "node_mount_abu", "Mount Abu"),
+        makeDay(2, "node_mount_abu", "Mount Abu"),
       ],
       budget: { min: 0, max: 3000, currency: "INR" },
       travellers: { adults: 2, children: 0 },
@@ -231,7 +233,7 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
 test("planAccommodations filters out room mixes that cannot fit the traveller party", async () => {
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jodhpur", "Jodhpur")],
+      days: [makeDay(0, "node_jodhpur", "Jodhpur"), makeDay(1, "node_jodhpur", "Jodhpur")],
       budget: { min: 0, max: 12000, currency: "INR" },
       travellers: { adults: 2, children: 2 },
       travelStyle: "balanced",
@@ -393,7 +395,11 @@ test("planAccommodations attaches LiteAPI options and uses selected rates", asyn
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+        makeDay(2, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 30000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -433,7 +439,7 @@ test("planAccommodations continues with unknown stay when provider is disabled",
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -474,7 +480,7 @@ test("planAccommodations does not price children as zero when child ages are mis
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 2, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -511,7 +517,7 @@ test("planAccommodations continues with warning when provider returns an error",
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -545,7 +551,7 @@ test("planAccommodations continues with warning when provider times out", async 
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -578,7 +584,7 @@ test("planAccommodations continues with warning when LiteAPI returns no rates", 
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -620,6 +626,7 @@ test("planAccommodations enforces the hotel provider call limit after stay block
       days: [
         makeDay(0, "node_jaipur", "Jaipur"),
         makeDay(1, "node_udaipur", "Udaipur"),
+        makeDay(2, "node_udaipur", "Udaipur"),
       ],
       budget: { min: 0, max: 40000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
@@ -668,7 +675,11 @@ test("planAccommodations reuses fresh cached hotel snapshots without provider ca
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+        makeDay(2, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 40000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -708,7 +719,11 @@ test("planAccommodations uses live rates even when snapshot persistence fails", 
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+        makeDay(2, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 40000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",

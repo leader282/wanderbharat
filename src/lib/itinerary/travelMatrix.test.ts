@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { GraphEdge, GraphNode } from "@/types/domain";
-import { resolveTravelMatrix } from "@/lib/itinerary/travelMatrix";
+import { resolveTravelMatrix } from "@/lib/services/travelMatrixResolver";
 
 function makeCity(id: string, name: string): GraphNode {
   return {

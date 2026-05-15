@@ -10,12 +10,13 @@ export interface StayBlock {
 }
 
 export function deriveStayBlocks(days: ItineraryDay[]): StayBlock[] {
-  if (days.length === 0) return [];
+  if (days.length <= 1) return [];
 
   const orderedDays = [...days].sort((left, right) => left.day_index - right.day_index);
+  const overnightDays = orderedDays.slice(0, -1);
   const blocks: StayBlock[] = [];
 
-  for (const day of orderedDays) {
+  for (const day of overnightDays) {
     const current = blocks[blocks.length - 1];
     if (current && current.nodeId === day.base_node_id) {
       current.endDay = day.day_index;

@@ -37,7 +37,7 @@ import { TravelGraph } from "@/lib/itinerary/graph";
 import { scoreCandidateNode, scoreItinerary } from "@/lib/itinerary/scoring";
 import {
   buildTravelMatrix,
-  resolveTravelMatrix,
+  type ResolveTravelMatrixInput,
   type ResolvedTravelLeg,
   type TravelMatrix,
 } from "@/lib/itinerary/travelMatrix";
@@ -58,9 +58,8 @@ import {
 import { isDayScheduleFeasible } from "@/lib/itinerary/daySchedule";
 
 /**
- * The itinerary engine orchestrates two phases:
- * 1. Resolve and cache concrete travel legs for the planning pool.
- * 2. Run a deterministic, pure route/day allocator against that strict matrix.
+ * The itinerary engine is deterministic and side-effect free. Server boundaries
+ * may inject a matrix resolver; otherwise the engine only uses supplied edges.
  */
 
 export interface EngineContext {
@@ -79,7 +78,7 @@ export interface EngineContext {
 }
 
 export interface EngineDependencies {
-  resolveTravelMatrix?: typeof resolveTravelMatrix;
+  resolveTravelMatrix?: (input: ResolveTravelMatrixInput) => Promise<TravelMatrix>;
 }
 
 export type EngineResult =
@@ -246,7 +245,17 @@ export async function generateItinerary(
   const nodesById = new Map<string, GraphNode>();
   for (const node of ctx.nodes) nodesById.set(node.id, node);
 
-  const matrixResolver = deps.resolveTravelMatrix ?? resolveTravelMatrix;
+  const matrixResolver =
+    deps.resolveTravelMatrix ??
+    ((matrixInput: ResolveTravelMatrixInput) =>
+      Promise.resolve(
+        buildTravelMatrix(
+          matrixInput.nodes,
+          matrixInput.edges,
+          matrixInput.modes,
+          matrixInput.tuning,
+        ),
+      ));
   const matrix =
     pool.length > 0 || end.id !== start.id
       ? await matrixResolver({
@@ -481,7 +490,22 @@ function selectOptimalRoute(opts: RouteSearchInput): RouteSelection | null {
   };
 
   dfs(opts.start, 0);
-  return opts.requestedNodeIds.size > 0 ? bestOverall : bestFeasible ?? bestOverall;
+  if (opts.requestedNodeIds.size === 0) return bestFeasible ?? bestOverall;
+  return chooseRequestedRouteSelection(bestFeasible, bestOverall);
+}
+
+function chooseRequestedRouteSelection(
+  bestFeasible: RouteSelection | null,
+  bestOverall: RouteSelection | null,
+): RouteSelection | null {
+  if (
+    bestFeasible &&
+    (!bestOverall ||
+      bestFeasible.requestedCoverageCount === bestOverall.requestedCoverageCount)
+  ) {
+    return bestFeasible;
+  }
+  return bestOverall;
 }
 
 function shouldPruneByTravelHours(args: {
