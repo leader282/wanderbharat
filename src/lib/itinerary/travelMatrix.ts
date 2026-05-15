@@ -1,20 +1,13 @@
 import type { GraphEdge, GraphNode, TransportMode } from "@/types/domain";
-import { upsertEdges } from "@/lib/repositories/edgeRepository";
 import {
   defaultPerKmCost,
   fatigueFactor,
   getTransportModeConfig,
-  supportsLiveTravelMode,
 } from "@/lib/config/transportMode";
 import {
   defaultEngineTuning,
   type EngineTuning,
 } from "@/lib/config/engineTuning";
-import {
-  getTravelMatrix as googleTravelMatrix,
-  getTravelTime,
-  type TravelMatrixCell,
-} from "@/lib/services/distanceService";
 
 const KEY_SEPARATOR = "::";
 
@@ -64,18 +57,6 @@ export interface ResolveTravelMatrixInput {
   tuning?: EngineTuning;
 }
 
-export interface TravelMatrixDependencies {
-  /** Batched matrix fetcher; defaults to Google computeRouteMatrix. */
-  fetchTravelMatrix?: typeof googleTravelMatrix;
-  /**
-   * Single-leg fetcher used when the batched matrix returns nothing
-   * (e.g. provider error, empty response). Also the seam tests inject
-   * to assert the resolution path without HTTP.
-   */
-  fetchTravelTime?: typeof getTravelTime;
-  persistEdges?: typeof upsertEdges;
-}
-
 /**
  * Build a strictly-from-data matrix without any network. Useful for
  * tests and offline scoring. Every leg that has an edge becomes a
@@ -108,184 +89,6 @@ export function buildTravelMatrix(
   }
 
   return makeMatrixView(legs, lookup.listEdges(), modes);
-}
-
-/**
- * Resolve a travel matrix using cached edges first, falling back to live
- * routing for any missing pair×mode combination. Batches Google calls
- * through `computeRouteMatrix` (up to 25×25 per request) and runs tiles in
- * parallel. Newly-resolved legs are persisted back to the edges cache on
- * a best-effort basis.
- */
-export async function resolveTravelMatrix(
-  input: ResolveTravelMatrixInput,
-  deps: TravelMatrixDependencies = {},
-): Promise<TravelMatrix> {
-  const tuning = input.tuning ?? defaultEngineTuning;
-  const nodes = uniqueNodes(input.nodes);
-  const lookup = createEdgeLookup(input.edges);
-  const regionSet = new Set(input.regions ?? []);
-  const freshEdges: GraphEdge[] = [];
-  const fetchMatrix = deps.fetchTravelMatrix ?? googleTravelMatrix;
-  const fetchSingle = deps.fetchTravelTime ?? getTravelTime;
-  const persistEdges = deps.persistEdges ?? upsertEdges;
-
-  const maxPairs = input.maxPairs ?? tuning.maxMatrixPairs;
-
-  for (const mode of input.modes) {
-    if (!supportsLiveTravelMode(mode)) continue;
-
-    const missingPairs: Array<{ from: GraphNode; to: GraphNode }> = [];
-    for (let i = 0; i < nodes.length; i += 1) {
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const from = nodes[i];
-        const to = nodes[j];
-        if (!lookup.bestEdge(from.id, to.id, [mode])) {
-          missingPairs.push({ from, to });
-          if (missingPairs.length >= maxPairs) break;
-        }
-        if (!lookup.bestEdge(to.id, from.id, [mode])) {
-          missingPairs.push({ from: to, to: from });
-          if (missingPairs.length >= maxPairs) break;
-        }
-      }
-      if (missingPairs.length >= maxPairs) break;
-    }
-
-    if (missingPairs.length === 0) continue;
-
-    const matrixNodes = uniqueNodes(
-      missingPairs.flatMap((pair) => [pair.from, pair.to]),
-    );
-    const matrixNodeIndexById = new Map(
-      matrixNodes.map((node, index) => [node.id, index] as const),
-    );
-    const matrixLocations = matrixNodes.map((node) => node.location);
-
-    // Try batched matrix first. Fall back to sequential single-leg calls
-    // only if batching throws (so tests that inject `fetchTravelTime` keep
-    // working).
-    let cells: TravelMatrixCell[] | null = null;
-    try {
-      cells = await fetchMatrix({
-        origins: matrixLocations,
-        destinations: matrixLocations,
-        mode,
-      });
-    } catch {
-      cells = null;
-    }
-
-    if (cells && cells.length > 0) {
-      const cellsByPair = new Map<string, TravelMatrixCell>();
-      for (const cell of cells) {
-        if (cell.origin_index === cell.destination_index) continue;
-        const origin = matrixNodes[cell.origin_index];
-        const destination = matrixNodes[cell.destination_index];
-        if (!origin || !destination) continue;
-        cellsByPair.set(makeMatrixKey(origin.id, destination.id), cell);
-      }
-      missingPairs.forEach((pair) => {
-        const fromIndex = matrixNodeIndexById.get(pair.from.id);
-        const toIndex = matrixNodeIndexById.get(pair.to.id);
-        if (fromIndex === undefined || toIndex === undefined) return;
-        const cell = cellsByPair.get(makeMatrixKey(pair.from.id, pair.to.id));
-        if (!cell || !cell.leg) return;
-        const edge = createResolvedEdge({
-          from: pair.from,
-          to: pair.to,
-          mode,
-          leg: cell.leg,
-          regions: regionSetFor(pair, regionSet),
-          now: input.now,
-        });
-        if (!lookup.bestEdge(edge.from, edge.to, [mode])) {
-          lookup.add(edge);
-          freshEdges.push(edge);
-        }
-      });
-    } else {
-      // Resolve one-by-one when the batched matrix returns nothing.
-      for (const pair of missingPairs) {
-        let leg = null;
-        try {
-          leg = await fetchSingle({
-            origin: pair.from.location,
-            destination: pair.to.location,
-            mode,
-          });
-        } catch {
-          continue;
-        }
-        if (!leg) continue;
-        const edge = createResolvedEdge({
-          from: pair.from,
-          to: pair.to,
-          mode,
-          leg,
-          regions: regionSetFor(pair, regionSet),
-          now: input.now,
-        });
-        if (!lookup.bestEdge(edge.from, edge.to, [mode])) {
-          lookup.add(edge);
-          freshEdges.push(edge);
-        }
-      }
-    }
-  }
-
-  if (freshEdges.length > 0) {
-    try {
-      await persistEdges(freshEdges);
-    } catch {
-      // Cache persistence is opportunistic; planning should still succeed.
-    }
-  }
-
-  return buildTravelMatrix(nodes, lookup.listEdges(), input.modes, tuning);
-}
-
-function regionSetFor(
-  pair: { from: GraphNode; to: GraphNode },
-  declared: Set<string>,
-): string[] {
-  const seen = new Set<string>(declared);
-  if (pair.from.region) seen.add(pair.from.region);
-  if (pair.to.region) seen.add(pair.to.region);
-  return Array.from(seen);
-}
-
-function createResolvedEdge(args: {
-  from: GraphNode;
-  to: GraphNode;
-  mode: TransportMode;
-  leg: {
-    distance_km: number;
-    travel_time_hours: number;
-    encoded_polyline?: string;
-  };
-  regions: string[];
-  now: () => number;
-}): GraphEdge {
-  const resolvedAt = args.now();
-
-  return {
-    id: `edge_resolved_${args.mode}_${args.from.id}__${args.to.id}`,
-    from: args.from.id,
-    to: args.to.id,
-    type: args.mode,
-    distance_km: Number(args.leg.distance_km.toFixed(1)),
-    travel_time_hours: Number(args.leg.travel_time_hours.toFixed(2)),
-    bidirectional: false,
-    regions: args.regions.length > 0 ? args.regions : [args.from.region],
-    metadata: {
-      provider: "google_routes",
-      resolved_at: resolvedAt,
-      ...(args.leg.encoded_polyline
-        ? { encoded_polyline: args.leg.encoded_polyline }
-        : {}),
-    },
-  };
 }
 
 function toResolvedLeg(

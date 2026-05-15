@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 
+import {
+  createSlidingWindowRateLimiter,
+  getClientIpAddress,
+  type RateLimitDecision,
+} from "@/lib/api/rateLimit";
 import { generateItinerarySchema } from "@/lib/api/validation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminAuth } from "@/lib/firebase/admin";
@@ -26,6 +31,14 @@ import type { Coordinates, TransportMode } from "@/types/domain";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const GENERATE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const GENERATE_RATE_LIMIT_MAX_REQUESTS = 8;
+
+const checkGenerateQuota = createSlidingWindowRateLimiter({
+  windowMs: GENERATE_RATE_LIMIT_WINDOW_MS,
+  maxRequests: GENERATE_RATE_LIMIT_MAX_REQUESTS,
+});
+
 interface GenerateRouteDependencies {
   /** Planning-aware loader. Prunes by start/end/modes/days. */
   loadEngineContextForPlan: typeof loadEngineContextForPlan;
@@ -41,6 +54,7 @@ interface GenerateRouteDependencies {
    * <idToken>` header. Tests can stub this without going through Firebase.
    */
   resolveUserId?: (request: Request) => Promise<string | null>;
+  checkRateLimit?: (request: Request, userId: string | null) => RateLimitDecision;
 }
 
 const defaultDependencies: GenerateRouteDependencies = {
@@ -61,6 +75,7 @@ const defaultDependencies: GenerateRouteDependencies = {
     });
   },
   resolveUserId: defaultResolveUserId,
+  checkRateLimit: checkItineraryGenerationRateLimit,
 };
 
 /**
@@ -116,6 +131,24 @@ export async function handleGenerateItinerary(
     authedUserId = await resolveUserId(request);
   } catch {
     authedUserId = null;
+  }
+
+  const checkRateLimit =
+    deps.checkRateLimit ?? checkItineraryGenerationRateLimit;
+  const rateLimitDecision = checkRateLimit(request, authedUserId);
+  if (!rateLimitDecision.allowed) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many itinerary generation attempts. Please try again shortly.",
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitDecision.retryAfterSeconds),
+        },
+      },
+    );
   }
 
   // Always trust the verified id over anything the client sent.
@@ -231,6 +264,16 @@ async function defaultResolveUserId(request: Request): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function checkItineraryGenerationRateLimit(
+  request: Request,
+  userId: string | null,
+): RateLimitDecision {
+  const key = userId
+    ? `user:${userId}`
+    : `ip:${getClientIpAddress(request)}`;
+  return checkGenerateQuota(key);
 }
 
 function buildCityLocationsByNodeId(

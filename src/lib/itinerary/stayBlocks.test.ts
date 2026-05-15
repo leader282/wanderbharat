@@ -19,7 +19,7 @@ function makeDay(
   };
 }
 
-test("deriveStayBlocks groups contiguous base cities and keeps repeated visits separate", () => {
+test("deriveStayBlocks groups overnight base cities and skips the final day", () => {
   const blocks = deriveStayBlocks([
     makeDay(3, "node_jaipur", "Jaipur"),
     makeDay(0, "node_udaipur", "Udaipur"),
@@ -37,9 +37,12 @@ test("deriveStayBlocks groups contiguous base cities and keeps repeated visits s
     [
       { nodeId: "node_udaipur", startDay: 0, endDay: 1, nights: 2 },
       { nodeId: "node_jodhpur", startDay: 2, endDay: 2, nights: 1 },
-      { nodeId: "node_jaipur", startDay: 3, endDay: 3, nights: 1 },
     ],
   );
+});
+
+test("deriveStayBlocks returns no stay for same-day trips", () => {
+  assert.deepEqual(deriveStayBlocks([makeDay(0, "node_jaipur", "Jaipur")]), []);
 });
 
 test("deriveStayBlocks returns an empty list for an empty day plan", () => {

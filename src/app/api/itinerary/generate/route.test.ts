@@ -166,6 +166,29 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   assert.equal(savedId, "it_test");
 });
 
+test("handleGenerateItinerary rate limits before loading planning data", async () => {
+  let loadCalls = 0;
+
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => {
+      loadCalls += 1;
+      return makeContext();
+    },
+    generateItinerary: async () => ({
+      ok: true as const,
+      itinerary: makeItinerary(),
+    }),
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+    checkRateLimit: () => ({ allowed: false, retryAfterSeconds: 60 }),
+  });
+
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("Retry-After"), "60");
+  assert.equal(loadCalls, 0);
+});
+
 test("handleGenerateItinerary returns 422 without persisting failed plans", async () => {
   let saveCalls = 0;
 

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 
+import {
+  createSlidingWindowRateLimiter,
+  getClientIpAddress,
+  type RateLimitDecision,
+} from "@/lib/api/rateLimit";
 import { adjustItineraryBudgetSchema } from "@/lib/api/validation";
 import { buildBudgetAdjustmentPreview } from "@/lib/itinerary/budgetAdjustmentPreview";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -40,6 +45,14 @@ import type {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const BUDGET_UPDATE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const BUDGET_UPDATE_RATE_LIMIT_MAX_REQUESTS = 8;
+
+const checkBudgetUpdateQuota = createSlidingWindowRateLimiter({
+  windowMs: BUDGET_UPDATE_RATE_LIMIT_WINDOW_MS,
+  maxRequests: BUDGET_UPDATE_RATE_LIMIT_MAX_REQUESTS,
+});
+
 interface ItineraryRouteDependencies {
   getItinerary: typeof getItinerary;
   deleteItinerary: typeof deleteItinerary;
@@ -55,6 +68,10 @@ interface ItineraryRouteDependencies {
     Awaited<ReturnType<typeof getCurrentUser>>
   >;
   resolveUserIdFromRequest?: (request: Request) => Promise<string | null>;
+  checkBudgetUpdateRateLimit?: (
+    request: Request,
+    userId: string | null,
+  ) => RateLimitDecision;
 }
 
 async function defaultPlanAccommodations(
@@ -83,6 +100,7 @@ const defaultDependencies: ItineraryRouteDependencies = {
   planAccommodations: defaultPlanAccommodations,
   resolveCurrentUser: getCurrentUser,
   resolveUserIdFromRequest: defaultResolveUserIdFromRequest,
+  checkBudgetUpdateRateLimit: checkItineraryBudgetUpdateRateLimit,
 };
 
 /**
@@ -265,10 +283,10 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
+  let requesterUserId: string | null = null;
   if (existingItinerary.user_id !== null) {
     const resolveUserIdFromRequest =
       deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
-    let requesterUserId: string | null = null;
     try {
       requesterUserId = await resolveUserIdFromRequest(request);
     } catch {
@@ -299,6 +317,24 @@ export async function handleUpdateItineraryBudget(
         { status: 403 },
       );
     }
+  }
+
+  const checkBudgetUpdateRateLimit =
+    deps.checkBudgetUpdateRateLimit ?? checkItineraryBudgetUpdateRateLimit;
+  const rateLimitDecision = checkBudgetUpdateRateLimit(request, requesterUserId);
+  if (!rateLimitDecision.allowed) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many itinerary budget updates. Please try again shortly.",
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitDecision.retryAfterSeconds),
+        },
+      },
+    );
   }
 
   const requestedBudgetMax = Math.round(parsed.data.total_budget);
@@ -464,6 +500,16 @@ export async function DELETE(
 ) {
   const { id } = await params;
   return handleDeleteItinerary(id);
+}
+
+function checkItineraryBudgetUpdateRateLimit(
+  request: Request,
+  userId: string | null,
+): RateLimitDecision {
+  const key = userId
+    ? `user:${userId}`
+    : `ip:${getClientIpAddress(request)}`;
+  return checkBudgetUpdateQuota(key);
 }
 
 async function defaultResolveUserIdFromRequest(
