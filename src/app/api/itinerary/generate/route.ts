@@ -11,7 +11,10 @@ import { getAdminAuth } from "@/lib/firebase/admin";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
 import { validateBudget } from "@/lib/itinerary/constraints";
-import { generateItinerary } from "@/lib/itinerary/engine";
+import {
+  generateItinerary,
+  type EngineDependencies,
+} from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
 import { resolveLiteApiProviderConfig } from "@/lib/providers/hotels/liteApiConfig";
 import { LiteApiHotelDataProvider } from "@/lib/providers/hotels/liteApiHotelDataProvider";
@@ -26,6 +29,7 @@ import {
 } from "@/lib/repositories/hotelSearchSnapshotRepository";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 import { precacheItineraryRouteGeometry } from "@/lib/services/itineraryMapService";
+import { resolveTravelMatrix } from "@/lib/services/travelMatrixResolver";
 import type { Coordinates, TransportMode } from "@/types/domain";
 
 export const runtime = "nodejs";
@@ -43,6 +47,7 @@ interface GenerateRouteDependencies {
   /** Planning-aware loader. Prunes by start/end/modes/days. */
   loadEngineContextForPlan: typeof loadEngineContextForPlan;
   generateItinerary: typeof generateItinerary;
+  resolveTravelMatrix?: NonNullable<EngineDependencies["resolveTravelMatrix"]>;
   saveItinerary: typeof saveItinerary;
   precacheItineraryRouteGeometry?: typeof precacheItineraryRouteGeometry;
   planAccommodations: (
@@ -60,6 +65,7 @@ interface GenerateRouteDependencies {
 const defaultDependencies: GenerateRouteDependencies = {
   loadEngineContextForPlan,
   generateItinerary,
+  resolveTravelMatrix,
   saveItinerary,
   precacheItineraryRouteGeometry,
   planAccommodations: async (input) => {
@@ -166,16 +172,12 @@ export async function handleGenerateItinerary(
       travel_style: input.preferences.travel_style,
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error: "internal_error",
-        message: (err as Error).message,
-      },
-      { status: 500 },
-    );
+    return contextLoadErrorResponse(err);
   }
 
-  const result = await deps.generateItinerary(input, ctx);
+  const result = await deps.generateItinerary(input, ctx, {
+    resolveTravelMatrix: deps.resolveTravelMatrix ?? resolveTravelMatrix,
+  });
   if (!result.ok) {
     return NextResponse.json(result.error, { status: 422 });
   }
@@ -284,4 +286,33 @@ function buildCityLocationsByNodeId(
     locationsByNodeId[node.id] = node.location;
   }
   return locationsByNodeId;
+}
+
+function contextLoadErrorResponse(err: unknown) {
+  const message = err instanceof Error ? err.message : "Failed to load planning data.";
+  if (isContextInputError(message)) {
+    return NextResponse.json(
+      {
+        error: "invalid_input",
+        reason: "invalid_input",
+        message,
+      },
+      { status: 422 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error: "internal_error",
+      message,
+    },
+    { status: 500 },
+  );
+}
+
+function isContextInputError(message: string): boolean {
+  return (
+    message === "At least one region is required." ||
+    /^Start node ".+" not found\.$/.test(message)
+  );
 }

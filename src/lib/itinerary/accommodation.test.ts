@@ -324,7 +324,12 @@ function makeSearchSnapshot(hotels: HotelSearchResult[]): HotelSearchSnapshot {
 function makeRatesSnapshot(args: {
   id?: string;
   hotelIds: string[];
-  offers: Array<{ hotelId: string; roomId: string; total: number }>;
+  offers: Array<{
+    hotelId: string;
+    roomId: string;
+    total: number;
+    nightly?: number | null;
+  }>;
 }): HotelOfferSnapshot {
   return {
     id: args.id ?? "rate_snapshot_test",
@@ -347,7 +352,10 @@ function makeRatesSnapshot(args: {
       board_type: "BB",
       board_name: "Breakfast",
       total_amount: offer.total,
-      nightly_amount: Number((offer.total / 2).toFixed(2)),
+      nightly_amount:
+        offer.nightly === undefined
+          ? Number((offer.total / 2).toFixed(2))
+          : offer.nightly,
       currency: "INR",
       max_occupancy: 3,
       adult_count: 2,
@@ -426,6 +434,60 @@ test("planAccommodations attaches LiteAPI options and uses selected rates", asyn
   assert.equal(result.stays[0]?.hotelRateOptions?.length, 5);
   assert.equal(result.stays[0]?.hotelRateOptions?.[0]?.hotel_name, "Amber Palace");
   assert.deepEqual(result.warnings, []);
+});
+
+test("planAccommodations ranks LiteAPI total-only rates by effective nightly amount", async () => {
+  const provider: HotelDataProvider = {
+    provider: "liteapi",
+    searchHotels: async () => [
+      makeHotel("h_explicit", "Explicit Nightly Stay"),
+      makeHotel("h_total_only", "Total Only Stay"),
+    ],
+    searchRates: async () =>
+      makeRatesSnapshot({
+        hotelIds: ["h_explicit", "h_total_only"],
+        offers: [
+          {
+            hotelId: "h_explicit",
+            roomId: "r_explicit",
+            total: 5800,
+            nightly: 2900,
+          },
+          {
+            hotelId: "h_total_only",
+            roomId: "r_total_only",
+            total: 5200,
+            nightly: null,
+          },
+        ],
+      }),
+  };
+
+  const result = await planAccommodations(
+    {
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+        makeDay(2, "node_jaipur", "Jaipur"),
+      ],
+      budget: { min: 0, max: 30000, currency: "INR" },
+      travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
+      travelStyle: "balanced",
+      tripStartDate: "2026-06-10",
+      region: "rajasthan",
+      cityLocationsByNodeId: { node_jaipur: { lat: 26.9124, lng: 75.7873 } },
+    },
+    {
+      getByNode: async () => [],
+      hotelDataProvider: provider,
+      maxHotelProviderCalls: 4,
+      nowMs: () => 1_700_000_000_000,
+    },
+  );
+
+  assert.equal(result.stays[0]?.hotelRateOptions?.[0]?.provider_hotel_id, "h_total_only");
+  assert.equal(result.stays[0]?.nightlyCost, 2600);
+  assert.equal(result.stays[0]?.totalCost, 5200);
 });
 
 test("planAccommodations continues with unknown stay when provider is disabled", async () => {

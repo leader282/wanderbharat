@@ -367,6 +367,45 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   assert.equal(saveCalls, 0);
 });
 
+test("handleUpdateItineraryBudget injects the travel matrix resolver into regenerated plans", async () => {
+  const fakeResolver = async () => ({
+    edges: [],
+    get: () => null,
+    getAll: () => [],
+    modes: ["road" as const],
+  });
+  let observedResolver: unknown;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 30000 }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: null }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async () => makeContext(),
+      generateItinerary: async (input, _ctx, engineDeps) => {
+        observedResolver = engineDeps?.resolveTravelMatrix;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary({
+            user_id: null,
+            preferences: input.preferences,
+            estimated_cost: 9000,
+          }),
+        };
+      },
+      resolveTravelMatrix: fakeResolver,
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      resolveUserIdFromRequest: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(observedResolver, fakeResolver);
+});
+
 test("handleUpdateItineraryBudget rate limits guest previews before regeneration", async () => {
   let generateCalls = 0;
 
@@ -396,6 +435,39 @@ test("handleUpdateItineraryBudget rate limits guest previews before regeneration
 
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("Retry-After"), "30");
+  assert.equal(generateCalls, 0);
+});
+
+test("handleUpdateItineraryBudget returns 422 for missing planning start nodes", async () => {
+  let generateCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 30000 }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: null }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async () => {
+        throw new Error('Start node "node_start" not found.');
+      },
+      generateItinerary: async () => {
+        generateCalls += 1;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary({ user_id: null }),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      resolveUserIdFromRequest: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 422);
+  const payload = (await response.json()) as { error: string; reason: string };
+  assert.equal(payload.error, "invalid_input");
+  assert.equal(payload.reason, "invalid_input");
   assert.equal(generateCalls, 0);
 });
 

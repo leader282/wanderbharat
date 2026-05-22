@@ -13,7 +13,10 @@ import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/a
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
 import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
 import { validateBudget } from "@/lib/itinerary/constraints";
-import { generateItinerary } from "@/lib/itinerary/engine";
+import {
+  generateItinerary,
+  type EngineDependencies,
+} from "@/lib/itinerary/engine";
 import { loadEngineContextForPlan } from "@/lib/itinerary/loadContext";
 import { resolveLiteApiProviderConfig } from "@/lib/providers/hotels/liteApiConfig";
 import { LiteApiHotelDataProvider } from "@/lib/providers/hotels/liteApiHotelDataProvider";
@@ -35,6 +38,7 @@ import {
   getItineraryMapData,
   precacheItineraryRouteGeometry,
 } from "@/lib/services/itineraryMapService";
+import { resolveTravelMatrix } from "@/lib/services/travelMatrixResolver";
 import type {
   Coordinates,
   Itinerary,
@@ -60,6 +64,7 @@ interface ItineraryRouteDependencies {
   getItineraryMapData: typeof getItineraryMapData;
   loadEngineContextForPlan?: typeof loadEngineContextForPlan;
   generateItinerary?: typeof generateItinerary;
+  resolveTravelMatrix?: NonNullable<EngineDependencies["resolveTravelMatrix"]>;
   precacheItineraryRouteGeometry?: typeof precacheItineraryRouteGeometry;
   planAccommodations?: (
     input: Parameters<typeof runAccommodationPlanner>[0],
@@ -96,6 +101,7 @@ const defaultDependencies: ItineraryRouteDependencies = {
   getItineraryMapData,
   loadEngineContextForPlan,
   generateItinerary,
+  resolveTravelMatrix,
   precacheItineraryRouteGeometry,
   planAccommodations: defaultPlanAccommodations,
   resolveCurrentUser: getCurrentUser,
@@ -373,17 +379,13 @@ export async function handleUpdateItineraryBudget(
       travel_style: input.preferences.travel_style,
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        error: "internal_error",
-        message: (err as Error).message,
-      },
-      { status: 500 },
-    );
+    return contextLoadErrorResponse(err);
   }
 
   const runItineraryGeneration = deps.generateItinerary ?? generateItinerary;
-  const result = await runItineraryGeneration(input, ctx);
+  const result = await runItineraryGeneration(input, ctx, {
+    resolveTravelMatrix: deps.resolveTravelMatrix ?? resolveTravelMatrix,
+  });
   if (!result.ok) {
     return NextResponse.json(result.error, { status: 422 });
   }
@@ -538,4 +540,33 @@ function buildCityLocationsByNodeId(
     locationsByNodeId[node.id] = node.location;
   }
   return locationsByNodeId;
+}
+
+function contextLoadErrorResponse(err: unknown) {
+  const message = err instanceof Error ? err.message : "Failed to load planning data.";
+  if (isContextInputError(message)) {
+    return NextResponse.json(
+      {
+        error: "invalid_input",
+        reason: "invalid_input",
+        message,
+      },
+      { status: 422 },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error: "internal_error",
+      message,
+    },
+    { status: 500 },
+  );
+}
+
+function isContextInputError(message: string): boolean {
+  return (
+    message === "At least one region is required." ||
+    /^Start node ".+" not found\.$/.test(message)
+  );
 }
