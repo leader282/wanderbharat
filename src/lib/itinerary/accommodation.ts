@@ -402,6 +402,8 @@ function selectTopHotelRateOptions(args: {
 
   if (priced.length === 0) return null;
 
+  priced.sort(comparePricedHotelRateOptions);
+
   const inBudget = priced.filter((entry) => entry.nightly <= args.nightlyBudgetMax);
   const pool = inBudget.length > 0 ? inBudget : priced;
   const topCount = Math.min(Math.max(1, args.maxOptions), pool.length);
@@ -418,6 +420,31 @@ function selectTopHotelRateOptions(args: {
         ? "Only over-budget LiteAPI hotel rates were available; selected the most affordable deterministic option."
         : null,
   };
+}
+
+function comparePricedHotelRateOptions(
+  left: {
+    option: StayHotelRateOption;
+    nightly: number;
+    total: number;
+  },
+  right: {
+    option: StayHotelRateOption;
+    nightly: number;
+    total: number;
+  },
+): number {
+  const nightlyDiff = left.nightly - right.nightly;
+  if (Math.abs(nightlyDiff) > 1e-9) return nightlyDiff;
+
+  const totalDiff = left.total - right.total;
+  if (Math.abs(totalDiff) > 1e-9) return totalDiff;
+
+  const hotelDiff = left.option.provider_hotel_id.localeCompare(
+    right.option.provider_hotel_id,
+  );
+  if (hotelDiff !== 0) return hotelDiff;
+  return left.option.room_type_id.localeCompare(right.option.room_type_id);
 }
 
 function resolveNightlyAmount(

@@ -166,6 +166,34 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   assert.equal(savedId, "it_test");
 });
 
+test("handleGenerateItinerary injects the travel matrix resolver into the engine", async () => {
+  const fakeResolver = async () => ({
+    edges: [],
+    get: () => null,
+    getAll: () => [],
+    modes: ["road" as const],
+  });
+  let observedResolver: unknown;
+
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => makeContext(),
+    generateItinerary: async (_input, _ctx, engineDeps) => {
+      observedResolver = engineDeps?.resolveTravelMatrix;
+      return {
+        ok: true as const,
+        itinerary: makeItinerary(),
+      };
+    },
+    resolveTravelMatrix: fakeResolver,
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal(observedResolver, fakeResolver);
+});
+
 test("handleGenerateItinerary rate limits before loading planning data", async () => {
   let loadCalls = 0;
 
@@ -187,6 +215,32 @@ test("handleGenerateItinerary rate limits before loading planning data", async (
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("Retry-After"), "60");
   assert.equal(loadCalls, 0);
+});
+
+test("handleGenerateItinerary returns 422 for missing planning start nodes", async () => {
+  let generateCalls = 0;
+
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => {
+      throw new Error('Start node "node_start" not found.');
+    },
+    generateItinerary: async () => {
+      generateCalls += 1;
+      return {
+        ok: true as const,
+        itinerary: makeItinerary(),
+      };
+    },
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 422);
+  const payload = (await response.json()) as { error: string; reason: string };
+  assert.equal(payload.error, "invalid_input");
+  assert.equal(payload.reason, "invalid_input");
+  assert.equal(generateCalls, 0);
 });
 
 test("handleGenerateItinerary returns 422 without persisting failed plans", async () => {
