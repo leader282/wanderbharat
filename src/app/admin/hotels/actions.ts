@@ -5,6 +5,10 @@ import { redirect } from "next/navigation";
 
 import { requireAdminUser } from "@/lib/auth/admin";
 import {
+  findRecentLiteApiRatesLog,
+  LITEAPI_RETEST_COOLDOWN_MS,
+} from "@/lib/admin/hotelRetestCooldown";
+import {
   buildLiteApiRateCacheKey,
   LiteApiHotelDataProvider,
 } from "@/lib/providers/hotels/liteApiHotelDataProvider";
@@ -23,7 +27,6 @@ import {
 } from "@/lib/repositories/hotelOfferSnapshotRepository";
 import { listProviderCallLogs } from "@/lib/repositories/providerCallLogRepository";
 
-const RETEST_COOLDOWN_MS = 90_000;
 const MAX_RETEST_LIMIT = 100;
 const DEFAULT_RETEST_LIMIT = 20;
 const ERROR_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
@@ -113,12 +116,10 @@ async function enforceRetestCooldown(snapshot: HotelOfferSnapshot): Promise<void
     limit: 200,
   });
   const now = Date.now();
-  const latestMatch = recentLogs.find((entry) => {
-    if (entry.endpoint !== "/hotels/rates") return false;
-    if (entry.region !== snapshot.region) return false;
-    if (entry.node_id !== snapshot.node_id) return false;
-    const ageMs = now - entry.created_at;
-    return ageMs >= 0 && ageMs < RETEST_COOLDOWN_MS;
+  const latestMatch = findRecentLiteApiRatesLog({
+    logs: recentLogs,
+    snapshot,
+    nowMs: now,
   });
 
   if (latestMatch) {
@@ -128,7 +129,9 @@ async function enforceRetestCooldown(snapshot: HotelOfferSnapshot): Promise<void
     );
     const waitSeconds = Math.max(
       1,
-      Math.ceil((RETEST_COOLDOWN_MS - (now - latestMatch.created_at)) / 1000),
+      Math.ceil(
+        (LITEAPI_RETEST_COOLDOWN_MS - (now - latestMatch.created_at)) / 1000,
+      ),
     );
     throw new Error(
       `A LiteAPI rates call for this stay block ran ${ageSeconds}s ago. Wait ${waitSeconds}s before testing again.`,

@@ -129,18 +129,6 @@ export function deriveBudgetPanelState(args: {
     estimatedCount: estimatedAttractionCostsCount,
     unknownCount: unknownAttractionCostsCount,
   });
-  const estimatedAttractionSubtotal = roundCurrency(
-    attractionLineItems.reduce((sum, item) => {
-      const confidence = resolveBudgetLineItemConfidence(item);
-      return confidence === "estimated" ? sum + item.amount : sum;
-    }, 0),
-  );
-  const estimatedTravelSubtotal = roundCurrency(
-    travelLineItems.reduce((sum, item) => {
-      const confidence = resolveBudgetLineItemConfidence(item);
-      return confidence === "estimated" ? sum + item.amount : sum;
-    }, 0),
-  );
   const travellerUnits =
     Math.max(0, args.travellers.adults) +
     Math.max(0, args.travellers.children) * CHILD_ESTIMATE_WEIGHT;
@@ -151,10 +139,7 @@ export function deriveBudgetPanelState(args: {
     tripDays * travellerUnits * LOCAL_TRANSPORT_ESTIMATE_PER_TRAVELLER_PER_DAY,
   );
   const estimatedComponentTotal = roundCurrency(
-    estimatedAttractionSubtotal +
-      estimatedTravelSubtotal +
-      foodEstimate +
-      localTransportEstimate,
+    foodEstimate + localTransportEstimate,
   );
   const unknownCostExclusionsCount =
     unknownLodgingStaysCount + unknownAttractionCostsCount;

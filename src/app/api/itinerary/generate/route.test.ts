@@ -401,3 +401,48 @@ test("handleGenerateItinerary returns 422 when room allocations push the final t
   assert.equal(payload.reason, "budget_exceeded");
   assert.equal(saveCalls, 0);
 });
+
+test("handleGenerateItinerary hides accommodation provider errors from clients", async () => {
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => makeContext(),
+    generateItinerary: async () => ({
+      ok: true as const,
+      itinerary: makeItinerary(),
+    }),
+    planAccommodations: async () => {
+      throw new Error("LiteAPI upstream response included provider internals");
+    },
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 500);
+  const payload = (await response.json()) as { error: string; message: string };
+  assert.equal(payload.error, "internal_error");
+  assert.doesNotMatch(payload.message, /LiteAPI upstream/);
+});
+
+test("handleGenerateItinerary hides persistence details and generated bodies from clients", async () => {
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => makeContext(),
+    generateItinerary: async () => ({
+      ok: true as const,
+      itinerary: makeItinerary(),
+    }),
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {
+      throw new Error("Firestore internal collection path leaked");
+    },
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 500);
+  const payload = (await response.json()) as {
+    error: string;
+    message: string;
+    itinerary?: Itinerary;
+  };
+  assert.equal(payload.error, "persistence_failed");
+  assert.doesNotMatch(payload.message, /Firestore internal/);
+  assert.equal("itinerary" in payload, false);
+});

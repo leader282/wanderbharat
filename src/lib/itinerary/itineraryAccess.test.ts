@@ -13,6 +13,16 @@ test("canAccessItinerary allows guest itineraries without auth", () => {
   );
 });
 
+test("canAccessItinerary treats missing legacy guest owners as public", () => {
+  assert.equal(
+    canAccessItinerary({
+      itineraryUserId: undefined,
+      requesterUserId: null,
+    }),
+    true,
+  );
+});
+
 test("canAccessItinerary allows owners to read saved itineraries", () => {
   assert.equal(
     canAccessItinerary({

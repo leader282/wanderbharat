@@ -7,8 +7,8 @@ import {
 } from "@/lib/api/rateLimit";
 import { adjustItineraryBudgetSchema } from "@/lib/api/validation";
 import { buildBudgetAdjustmentPreview } from "@/lib/itinerary/budgetAdjustmentPreview";
+import { resolveRequestUserId } from "@/lib/auth/requestUser";
 import { getCurrentUser } from "@/lib/auth/session";
-import { getAdminAuth } from "@/lib/firebase/admin";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
 import { canAccessItinerary } from "@/lib/itinerary/itineraryAccess";
@@ -138,7 +138,7 @@ export async function handleGetItinerary(
       );
     }
 
-    if (itinerary.user_id !== null) {
+    if (itinerary.user_id != null) {
       const resolveUserIdFromRequest =
         deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
       const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
@@ -176,9 +176,12 @@ export async function handleGetItinerary(
     const map = await deps.getItineraryMapData(itinerary);
     const payload: ItineraryDetail = { itinerary, map };
     return NextResponse.json(payload);
-  } catch (err) {
+  } catch {
     return NextResponse.json(
-      { error: "internal_error", message: (err as Error).message },
+      {
+        error: "internal_error",
+        message: "We couldn't load this itinerary. Please try again shortly.",
+      },
       { status: 500 },
     );
   }
@@ -225,9 +228,12 @@ export async function handleDeleteItinerary(
 
     await deps.deleteItinerary(id);
     return NextResponse.json({ ok: true, id });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
-      { error: "internal_error", message: (err as Error).message },
+      {
+        error: "internal_error",
+        message: "We couldn't delete this itinerary. Please try again shortly.",
+      },
       { status: 500 },
     );
   }
@@ -279,7 +285,9 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  if (existingItinerary.user_id === null && parsed.data.apply) {
+  const itineraryUserId = existingItinerary.user_id ?? null;
+
+  if (itineraryUserId === null && parsed.data.apply) {
     return NextResponse.json(
       {
         error: "unauthorized",
@@ -290,7 +298,7 @@ export async function handleUpdateItineraryBudget(
   }
 
   let requesterUserId: string | null = null;
-  if (existingItinerary.user_id !== null) {
+  if (itineraryUserId !== null) {
     const resolveUserIdFromRequest =
       deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
     try {
@@ -311,7 +319,7 @@ export async function handleUpdateItineraryBudget(
 
     if (
       !canAccessItinerary({
-        itineraryUserId: existingItinerary.user_id,
+          itineraryUserId,
         requesterUserId,
       })
     ) {
@@ -359,7 +367,7 @@ export async function handleUpdateItineraryBudget(
     start_node: existingItinerary.start_node,
     end_node: existingItinerary.end_node,
     days: existingItinerary.days,
-    user_id: existingItinerary.user_id ?? undefined,
+    user_id: itineraryUserId ?? undefined,
     preferences: {
       ...existingItinerary.preferences,
       budget: requestedBudget,
@@ -418,11 +426,12 @@ export async function handleUpdateItineraryBudget(
     if (finalBudgetError) {
       return NextResponse.json(finalBudgetError, { status: 422 });
     }
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       {
         error: "internal_error",
-        message: (err as Error).message,
+        message:
+          "We couldn't finish hotel planning for this itinerary. Please try again shortly.",
       },
       { status: 500 },
     );
@@ -431,7 +440,7 @@ export async function handleUpdateItineraryBudget(
   const updatedItinerary: Itinerary = {
     ...hydratedItinerary,
     id: existingItinerary.id,
-    user_id: existingItinerary.user_id,
+    user_id: itineraryUserId,
     created_at: existingItinerary.created_at,
   };
   const preview = buildBudgetAdjustmentPreview({
@@ -457,12 +466,11 @@ export async function handleUpdateItineraryBudget(
   const persistItinerary = deps.saveItinerary ?? saveItinerary;
   try {
     await persistItinerary(updatedItinerary);
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       {
         error: "persistence_failed",
-        message: (err as Error).message,
-        itinerary: updatedItinerary,
+        message: "We couldn't save the itinerary. Please try again shortly.",
       },
       { status: 500 },
     );
@@ -517,19 +525,7 @@ function checkItineraryBudgetUpdateRateLimit(
 async function defaultResolveUserIdFromRequest(
   request: Request,
 ): Promise<string | null> {
-  const fromCookie = await getCurrentUser();
-  if (fromCookie) return fromCookie.uid;
-
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) return null;
-
-  try {
-    const decoded = await getAdminAuth().verifyIdToken(match[1].trim(), true);
-    return decoded.uid;
-  } catch {
-    return null;
-  }
+  return resolveRequestUserId(request);
 }
 
 function buildCityLocationsByNodeId(
@@ -558,7 +554,7 @@ function contextLoadErrorResponse(err: unknown) {
   return NextResponse.json(
     {
       error: "internal_error",
-      message,
+      message: "We couldn't load planning data. Please try again shortly.",
     },
     { status: 500 },
   );

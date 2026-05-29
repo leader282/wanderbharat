@@ -122,6 +122,39 @@ test("normaliseStoredItinerary backfills older saved itineraries for the UI", ()
   assert.equal(normalised.budget_breakdown?.line_items.length, 0);
 });
 
+test("normaliseStoredItinerary backfills missing legacy guest user ids to null", () => {
+  const raw = {
+    id: "it_legacy_guest",
+    region: "rajasthan",
+    start_node: "node_ajmer",
+    end_node: "node_ajmer",
+    days: 1,
+    preferences: {
+      travel_style: "balanced",
+      budget: { min: 0, max: 25000, currency: "INR" },
+    },
+    nodes: ["node_ajmer"],
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "node_ajmer",
+        base_node_name: "Ajmer",
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 0,
+      },
+    ],
+    stays: [],
+    estimated_cost: 12000,
+    score: 0.81,
+    created_at: 1700000000000,
+  } as unknown as Itinerary;
+
+  const normalised = normaliseStoredItinerary(raw);
+
+  assert.equal(normalised.user_id, null);
+});
+
 test("normaliseStoredItinerary dedupes warnings and repairs partial budget metadata", () => {
   const raw = {
     id: "it_partial",
