@@ -102,6 +102,7 @@ export function normaliseStoredItinerary(itinerary: StoredItinerary): Itinerary 
 
   return {
     ...itinerary,
+    user_id: typeof itinerary.user_id === "string" ? itinerary.user_id : null,
     nodes: normaliseNodes(itinerary.nodes, day_plan),
     day_plan,
     stays,

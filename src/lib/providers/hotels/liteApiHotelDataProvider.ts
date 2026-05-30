@@ -10,6 +10,10 @@ import {
   ProviderResponseError,
   ProviderTimeoutError,
 } from "@/lib/providers/hotels/providerErrors";
+import {
+  LITEAPI_HOTEL_RATES_ENDPOINT,
+  LITEAPI_HOTEL_SEARCH_ENDPOINT,
+} from "@/lib/providers/hotels/liteApiEndpoints";
 import type {
   HotelOfferResult,
   HotelOfferSnapshot,
@@ -33,11 +37,6 @@ interface LiteApiHotelDataProviderOptions {
   ) => Promise<void>;
 }
 
-// Keep these path segments relative (no leading slash) so URL resolution
-// preserves any version prefix in baseUrl (e.g. /v3.0).
-const HOTEL_SEARCH_ENDPOINT = "data/hotels";
-const HOTEL_RATES_ENDPOINT = "hotels/rates";
-
 export class LiteApiHotelDataProvider implements HotelDataProvider {
   readonly provider = "liteapi" as const;
 
@@ -55,7 +54,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
   }
 
   async searchHotels(input: HotelSearchInput): Promise<HotelSearchResult[]> {
-    const endpoint = HOTEL_SEARCH_ENDPOINT;
+    const endpoint = LITEAPI_HOTEL_SEARCH_ENDPOINT;
     const requestSummary = buildHotelSearchSummary(input, this.config.maxResults);
     const startedAt = this.nowMs();
 
@@ -99,7 +98,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
   }
 
   async searchRates(input: HotelRateSearchInput): Promise<HotelOfferSnapshot> {
-    const endpoint = HOTEL_RATES_ENDPOINT;
+    const endpoint = LITEAPI_HOTEL_RATES_ENDPOINT;
     const requestSummary = buildHotelRateSummary(input, this.config.maxResults);
     const startedAt = this.nowMs();
 
@@ -107,7 +106,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
       this.assertProviderEnabled();
       const payload = buildRateRequestPayload(input, this.config.maxResults);
       const response = await this.fetchWithTimeout(
-        new URL(HOTEL_RATES_ENDPOINT, `${this.config.baseUrl}/`),
+        new URL(LITEAPI_HOTEL_RATES_ENDPOINT, `${this.config.baseUrl}/`),
         {
           method: "POST",
           headers: {
@@ -166,7 +165,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
     if (!input.city_name && !input.anchor) {
       throw new ProviderResponseError({
         code: "liteapi_invalid_search_input",
-        endpoint: HOTEL_SEARCH_ENDPOINT,
+        endpoint: LITEAPI_HOTEL_SEARCH_ENDPOINT,
         status: null,
         message:
           "Hotel search requires city_name or anchor coordinates for LiteAPI.",
@@ -174,7 +173,7 @@ export class LiteApiHotelDataProvider implements HotelDataProvider {
     }
 
     const limit = clampLimit(input.limit ?? this.config.maxResults, this.config.maxResults);
-    const url = new URL(HOTEL_SEARCH_ENDPOINT, `${this.config.baseUrl}/`);
+    const url = new URL(LITEAPI_HOTEL_SEARCH_ENDPOINT, `${this.config.baseUrl}/`);
     // LiteAPI treats cityName as an additional filter; with coordinates it can
     // over-constrain smaller places like Khajjiar to zero results.
     if (input.city_name && !input.anchor) {
@@ -460,7 +459,7 @@ function buildRateRequestPayload(
   if (hotelIds.length === 0) {
     throw new ProviderResponseError({
       code: "liteapi_invalid_rates_input",
-      endpoint: HOTEL_RATES_ENDPOINT,
+      endpoint: LITEAPI_HOTEL_RATES_ENDPOINT,
       status: null,
       message: "Hotel rate search requires at least one hotel id.",
     });

@@ -5,10 +5,10 @@ import type { Itinerary } from "@/types/domain";
  * Guest itineraries (`user_id` absent) remain shareable by link.
  */
 export function canAccessItinerary(args: {
-  itineraryUserId: Itinerary["user_id"];
+  itineraryUserId: Itinerary["user_id"] | undefined;
   requesterUserId: string | null | undefined;
 }): boolean {
-  if (args.itineraryUserId === null) return true;
+  if (args.itineraryUserId == null) return true;
 
   const ownerId = args.itineraryUserId.trim();
   if (!ownerId) return false;

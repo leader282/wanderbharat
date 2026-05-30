@@ -160,7 +160,39 @@ test("deriveBudgetPanelState surfaces attraction subtotal and confidence counter
   assert.equal(state.unknownCostExclusionsCount, 2);
   assert.equal(state.showCostRange, true);
   assert.equal(state.totalCostFloor, 22_800);
-  assert.equal(state.totalCostCeiling, 25_136);
+  assert.equal(state.totalCostCeiling, 24_636);
+});
+
+test("deriveBudgetPanelState does not double count estimated line items already included in total cost", () => {
+  const state = deriveBudgetPanelState({
+    estimatedCost: 20_000,
+    requestedBudget: { min: 0, max: 22_000, currency: "INR" },
+    travellers: { adults: 1, children: 0 },
+    tripDays: 2,
+    breakdown: breakdown({
+      totalTripCost: 20_000,
+      line_items: [
+        lineItem({
+          id: "travel_estimated",
+          kind: "travel",
+          label: "Estimated road transfer",
+          amount: 2_000,
+          provenance: { confidence: "estimated" },
+        }),
+        lineItem({
+          id: "attraction_estimated",
+          kind: "attraction",
+          label: "Estimated admission",
+          amount: 500,
+          provenance: { confidence: "estimated" },
+        }),
+      ],
+    }),
+  });
+
+  assert.equal(state.estimatedComponentTotal, 1_360);
+  assert.equal(state.totalCostCeiling, 21_360);
+  assert.equal(state.budgetGapLabel, "Budget buffer");
 });
 
 test("deriveBudgetPanelState marks hotels as live when live rates exist", () => {

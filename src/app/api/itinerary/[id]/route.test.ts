@@ -195,6 +195,18 @@ test("handleGetItinerary allows guest itineraries without auth", async () => {
   assert.equal(response.status, 200);
 });
 
+test("handleGetItinerary allows legacy guest itineraries with missing user ids", async () => {
+  const response = await handleGetItinerary("it_test", {
+    getItinerary: async () =>
+      makeItinerary({ user_id: undefined as unknown as Itinerary["user_id"] }),
+    deleteItinerary: async () => {},
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => null,
+  });
+
+  assert.equal(response.status, 200);
+});
+
 test("handleDeleteItinerary requires an authenticated user", async () => {
   let deleteCalls = 0;
 
@@ -586,6 +598,43 @@ test("handleUpdateItineraryBudget applies the regenerated itinerary in place", a
   assert.equal(persisted.id, "it_test");
   assert.equal(persisted.created_at, 1700000000000);
   assert.equal(persisted.preferences.budget.max, 65000);
+});
+
+test("handleUpdateItineraryBudget hides persistence details from clients", async () => {
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 65000, apply: true }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {
+        throw new Error("Firestore project secret path leaked");
+      },
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async () => makeContext(),
+      generateItinerary: async (input) => ({
+        ok: true as const,
+        itinerary: makeItinerary({
+          id: "it_generated_elsewhere",
+          preferences: input.preferences,
+          estimated_cost: 20000,
+        }),
+      }),
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      precacheItineraryRouteGeometry: async () => [],
+      resolveUserIdFromRequest: async () => "uid_owner",
+    },
+  );
+
+  assert.equal(response.status, 500);
+  const payload = (await response.json()) as {
+    error: string;
+    message: string;
+    itinerary?: Itinerary;
+  };
+  assert.equal(payload.error, "persistence_failed");
+  assert.doesNotMatch(payload.message, /Firestore project secret/);
+  assert.equal("itinerary" in payload, false);
 });
 
 test("handleUpdateItineraryBudget rejects applying account-owned itineraries as another user", async () => {

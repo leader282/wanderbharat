@@ -6,8 +6,7 @@ import {
   type RateLimitDecision,
 } from "@/lib/api/rateLimit";
 import { generateItinerarySchema } from "@/lib/api/validation";
-import { getCurrentUser } from "@/lib/auth/session";
-import { getAdminAuth } from "@/lib/firebase/admin";
+import { resolveRequestUserId } from "@/lib/auth/requestUser";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
 import { validateBudget } from "@/lib/itinerary/constraints";
@@ -54,9 +53,10 @@ interface GenerateRouteDependencies {
     input: Parameters<typeof runAccommodationPlanner>[0],
   ) => ReturnType<typeof runAccommodationPlanner>;
   /**
-   * Resolve the authenticated user (if any) for this request. Defaults
-   * to checking the session cookie, then the `Authorization: Bearer
-   * <idToken>` header. Tests can stub this without going through Firebase.
+   * Resolve the authenticated user (if any) for this request. Defaults to
+   * trusting a supplied `Authorization: Bearer <idToken>` before the session
+   * cookie so stale cookies cannot misattribute fresh client requests.
+   * Tests can stub this without going through Firebase.
    */
   resolveUserId?: (request: Request) => Promise<string | null>;
   checkRateLimit?: (request: Request, userId: string | null) => RateLimitDecision;
@@ -208,12 +208,11 @@ export async function handleGenerateItinerary(
     if (finalBudgetError) {
       return NextResponse.json(finalBudgetError, { status: 422 });
     }
-  } catch (err) {
+  } catch {
     return NextResponse.json(
-      {
-        error: "internal_error",
-        message: (err as Error).message,
-      },
+      itineraryInternalErrorPayload(
+        "We couldn't finish hotel planning for this itinerary. Please try again shortly.",
+      ),
       { status: 500 },
     );
   }
@@ -229,12 +228,11 @@ export async function handleGenerateItinerary(
 
   try {
     await deps.saveItinerary(itinerary);
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       {
         error: "persistence_failed",
-        message: (err as Error).message,
-        itinerary,
+        message: "We couldn't save the itinerary. Please try again shortly.",
       },
       { status: 500 },
     );
@@ -248,24 +246,11 @@ export async function POST(request: Request) {
 }
 
 /**
- * Default user-id resolver. Tries the verified session cookie first
- * (fast, already trusted), then falls back to a bearer ID token in
- * `Authorization`. Returns `null` for anonymous requests.
+ * Default user-id resolver. A present bearer token represents the current
+ * Firebase client user and wins over any stale session cookie.
  */
 async function defaultResolveUserId(request: Request): Promise<string | null> {
-  const fromCookie = await getCurrentUser();
-  if (fromCookie) return fromCookie.uid;
-
-  const header = request.headers.get("authorization") ?? "";
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) return null;
-
-  try {
-    const decoded = await getAdminAuth().verifyIdToken(match[1].trim(), true);
-    return decoded.uid;
-  } catch {
-    return null;
-  }
+  return resolveRequestUserId(request);
 }
 
 function checkItineraryGenerationRateLimit(
@@ -302,12 +287,21 @@ function contextLoadErrorResponse(err: unknown) {
   }
 
   return NextResponse.json(
-    {
-      error: "internal_error",
-      message,
-    },
+    itineraryInternalErrorPayload(
+      "We couldn't load planning data. Please try again shortly.",
+    ),
     { status: 500 },
   );
+}
+
+function itineraryInternalErrorPayload(message: string): {
+  error: "internal_error";
+  message: string;
+} {
+  return {
+    error: "internal_error",
+    message,
+  };
 }
 
 function isContextInputError(message: string): boolean {
