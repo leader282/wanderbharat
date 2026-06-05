@@ -17,9 +17,7 @@ import {
   deriveNightlyBudgetRange,
   filterAccommodationsForStay,
 } from "@/lib/itinerary/accommodationConstraints";
-import {
-  scoreAccommodation,
-} from "@/lib/itinerary/accommodationScoring";
+import { scoreAccommodation } from "@/lib/itinerary/accommodationScoring";
 import { formatTravellerParty } from "@/lib/itinerary/presentation";
 import { selectOptimalRoomAllocation } from "@/lib/itinerary/roomAllocation";
 import { deriveStayBlocks, totalStayNights } from "@/lib/itinerary/stayBlocks";
@@ -159,12 +157,20 @@ async function planWithHotelRatePlans(args: {
       options: plan.options,
       nights: block.nights,
       nightlyBudgetMax: args.nightlyBudget.max,
-      maxOptions: Math.max(1, Math.min(args.deps.maxHotelOptionsPerStay ?? 5, 5)),
+      maxOptions: Math.max(
+        1,
+        Math.min(args.deps.maxHotelOptionsPerStay ?? 5, 5),
+      ),
+      currency: args.input.budget.currency ?? "INR",
     });
 
     if (!selected) {
       warnings.push(
-        `No usable LiteAPI hotel prices were available for ${block.nodeName}.`,
+        buildNoUsableHotelPricesWarning(
+          block.nodeName,
+          plan.options,
+          args.input.budget.currency,
+        ),
       );
       stays.push(
         toUnknownRateStay({
@@ -374,6 +380,7 @@ function selectTopHotelRateOptions(args: {
   nights: number;
   nightlyBudgetMax: number;
   maxOptions: number;
+  currency: string;
 }): {
   options: StayHotelRateOption[];
   selectedNightly: number;
@@ -385,7 +392,9 @@ function selectTopHotelRateOptions(args: {
     nightly: number;
     total: number;
   }> = [];
+  const expectedCurrency = normaliseCurrency(args.currency);
   for (const option of args.options) {
+    if (normaliseCurrency(option.currency) !== expectedCurrency) continue;
     const nightly = resolveNightlyAmount(option, args.nights);
     const total = resolveTotalAmount(option, args.nights);
     if (nightly === null || total === null) continue;
@@ -404,7 +413,9 @@ function selectTopHotelRateOptions(args: {
 
   priced.sort(comparePricedHotelRateOptions);
 
-  const inBudget = priced.filter((entry) => entry.nightly <= args.nightlyBudgetMax);
+  const inBudget = priced.filter(
+    (entry) => entry.nightly <= args.nightlyBudgetMax,
+  );
   const pool = inBudget.length > 0 ? inBudget : priced;
   const topCount = Math.min(Math.max(1, args.maxOptions), pool.length);
   const topOptions = pool.slice(0, topCount);
@@ -420,6 +431,26 @@ function selectTopHotelRateOptions(args: {
         ? "Only over-budget LiteAPI hotel rates were available; selected the most affordable deterministic option."
         : null,
   };
+}
+
+function buildNoUsableHotelPricesWarning(
+  nodeName: string,
+  options: StayHotelRateOption[],
+  currency: string | undefined,
+): string {
+  const expectedCurrency = normaliseCurrency(currency ?? "INR");
+  const hasWrongCurrencyRate = options.some(
+    (option) => normaliseCurrency(option.currency) !== expectedCurrency,
+  );
+  const hasExpectedCurrencyRate = options.some(
+    (option) => normaliseCurrency(option.currency) === expectedCurrency,
+  );
+
+  if (hasWrongCurrencyRate && !hasExpectedCurrencyRate) {
+    return `LiteAPI hotel prices for ${nodeName} were in a different currency; expected ${expectedCurrency}.`;
+  }
+
+  return `No usable LiteAPI hotel prices were available for ${nodeName}.`;
 }
 
 function comparePricedHotelRateOptions(
@@ -451,7 +482,10 @@ function resolveNightlyAmount(
   option: StayHotelRateOption,
   nights: number,
 ): number | null {
-  if (option.nightly_amount !== null && Number.isFinite(option.nightly_amount)) {
+  if (
+    option.nightly_amount !== null &&
+    Number.isFinite(option.nightly_amount)
+  ) {
     return roundCurrency(option.nightly_amount);
   }
   if (option.total_amount !== null && Number.isFinite(option.total_amount)) {
@@ -495,3 +529,6 @@ function roundCurrency(value: number): number {
   return Number(Math.max(0, value).toFixed(2));
 }
 
+function normaliseCurrency(currency: string): string {
+  return currency.trim().toUpperCase();
+}

@@ -80,12 +80,7 @@ test("planAccommodations is deterministic and keeps repeated city blocks separat
           pricePerNight: 2600,
           rating: 4.7,
           reviewCount: 1800,
-          amenities: [
-            "wifi",
-            "breakfast",
-            "courtyard",
-            "air_conditioning",
-          ],
+          amenities: ["wifi", "breakfast", "courtyard", "air_conditioning"],
           distanceFromCenterKm: 0.6,
         }),
       ];
@@ -233,7 +228,10 @@ test("planAccommodations falls back to over-budget stays and null assignments gr
 test("planAccommodations filters out room mixes that cannot fit the traveller party", async () => {
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jodhpur", "Jodhpur"), makeDay(1, "node_jodhpur", "Jodhpur")],
+      days: [
+        makeDay(0, "node_jodhpur", "Jodhpur"),
+        makeDay(1, "node_jodhpur", "Jodhpur"),
+      ],
       budget: { min: 0, max: 12000, currency: "INR" },
       travellers: { adults: 2, children: 2 },
       travelStyle: "balanced",
@@ -281,7 +279,10 @@ test("planAccommodations filters out room mixes that cannot fit the traveller pa
 
   assert.equal(result.stays[0]?.accommodationId, "acc_family");
   assert.equal(result.stays[0]?.roomAllocation?.totalRooms, 1);
-  assert.equal(result.stays[0]?.roomAllocation?.rooms[0]?.roomTypeName, "Family Suite");
+  assert.equal(
+    result.stays[0]?.roomAllocation?.rooms[0]?.roomTypeName,
+    "Family Suite",
+  );
   assert.deepEqual(result.warnings, []);
 });
 
@@ -329,6 +330,7 @@ function makeRatesSnapshot(args: {
     roomId: string;
     total: number;
     nightly?: number | null;
+    currency?: string;
   }>;
 }): HotelOfferSnapshot {
   return {
@@ -341,7 +343,7 @@ function makeRatesSnapshot(args: {
     checkin: "2026-06-10",
     checkout: "2026-06-12",
     nights: 2,
-    currency: "INR",
+    currency: args.offers[0]?.currency ?? "INR",
     guest_nationality: "IN",
     occupancies: [{ adults: 2, children_ages: [] }],
     offers: args.offers.map((offer) => ({
@@ -356,7 +358,7 @@ function makeRatesSnapshot(args: {
         offer.nightly === undefined
           ? Number((offer.total / 2).toFixed(2))
           : offer.nightly,
-      currency: "INR",
+      currency: offer.currency ?? "INR",
       max_occupancy: 3,
       adult_count: 2,
       child_count: 0,
@@ -369,7 +371,11 @@ function makeRatesSnapshot(args: {
         : null,
     min_nightly_amount:
       args.offers.length > 0
-        ? Number((Math.min(...args.offers.map((offer) => offer.total)) / 2).toFixed(2))
+        ? Number(
+            (Math.min(...args.offers.map((offer) => offer.total)) / 2).toFixed(
+              2,
+            ),
+          )
         : null,
     result_count: args.offers.length,
     status: args.offers.length > 0 ? "success" : "empty",
@@ -432,7 +438,10 @@ test("planAccommodations attaches LiteAPI options and uses selected rates", asyn
   assert.equal(result.stays[0]?.nightlyCost, 2600);
   assert.equal(result.stays[0]?.totalCost, 5200);
   assert.equal(result.stays[0]?.hotelRateOptions?.length, 5);
-  assert.equal(result.stays[0]?.hotelRateOptions?.[0]?.hotel_name, "Amber Palace");
+  assert.equal(
+    result.stays[0]?.hotelRateOptions?.[0]?.hotel_name,
+    "Amber Palace",
+  );
   assert.deepEqual(result.warnings, []);
 });
 
@@ -485,9 +494,63 @@ test("planAccommodations ranks LiteAPI total-only rates by effective nightly amo
     },
   );
 
-  assert.equal(result.stays[0]?.hotelRateOptions?.[0]?.provider_hotel_id, "h_total_only");
+  assert.equal(
+    result.stays[0]?.hotelRateOptions?.[0]?.provider_hotel_id,
+    "h_total_only",
+  );
   assert.equal(result.stays[0]?.nightlyCost, 2600);
   assert.equal(result.stays[0]?.totalCost, 5200);
+});
+
+test("planAccommodations ignores LiteAPI rates in a different currency", async () => {
+  const provider: HotelDataProvider = {
+    provider: "liteapi",
+    searchHotels: async () => [makeHotel("h_usd", "Wrong Currency Stay")],
+    searchRates: async () =>
+      makeRatesSnapshot({
+        hotelIds: ["h_usd"],
+        offers: [
+          {
+            hotelId: "h_usd",
+            roomId: "r_usd",
+            total: 100,
+            currency: "USD",
+          },
+        ],
+      }),
+  };
+
+  const result = await planAccommodations(
+    {
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
+      budget: { min: 0, max: 30000, currency: "INR" },
+      travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
+      travelStyle: "balanced",
+      tripStartDate: "2026-06-10",
+      region: "rajasthan",
+      cityLocationsByNodeId: { node_jaipur: { lat: 26.9124, lng: 75.7873 } },
+    },
+    {
+      getByNode: async () => [],
+      hotelDataProvider: provider,
+      maxHotelProviderCalls: 4,
+      nowMs: () => 1_700_000_000_000,
+    },
+  );
+
+  assert.equal(result.stays[0]?.nightlyCost, null);
+  assert.equal(result.stays[0]?.totalCost, null);
+  assert.equal(result.stays[0]?.hotelRateStatus, "unknown");
+  assert.equal(result.stays[0]?.hotelRateUnavailableReason, "no_rates");
+  assert.ok(
+    result.warnings.some(
+      (warning) =>
+        warning.includes("different currency") && warning.includes("INR"),
+    ),
+  );
 });
 
 test("planAccommodations continues with unknown stay when provider is disabled", async () => {
@@ -501,7 +564,10 @@ test("planAccommodations continues with unknown stay when provider is disabled",
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -519,7 +585,10 @@ test("planAccommodations continues with unknown stay when provider is disabled",
   assert.equal(result.stays[0]?.nightlyCost, null);
   assert.equal(result.stays[0]?.totalCost, null);
   assert.equal(result.stays[0]?.hotelRateStatus, "unknown");
-  assert.equal(result.stays[0]?.hotelRateUnavailableReason, "provider_disabled");
+  assert.equal(
+    result.stays[0]?.hotelRateUnavailableReason,
+    "provider_disabled",
+  );
   assert.ok(result.warnings.some((warning) => warning.includes("disabled")));
 });
 
@@ -542,7 +611,10 @@ test("planAccommodations does not price children as zero when child ages are mis
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 2, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -559,7 +631,10 @@ test("planAccommodations does not price children as zero when child ages are mis
 
   assert.equal(providerCalls, 0);
   assert.equal(result.stays[0]?.nightlyCost, null);
-  assert.equal(result.stays[0]?.hotelRateUnavailableReason, "missing_child_ages");
+  assert.equal(
+    result.stays[0]?.hotelRateUnavailableReason,
+    "missing_child_ages",
+  );
   assert.ok(result.warnings.some((warning) => warning.includes("child ages")));
 });
 
@@ -579,7 +654,10 @@ test("planAccommodations continues with warning when provider returns an error",
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -613,7 +691,10 @@ test("planAccommodations continues with warning when provider times out", async 
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",
@@ -646,7 +727,10 @@ test("planAccommodations continues with warning when LiteAPI returns no rates", 
 
   const result = await planAccommodations(
     {
-      days: [makeDay(0, "node_jaipur", "Jaipur"), makeDay(1, "node_jaipur", "Jaipur")],
+      days: [
+        makeDay(0, "node_jaipur", "Jaipur"),
+        makeDay(1, "node_jaipur", "Jaipur"),
+      ],
       budget: { min: 0, max: 20000, currency: "INR" },
       travellers: { adults: 2, children: 0, rooms: 1, guest_nationality: "IN" },
       travelStyle: "balanced",

@@ -40,6 +40,104 @@
         { "fieldPath": "region", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "hotel_offer_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cache_key", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_offer_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_offer_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "node_id", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_offer_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "node_id", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_search_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "query_key", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_search_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_search_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "node_id", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hotel_search_snapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "node_id", "order": "ASCENDING" },
+        { "fieldPath": "fetched_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "provider_call_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "provider", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "provider_call_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "endpoint", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "provider_call_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "region", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "provider_call_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "node_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

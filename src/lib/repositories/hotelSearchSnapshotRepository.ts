@@ -42,40 +42,39 @@ export async function findLatestHotelSearchSnapshotByQueryKey(
   const snap = await db()
     .collection(COLLECTIONS.hotel_search_snapshots)
     .where("query_key", "==", key)
+    .orderBy("fetched_at", "desc")
+    .limit(1)
     .get();
 
-  const list = snap.docs
-    .map((doc) =>
-      normaliseHotelSearchSnapshot({
-        id: doc.id,
-        ...(doc.data() as Partial<HotelSearchSnapshot>),
-      }),
-    )
-    .sort((left, right) => right.fetched_at - left.fetched_at);
+  const list = snap.docs.map((doc) =>
+    normaliseHotelSearchSnapshot({
+      id: doc.id,
+      ...(doc.data() as Partial<HotelSearchSnapshot>),
+    }),
+  );
 
   return list[0] ?? null;
 }
 
-export async function listHotelSearchSnapshots(args: {
-  region?: string;
-  node_id?: string;
-  limit?: number;
-} = {}): Promise<HotelSearchSnapshot[]> {
+export async function listHotelSearchSnapshots(
+  args: {
+    region?: string;
+    node_id?: string;
+    limit?: number;
+  } = {},
+): Promise<HotelSearchSnapshot[]> {
   let query: Query = db().collection(COLLECTIONS.hotel_search_snapshots);
   if (args.region) query = query.where("region", "==", args.region);
   if (args.node_id) query = query.where("node_id", "==", args.node_id);
 
-  const snap = await query.get();
   const maxLimit = Math.max(1, Math.min(Math.trunc(args.limit ?? 50), 200));
-  return snap.docs
-    .map((doc) =>
-      normaliseHotelSearchSnapshot({
-        id: doc.id,
-        ...(doc.data() as Partial<HotelSearchSnapshot>),
-      }),
-    )
-    .sort((left, right) => right.fetched_at - left.fetched_at)
-    .slice(0, maxLimit);
+  const snap = await query.orderBy("fetched_at", "desc").limit(maxLimit).get();
+  return snap.docs.map((doc) =>
+    normaliseHotelSearchSnapshot({
+      id: doc.id,
+      ...(doc.data() as Partial<HotelSearchSnapshot>),
+    }),
+  );
 }
 
 function db() {
@@ -92,19 +91,24 @@ function normaliseHotelSearchSnapshot(
     region: normaliseString(raw.region) ?? "",
     node_id: normaliseString(raw.node_id) ?? "",
     city_name: normaliseNullableString(raw.city_name),
-    country_code: normaliseNullableString(raw.country_code)?.toUpperCase() ?? null,
+    country_code:
+      normaliseNullableString(raw.country_code)?.toUpperCase() ?? null,
     anchor: normaliseCoordinates(raw.anchor),
     radius_km: normaliseNullableNumber(raw.radius_km),
     query_key: normaliseString(raw.query_key) ?? "",
     result_count: Math.max(
       0,
-      Math.round(
-        normaliseFiniteNumber(raw.result_count) ?? results.length,
-      ),
+      Math.round(normaliseFiniteNumber(raw.result_count) ?? results.length),
     ),
     results,
-    fetched_at: Math.max(0, Math.round(normaliseFiniteNumber(raw.fetched_at) ?? 0)),
-    expires_at: Math.max(0, Math.round(normaliseFiniteNumber(raw.expires_at) ?? 0)),
+    fetched_at: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.fetched_at) ?? 0),
+    ),
+    expires_at: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.expires_at) ?? 0),
+    ),
   };
 }
 

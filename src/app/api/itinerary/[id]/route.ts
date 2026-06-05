@@ -29,6 +29,7 @@ import {
   findLatestHotelSearchSnapshotByQueryKey,
   saveHotelSearchSnapshot,
 } from "@/lib/repositories/hotelSearchSnapshotRepository";
+import { getDisallowedPublicRegions } from "@/lib/repositories/regionRepository";
 import {
   deleteItinerary,
   getItinerary,
@@ -153,7 +154,10 @@ export async function handleGetItinerary(
 
       if (!requesterUserId) {
         return NextResponse.json(
-          { error: "unauthorized", message: "Sign in to view saved itineraries." },
+          {
+            error: "unauthorized",
+            message: "Sign in to view saved itineraries.",
+          },
           { status: 401 },
         );
       }
@@ -319,7 +323,7 @@ export async function handleUpdateItineraryBudget(
 
     if (
       !canAccessItinerary({
-          itineraryUserId,
+        itineraryUserId,
         requesterUserId,
       })
     ) {
@@ -335,7 +339,10 @@ export async function handleUpdateItineraryBudget(
 
   const checkBudgetUpdateRateLimit =
     deps.checkBudgetUpdateRateLimit ?? checkItineraryBudgetUpdateRateLimit;
-  const rateLimitDecision = checkBudgetUpdateRateLimit(request, requesterUserId);
+  const rateLimitDecision = checkBudgetUpdateRateLimit(
+    request,
+    requesterUserId,
+  );
   if (!rateLimitDecision.allowed) {
     return NextResponse.json(
       {
@@ -357,6 +364,19 @@ export async function handleUpdateItineraryBudget(
     min: Math.min(existingItinerary.preferences.budget.min, requestedBudgetMax),
     max: requestedBudgetMax,
   };
+  const disallowedRegions = getDisallowedPublicRegions([
+    existingItinerary.region,
+  ]);
+  if (disallowedRegions.length > 0) {
+    return NextResponse.json(
+      {
+        error: "region_not_available",
+        reason: "region_not_available",
+        message: "This itinerary's region is not available for regeneration.",
+      },
+      { status: 422 },
+    );
+  }
   const requestedModes: TransportMode[] =
     existingItinerary.preferences.transport_modes &&
     existingItinerary.preferences.transport_modes.length > 0
@@ -516,9 +536,7 @@ function checkItineraryBudgetUpdateRateLimit(
   request: Request,
   userId: string | null,
 ): RateLimitDecision {
-  const key = userId
-    ? `user:${userId}`
-    : `ip:${getClientIpAddress(request)}`;
+  const key = userId ? `user:${userId}` : `ip:${getClientIpAddress(request)}`;
   return checkBudgetUpdateQuota(key);
 }
 
@@ -539,7 +557,8 @@ function buildCityLocationsByNodeId(
 }
 
 function contextLoadErrorResponse(err: unknown) {
-  const message = err instanceof Error ? err.message : "Failed to load planning data.";
+  const message =
+    err instanceof Error ? err.message : "Failed to load planning data.";
   if (isContextInputError(message)) {
     return NextResponse.json(
       {
@@ -563,6 +582,11 @@ function contextLoadErrorResponse(err: unknown) {
 function isContextInputError(message: string): boolean {
   return (
     message === "At least one region is required." ||
-    /^Start node ".+" not found\.$/.test(message)
+    /^Start node ".+" not found\.$/.test(message) ||
+    /^Start node ".+" is not in an allowed region\.$/.test(message) ||
+    /^End node ".+" not found\.$/.test(message) ||
+    /^End node ".+" is not in an allowed region\.$/.test(message) ||
+    /^Requested city ".+" not found\.$/.test(message) ||
+    /^Requested city ".+" is not in an allowed region\.$/.test(message)
   );
 }

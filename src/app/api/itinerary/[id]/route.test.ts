@@ -379,6 +379,50 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   assert.equal(saveCalls, 0);
 });
 
+test("handleUpdateItineraryBudget rejects hidden regions before regeneration", async () => {
+  const previous = process.env.WB_ALLOWED_REGIONS;
+  process.env.WB_ALLOWED_REGIONS = "rajasthan";
+  let loadCalls = 0;
+
+  try {
+    const response = await handleUpdateItineraryBudget(
+      "it_test",
+      makeRequest({ total_budget: 30000 }),
+      {
+        getItinerary: async () => makeItinerary({ user_id: null }),
+        deleteItinerary: async () => {},
+        saveItinerary: async () => {},
+        getItineraryMapData: async () => makeMapData(),
+        loadEngineContextForPlan: async () => {
+          loadCalls += 1;
+          return makeContext();
+        },
+        generateItinerary: async () => ({
+          ok: true as const,
+          itinerary: makeItinerary(),
+        }),
+        planAccommodations: async () => ({ stays: [], warnings: [] }),
+        resolveUserIdFromRequest: async () => null,
+      },
+    );
+
+    assert.equal(response.status, 422);
+    const payload = (await response.json()) as {
+      error: string;
+      reason: string;
+    };
+    assert.equal(payload.error, "region_not_available");
+    assert.equal(payload.reason, "region_not_available");
+    assert.equal(loadCalls, 0);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.WB_ALLOWED_REGIONS;
+    } else {
+      process.env.WB_ALLOWED_REGIONS = previous;
+    }
+  }
+});
+
 test("handleUpdateItineraryBudget injects the travel matrix resolver into regenerated plans", async () => {
   const fakeResolver = async () => ({
     edges: [],

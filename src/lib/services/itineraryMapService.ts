@@ -379,7 +379,9 @@ async function ensureRouteGeometry(
 }
 
 async function fetchLiveLegWithTimeout(args: {
-  fetchTravelTime: NonNullable<ItineraryMapServiceDependencies["getTravelTime"]>;
+  fetchTravelTime: NonNullable<
+    ItineraryMapServiceDependencies["getTravelTime"]
+  >;
   spec: TravelSpec;
   timeoutMs: number;
 }): Promise<TravelLeg | null> {
@@ -390,11 +392,13 @@ async function fetchLiveLegWithTimeout(args: {
 
   try {
     return await Promise.race([
-      args.fetchTravelTime({
-        origin: args.spec.from.location,
-        destination: args.spec.to.location,
-        mode: args.spec.mode,
-      }).catch(() => null),
+      args
+        .fetchTravelTime({
+          origin: args.spec.from.location,
+          destination: args.spec.to.location,
+          mode: args.spec.mode,
+        })
+        .catch(() => null),
       timeout,
     ]);
   } finally {
@@ -467,10 +471,20 @@ function mergeResolvedEdge(args: {
   liveLeg: TravelLeg;
   resolvedAt: number;
 }): GraphEdge {
+  const baseMetadata = args.existing?.metadata ?? {};
+  const providerMetadata =
+    !args.existing || baseMetadata.provider === "google_routes"
+      ? {
+          provider: "google_routes",
+          resolved_at: args.resolvedAt,
+        }
+      : {
+          route_geometry_provider: "google_routes",
+          route_geometry_resolved_at: args.resolvedAt,
+        };
   const metadata = {
-    ...(args.existing?.metadata ?? {}),
-    provider: "google_routes",
-    resolved_at: args.resolvedAt,
+    ...baseMetadata,
+    ...providerMetadata,
     ...(args.liveLeg.encoded_polyline
       ? { encoded_polyline: args.liveLeg.encoded_polyline }
       : {}),
@@ -609,7 +623,9 @@ function formatDayRange(startDay: number, endDay: number): string {
 
 function formatStopSubtitle(stopOrders: number[]): string {
   const labels = stopOrders.map((stopOrder) => String(stopOrder + 1));
-  return labels.length === 1 ? `Stop ${labels[0]}` : `Stops ${labels.join(", ")}`;
+  return labels.length === 1
+    ? `Stop ${labels[0]}`
+    : `Stops ${labels.join(", ")}`;
 }
 
 function titleCase(value: string): string {

@@ -38,7 +38,9 @@ function db() {
 export async function createProviderCallLog(
   input: CreateProviderCallLogInput,
 ): Promise<ProviderCallLog> {
-  const id = normaliseString(input.id) ?? db().collection(COLLECTIONS.provider_call_logs).doc().id;
+  const id =
+    normaliseString(input.id) ??
+    db().collection(COLLECTIONS.provider_call_logs).doc().id;
   const normalised = normaliseProviderCallLog({
     ...input,
     id,
@@ -60,7 +62,10 @@ export async function getProviderCallLog(
 ): Promise<ProviderCallLog | null> {
   const logId = normaliseString(id);
   if (!logId) return null;
-  const snap = await db().collection(COLLECTIONS.provider_call_logs).doc(logId).get();
+  const snap = await db()
+    .collection(COLLECTIONS.provider_call_logs)
+    .doc(logId)
+    .get();
   if (!snap.exists) return null;
   return normaliseProviderCallLog({
     id: snap.id,
@@ -68,13 +73,15 @@ export async function getProviderCallLog(
   });
 }
 
-export async function listProviderCallLogs(args: {
-  limit?: number;
-  provider?: ProviderCallLog["provider"];
-  endpoint?: string;
-  region?: string;
-  node_id?: string;
-} = {}): Promise<ProviderCallLog[]> {
+export async function listProviderCallLogs(
+  args: {
+    limit?: number;
+    provider?: ProviderCallLog["provider"];
+    endpoint?: string;
+    region?: string;
+    node_id?: string;
+  } = {},
+): Promise<ProviderCallLog[]> {
   let query: Query = db().collection(COLLECTIONS.provider_call_logs);
   if (args.provider) query = query.where("provider", "==", args.provider);
   if (args.endpoint) query = query.where("endpoint", "==", args.endpoint);
@@ -82,17 +89,14 @@ export async function listProviderCallLogs(args: {
   if (args.node_id) query = query.where("node_id", "==", args.node_id);
 
   const maxLimit = Math.max(1, Math.min(Math.trunc(args.limit ?? 50), 200));
-  const snap = await query.get();
+  const snap = await query.orderBy("created_at", "desc").limit(maxLimit).get();
 
-  return snap.docs
-    .map((doc) =>
-      normaliseProviderCallLog({
-        id: doc.id,
-        ...(doc.data() as Partial<ProviderCallLog>),
-      }),
-    )
-    .sort((left, right) => right.created_at - left.created_at)
-    .slice(0, maxLimit);
+  return snap.docs.map((doc) =>
+    normaliseProviderCallLog({
+      id: doc.id,
+      ...(doc.data() as Partial<ProviderCallLog>),
+    }),
+  );
 }
 
 function normaliseProviderCallLog(
@@ -110,8 +114,14 @@ function normaliseProviderCallLog(
     endpoint: normaliseString(raw.endpoint) ?? "",
     request_summary: normaliseRecord(raw.request_summary),
     status,
-    duration_ms: Math.max(0, Math.round(normaliseFiniteNumber(raw.duration_ms) ?? 0)),
-    result_count: Math.max(0, Math.round(normaliseFiniteNumber(raw.result_count) ?? 0)),
+    duration_ms: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.duration_ms) ?? 0),
+    ),
+    result_count: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.result_count) ?? 0),
+    ),
     error_code: normaliseNullableString(raw.error_code),
     error_message: normaliseNullableString(raw.error_message),
     created_at: Math.max(

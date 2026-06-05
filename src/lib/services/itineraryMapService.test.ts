@@ -5,6 +5,7 @@ import {
   getItineraryMapData,
   precacheItineraryRouteGeometry,
 } from "@/lib/services/itineraryMapService";
+import { buildTravelMatrix } from "@/lib/itinerary/travelMatrix";
 import type {
   Accommodation,
   GraphEdge,
@@ -302,6 +303,48 @@ test("getItineraryMapData does not reuse reverse-direction cached geometry", asy
   assert.equal(persistedEdges[0]?.bidirectional, false);
 });
 
+test("precacheItineraryRouteGeometry preserves manual bidirectional edge semantics", async () => {
+  let persistedEdges: GraphEdge[] = [];
+  const manualBidirectionalEdge: GraphEdge = {
+    id: "edge_manual_city_start_city_end",
+    from: "city_start",
+    to: "city_end",
+    type: "road",
+    distance_km: 395,
+    travel_time_hours: 6.8,
+    bidirectional: true,
+    regions: ["rajasthan"],
+    metadata: { road_quality: "good" },
+  };
+
+  const resolved = await precacheItineraryRouteGeometry(
+    makeItinerary(),
+    nodes,
+    {
+      findEdges: async () => [manualBidirectionalEdge],
+      upsertEdges: async (edges) => {
+        persistedEdges = edges;
+      },
+      getTravelTime: async () => ({
+        distance_km: 392.8,
+        travel_time_hours: 6.75,
+        encoded_polyline: "manual-edge-polyline",
+      }),
+      now: () => 1700000099999,
+    },
+  );
+
+  assert.equal(persistedEdges[0]?.metadata?.provider, undefined);
+  assert.equal(
+    persistedEdges[0]?.metadata?.route_geometry_provider,
+    "google_routes",
+  );
+  assert.equal(resolved[0]?.bidirectional, true);
+
+  const matrix = buildTravelMatrix(nodes, persistedEdges, ["road"]);
+  assert.ok(matrix.get("city_end", "city_start", "road"));
+});
+
 test("getItineraryMapData survives a slow Google Routes call without blocking", async () => {
   const result = await getItineraryMapData(makeItinerary(), {
     getNodes: async () => nodes,
@@ -375,7 +418,9 @@ test("getItineraryMapData collapses repeated round-trip stops onto the first mar
   const stopMarkers = result.markers.filter((marker) => marker.kind === "stop");
   assert.equal(stopMarkers.length, 2);
 
-  const startMarker = stopMarkers.find((marker) => marker.node_id === "city_start");
+  const startMarker = stopMarkers.find(
+    (marker) => marker.node_id === "city_start",
+  );
   assert.ok(startMarker);
   assert.equal(startMarker.stop_order, 0);
   assert.equal(startMarker.subtitle, "Stops 1, 3");

@@ -37,6 +37,7 @@ export async function loadEngineContextForPlan(
   req: PlanContextRequest,
 ): Promise<EngineContext> {
   const regions = Array.from(new Set(req.regions));
+  const regionSet = new Set(regions);
   if (regions.length === 0) {
     throw new Error("At least one region is required.");
   }
@@ -44,21 +45,39 @@ export async function loadEngineContextForPlan(
   // 1. Resolve start/end first so we can derive a planning radius.
   const endId = req.end_node_id ?? req.start_node_id;
   const pinnedIds = Array.from(
-    new Set([
-      req.start_node_id,
-      endId,
-      ...(req.requested_city_ids ?? []),
-    ]),
+    new Set([req.start_node_id, endId, ...(req.requested_city_ids ?? [])]),
   );
-  const pinned = await getNodes(
-    pinnedIds,
-  );
+  const pinned = await getNodes(pinnedIds);
   if (pinned.length === 0) {
     throw new Error(`Start node "${req.start_node_id}" not found.`);
   }
+  const pinnedById = new Map(pinned.map((node) => [node.id, node]));
   const start = pinned.find((n) => n.id === req.start_node_id);
   if (!start) {
     throw new Error(`Start node "${req.start_node_id}" not found.`);
+  }
+  if (!regionSet.has(start.region)) {
+    throw new Error(
+      `Start node "${req.start_node_id}" is not in an allowed region.`,
+    );
+  }
+  const end = pinnedById.get(endId);
+  if (!end) {
+    throw new Error(`End node "${endId}" not found.`);
+  }
+  if (!regionSet.has(end.region)) {
+    throw new Error(`End node "${endId}" is not in an allowed region.`);
+  }
+  for (const requestedCityId of req.requested_city_ids ?? []) {
+    const requestedCity = pinnedById.get(requestedCityId);
+    if (!requestedCity) {
+      throw new Error(`Requested city "${requestedCityId}" not found.`);
+    }
+    if (requestedCity.type === "city" && !regionSet.has(requestedCity.region)) {
+      throw new Error(
+        `Requested city "${requestedCityId}" is not in an allowed region.`,
+      );
+    }
   }
 
   const cfg = getTravelStyleConfig(req.travel_style);
@@ -78,7 +97,7 @@ export async function loadEngineContextForPlan(
 
   const cityIds = new Set<string>(inRange.map((c) => c.id));
   const explicitlyRequestedCities = pinned.filter(
-    (node) => node.type === "city" && regions.includes(node.region),
+    (node) => node.type === "city" && regionSet.has(node.region),
   );
   for (const city of explicitlyRequestedCities) {
     cityIds.add(city.id);
@@ -118,15 +137,20 @@ export async function loadEngineContextForPlan(
   const openingHoursByAttractionId = new Map(
     attractionHours.map((entry) => [entry.attraction_id, entry]),
   );
-  const admissionRulesByAttractionId = new Map<string, typeof attractionAdmissions>();
+  const admissionRulesByAttractionId = new Map<
+    string,
+    typeof attractionAdmissions
+  >();
   for (const rule of attractionAdmissions) {
-    const list = admissionRulesByAttractionId.get(rule.attraction_node_id) ?? [];
+    const list =
+      admissionRulesByAttractionId.get(rule.attraction_node_id) ?? [];
     list.push(rule);
     admissionRulesByAttractionId.set(rule.attraction_node_id, list);
   }
   const attractionsWithHours = activeAttractions.map((attraction) => {
     const openingHours = openingHoursByAttractionId.get(attraction.id);
-    const admissionRules = admissionRulesByAttractionId.get(attraction.id) ?? [];
+    const admissionRules =
+      admissionRulesByAttractionId.get(attraction.id) ?? [];
     if (!openingHours && admissionRules.length === 0) return attraction;
     // Build the metadata patch as a spread instead of explicit `undefined`
     // assignments so we never clobber pre-existing fields with `undefined`
@@ -155,7 +179,11 @@ export async function loadEngineContextForPlan(
   //    limits `in` to 10 ids so we fan out in batches.
   const edges = await loadEdgesForCities(Array.from(cityIds), regions);
 
-  const nodes = dedupeById([...pinned, ...selectedCities, ...attractionsWithHours]);
+  const nodes = dedupeById([
+    ...pinned,
+    ...selectedCities,
+    ...attractionsWithHours,
+  ]);
 
   return {
     nodes,
@@ -166,22 +194,29 @@ export async function loadEngineContextForPlan(
   };
 }
 
-async function loadEdgesForCities(
+export async function loadEdgesForCities(
   cityIds: string[],
   regions: string[],
+  findEdgesFn: typeof findEdges = findEdges,
 ): Promise<EngineContext["edges"]> {
   if (cityIds.length === 0) return [];
   const seen = new Set<string>();
   const out: EngineContext["edges"] = [];
 
-  // 10 ids per `from in [...]` call — Firestore's cap.
+  const regionSlices =
+    regions.length > 0 ? regions.map((region) => [region]) : [[]];
+
+  // 10 ids per `from in [...]` call — Firestore's cap. Region fan-out keeps
+  // multi-region requests below Firestore's compound disjunction limit.
   for (let i = 0; i < cityIds.length; i += 10) {
     const slice = cityIds.slice(i, i + 10);
-    const chunk = await findEdges({ regions, fromIds: slice });
-    for (const edge of chunk) {
-      if (seen.has(edge.id)) continue;
-      seen.add(edge.id);
-      out.push(edge);
+    for (const regionSlice of regionSlices) {
+      const chunk = await findEdgesFn({ regions: regionSlice, fromIds: slice });
+      for (const edge of chunk) {
+        if (seen.has(edge.id)) continue;
+        seen.add(edge.id);
+        out.push(edge);
+      }
     }
   }
   return out;

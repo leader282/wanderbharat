@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 
 import { NODE_TYPES, type NodeType } from "@/types/domain";
 import { findNodes } from "@/lib/repositories/nodeRepository";
+import {
+  getDisallowedPublicRegions,
+  getPublicAllowedRegionSlugs,
+} from "@/lib/repositories/regionRepository";
 
 export const runtime = "nodejs";
 /**
@@ -24,7 +28,10 @@ export async function GET(request: Request) {
   const region = url.searchParams.get("region") ?? undefined;
   const regionsParam = url.searchParams.get("regions") ?? undefined;
   const regions = regionsParam
-    ? regionsParam.split(",").map((s) => s.trim()).filter(Boolean)
+    ? regionsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     : undefined;
   const rawType = url.searchParams.get("type");
   const type =
@@ -44,7 +51,29 @@ export async function GET(request: Request) {
   );
 
   try {
-    const nodes = await findNodes({ region, regions, type, pageSize, limit });
+    const requestedRegions = [...(region ? [region] : []), ...(regions ?? [])];
+    const disallowedRegions = getDisallowedPublicRegions(requestedRegions);
+    if (disallowedRegions.length > 0) {
+      return NextResponse.json(
+        {
+          error: "region_not_available",
+          message: "One or more requested regions are not available.",
+        },
+        { status: 404 },
+      );
+    }
+
+    const allowedRegions = getPublicAllowedRegionSlugs();
+    const effectiveRegions =
+      regions ??
+      (!region && allowedRegions ? Array.from(allowedRegions) : undefined);
+    const nodes = await findNodes({
+      region,
+      regions: effectiveRegions,
+      type,
+      pageSize,
+      limit,
+    });
     return NextResponse.json({
       nodes,
       // If we hit `limit`, tell the client to fetch more (future
