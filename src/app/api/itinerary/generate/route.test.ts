@@ -139,7 +139,9 @@ test("handleGenerateItinerary returns structured validation issues for invalid i
   };
   assert.equal(payload.error, "invalid_input");
   assert.ok(
-    payload.issues.some((issue) => issue.path === "preferences.transport_modes"),
+    payload.issues.some(
+      (issue) => issue.path === "preferences.transport_modes",
+    ),
   );
   assert.equal(generateCalls, 0);
 });
@@ -164,6 +166,43 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   const payload = (await response.json()) as { itinerary: Itinerary };
   assert.equal(payload.itinerary.id, "it_test");
   assert.equal(savedId, "it_test");
+});
+
+test("handleGenerateItinerary rejects regions outside the public allowlist", async () => {
+  const previous = process.env.WB_ALLOWED_REGIONS;
+  process.env.WB_ALLOWED_REGIONS = "rajasthan";
+  let loadCalls = 0;
+
+  try {
+    const response = await handleGenerateItinerary(makeRequest(validBody), {
+      loadEngineContextForPlan: async () => {
+        loadCalls += 1;
+        return makeContext();
+      },
+      generateItinerary: async () => ({
+        ok: true as const,
+        itinerary: makeItinerary(),
+      }),
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      saveItinerary: async () => {},
+      resolveUserId: async () => null,
+    });
+
+    assert.equal(response.status, 422);
+    const payload = (await response.json()) as {
+      error: string;
+      reason: string;
+    };
+    assert.equal(payload.error, "region_not_available");
+    assert.equal(payload.reason, "region_not_available");
+    assert.equal(loadCalls, 0);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.WB_ALLOWED_REGIONS;
+    } else {
+      process.env.WB_ALLOWED_REGIONS = previous;
+    }
+  }
 });
 
 test("handleGenerateItinerary injects the travel matrix resolver into the engine", async () => {

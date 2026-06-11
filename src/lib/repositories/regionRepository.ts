@@ -30,7 +30,8 @@ function db() {
 export async function listRegions(): Promise<RegionSummary[]> {
   return withFirestoreDiagnostics("listRegions", async () => {
     const fromDenorm = await readDenormalisedRegions();
-    const all = fromDenorm.length > 0 ? fromDenorm : await scanRegionsFromNodes();
+    const all =
+      fromDenorm.length > 0 ? fromDenorm : await scanRegionsFromNodes();
     return applyRegionAllowlist(all);
   });
 }
@@ -44,17 +45,46 @@ export async function listRegions(): Promise<RegionSummary[]> {
  * Admin tooling, seed scripts, and the data-quality scanner do not use this
  * helper, so they continue to see every region.
  */
-function applyRegionAllowlist(regions: RegionSummary[]): RegionSummary[] {
-  const raw = process.env.WB_ALLOWED_REGIONS?.trim();
-  if (!raw) return regions;
+export function applyRegionAllowlist(
+  regions: RegionSummary[],
+  env: Record<string, string | undefined> = process.env,
+): RegionSummary[] {
+  const allowed = getPublicAllowedRegionSlugs(env);
+  if (!allowed) return regions;
+  return regions.filter((r) => allowed.has(normaliseRegionSlug(r.region)));
+}
+
+export function getPublicAllowedRegionSlugs(
+  env: Record<string, string | undefined> = process.env,
+): Set<string> | null {
+  const raw = env.WB_ALLOWED_REGIONS?.trim();
+  if (!raw) return null;
   const allowed = new Set(
     raw
       .split(",")
-      .map((slug) => slug.trim().toLowerCase())
+      .map(normaliseRegionSlug)
       .filter((slug) => slug.length > 0),
   );
-  if (allowed.size === 0) return regions;
-  return regions.filter((r) => allowed.has(r.region.toLowerCase()));
+  return allowed.size > 0 ? allowed : null;
+}
+
+export function getDisallowedPublicRegions(
+  regions: readonly string[],
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const allowed = getPublicAllowedRegionSlugs(env);
+  if (!allowed) return [];
+
+  const disallowed = new Set<string>();
+  for (const region of regions) {
+    const normalised = normaliseRegionSlug(region);
+    if (normalised && !allowed.has(normalised)) disallowed.add(region);
+  }
+  return Array.from(disallowed);
+}
+
+function normaliseRegionSlug(slug: string): string {
+  return slug.trim().toLowerCase();
 }
 
 async function readDenormalisedRegions(): Promise<RegionSummary[]> {

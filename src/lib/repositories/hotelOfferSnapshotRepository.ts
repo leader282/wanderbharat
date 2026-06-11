@@ -42,39 +42,38 @@ export async function findLatestHotelOfferSnapshotByCacheKey(
   const snap = await db()
     .collection(COLLECTIONS.hotel_offer_snapshots)
     .where("cache_key", "==", key)
+    .orderBy("fetched_at", "desc")
+    .limit(1)
     .get();
-  const list = snap.docs
-    .map((doc) =>
-      normaliseHotelOfferSnapshot({
-        id: doc.id,
-        ...(doc.data() as Partial<HotelOfferSnapshot>),
-      }),
-    )
-    .sort((left, right) => right.fetched_at - left.fetched_at);
+  const list = snap.docs.map((doc) =>
+    normaliseHotelOfferSnapshot({
+      id: doc.id,
+      ...(doc.data() as Partial<HotelOfferSnapshot>),
+    }),
+  );
 
   return list[0] ?? null;
 }
 
-export async function listHotelOfferSnapshots(args: {
-  region?: string;
-  node_id?: string;
-  limit?: number;
-} = {}): Promise<HotelOfferSnapshot[]> {
+export async function listHotelOfferSnapshots(
+  args: {
+    region?: string;
+    node_id?: string;
+    limit?: number;
+  } = {},
+): Promise<HotelOfferSnapshot[]> {
   let query: Query = db().collection(COLLECTIONS.hotel_offer_snapshots);
   if (args.region) query = query.where("region", "==", args.region);
   if (args.node_id) query = query.where("node_id", "==", args.node_id);
 
-  const snap = await query.get();
   const maxLimit = Math.max(1, Math.min(Math.trunc(args.limit ?? 50), 250));
-  return snap.docs
-    .map((doc) =>
-      normaliseHotelOfferSnapshot({
-        id: doc.id,
-        ...(doc.data() as Partial<HotelOfferSnapshot>),
-      }),
-    )
-    .sort((left, right) => right.fetched_at - left.fetched_at)
-    .slice(0, maxLimit);
+  const snap = await query.orderBy("fetched_at", "desc").limit(maxLimit).get();
+  return snap.docs.map((doc) =>
+    normaliseHotelOfferSnapshot({
+      id: doc.id,
+      ...(doc.data() as Partial<HotelOfferSnapshot>),
+    }),
+  );
 }
 
 function db() {
@@ -114,13 +113,17 @@ function normaliseHotelOfferSnapshot(
     min_nightly_amount: normaliseNullableAmount(raw.min_nightly_amount),
     result_count: Math.max(
       0,
-      Math.round(
-        normaliseFiniteNumber(raw.result_count) ?? offers.length,
-      ),
+      Math.round(normaliseFiniteNumber(raw.result_count) ?? offers.length),
     ),
     status,
-    fetched_at: Math.max(0, Math.round(normaliseFiniteNumber(raw.fetched_at) ?? 0)),
-    expires_at: Math.max(0, Math.round(normaliseFiniteNumber(raw.expires_at) ?? 0)),
+    fetched_at: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.fetched_at) ?? 0),
+    ),
+    expires_at: Math.max(
+      0,
+      Math.round(normaliseFiniteNumber(raw.expires_at) ?? 0),
+    ),
     error_code: normaliseNullableString(raw.error_code),
     error_message: normaliseNullableString(raw.error_message),
   };

@@ -26,6 +26,7 @@ import {
   findLatestHotelSearchSnapshotByQueryKey,
   saveHotelSearchSnapshot,
 } from "@/lib/repositories/hotelSearchSnapshotRepository";
+import { getDisallowedPublicRegions } from "@/lib/repositories/regionRepository";
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 import { precacheItineraryRouteGeometry } from "@/lib/services/itineraryMapService";
 import { resolveTravelMatrix } from "@/lib/services/travelMatrixResolver";
@@ -59,7 +60,10 @@ interface GenerateRouteDependencies {
    * Tests can stub this without going through Firebase.
    */
   resolveUserId?: (request: Request) => Promise<string | null>;
-  checkRateLimit?: (request: Request, userId: string | null) => RateLimitDecision;
+  checkRateLimit?: (
+    request: Request,
+    userId: string | null,
+  ) => RateLimitDecision;
 }
 
 const defaultDependencies: GenerateRouteDependencies = {
@@ -72,7 +76,9 @@ const defaultDependencies: GenerateRouteDependencies = {
     const liteApiConfig = resolveLiteApiProviderConfig();
     return runAccommodationPlanner(input, {
       getByNode,
-      hotelDataProvider: new LiteApiHotelDataProvider({ config: liteApiConfig }),
+      hotelDataProvider: new LiteApiHotelDataProvider({
+        config: liteApiConfig,
+      }),
       findLatestHotelSearchSnapshotByQueryKey,
       saveHotelSearchSnapshot,
       findLatestHotelOfferSnapshotByCacheKey,
@@ -130,6 +136,17 @@ export async function handleGenerateItinerary(
     parsed.data.preferences.transport_modes.length > 0
       ? parsed.data.preferences.transport_modes
       : ["road"];
+  const disallowedRegions = getDisallowedPublicRegions(parsed.data.regions);
+  if (disallowedRegions.length > 0) {
+    return NextResponse.json(
+      {
+        error: "region_not_available",
+        reason: "region_not_available",
+        message: "One or more requested regions are not available.",
+      },
+      { status: 422 },
+    );
+  }
 
   const resolveUserId = deps.resolveUserId ?? defaultResolveUserId;
   let authedUserId: string | null = null;
@@ -146,7 +163,8 @@ export async function handleGenerateItinerary(
     return NextResponse.json(
       {
         error: "rate_limited",
-        message: "Too many itinerary generation attempts. Please try again shortly.",
+        message:
+          "Too many itinerary generation attempts. Please try again shortly.",
       },
       {
         status: 429,
@@ -257,9 +275,7 @@ function checkItineraryGenerationRateLimit(
   request: Request,
   userId: string | null,
 ): RateLimitDecision {
-  const key = userId
-    ? `user:${userId}`
-    : `ip:${getClientIpAddress(request)}`;
+  const key = userId ? `user:${userId}` : `ip:${getClientIpAddress(request)}`;
   return checkGenerateQuota(key);
 }
 
@@ -274,7 +290,8 @@ function buildCityLocationsByNodeId(
 }
 
 function contextLoadErrorResponse(err: unknown) {
-  const message = err instanceof Error ? err.message : "Failed to load planning data.";
+  const message =
+    err instanceof Error ? err.message : "Failed to load planning data.";
   if (isContextInputError(message)) {
     return NextResponse.json(
       {
@@ -307,6 +324,11 @@ function itineraryInternalErrorPayload(message: string): {
 function isContextInputError(message: string): boolean {
   return (
     message === "At least one region is required." ||
-    /^Start node ".+" not found\.$/.test(message)
+    /^Start node ".+" not found\.$/.test(message) ||
+    /^Start node ".+" is not in an allowed region\.$/.test(message) ||
+    /^End node ".+" not found\.$/.test(message) ||
+    /^End node ".+" is not in an allowed region\.$/.test(message) ||
+    /^Requested city ".+" not found\.$/.test(message) ||
+    /^Requested city ".+" is not in an allowed region\.$/.test(message)
   );
 }
