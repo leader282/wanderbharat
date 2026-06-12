@@ -11,6 +11,14 @@ export const runtime = "nodejs";
  */
 export const revalidate = 300;
 
+interface RegionsRouteDependencies {
+  listRegions: typeof listRegions;
+}
+
+const defaultDependencies: RegionsRouteDependencies = {
+  listRegions,
+};
+
 /**
  * GET /api/regions
  *
@@ -18,14 +26,24 @@ export const revalidate = 300;
  * `regions` collection (cheap single-digit reads) and falls back to a
  * `nodes` scan when the collection hasn't been populated yet.
  */
-export async function GET() {
+export async function handleGetRegions(
+  deps: RegionsRouteDependencies = defaultDependencies,
+) {
   try {
-    const regions = await listRegions();
+    const regions = await deps.listRegions();
     return NextResponse.json({ regions });
   } catch (err) {
+    void err;
     return NextResponse.json(
-      { error: "internal_error", message: (err as Error).message },
+      {
+        error: "internal_error",
+        message: "We couldn't load available regions. Please try again shortly.",
+      },
       { status: 500 },
     );
   }
+}
+
+export async function GET() {
+  return handleGetRegions();
 }
