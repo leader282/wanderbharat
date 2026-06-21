@@ -16,6 +16,13 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeDeleteRequest(): Request {
+  return new Request("http://localhost/api/itinerary/it_test", {
+    method: "DELETE",
+    headers: { Authorization: "Bearer current-user-token" },
+  });
+}
+
 function makeContext() {
   return {
     nodes: [],
@@ -228,6 +235,79 @@ test("handleDeleteItinerary rejects users who do not own the itinerary", async (
 
   const response = await handleDeleteItinerary("it_test", {
     getItinerary: async () => makeItinerary({ user_id: "uid_someone_else" }),
+    deleteItinerary: async () => {
+      deleteCalls += 1;
+    },
+    getItineraryMapData: async () => makeMapData(),
+    resolveCurrentUser: async () => ({
+      uid: "uid_owner",
+      email: "owner@example.com",
+      name: "Owner",
+      picture: null,
+    }),
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal(deleteCalls, 0);
+});
+
+test("handleDeleteItinerary trusts request bearer auth over a stale cookie", async () => {
+  let deleteCalls = 0;
+
+  const response = await handleDeleteItinerary(
+    "it_test",
+    {
+      getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+      deleteItinerary: async () => {
+        deleteCalls += 1;
+      },
+      getItineraryMapData: async () => makeMapData(),
+      resolveCurrentUser: async () => ({
+        uid: "uid_owner",
+        email: "owner@example.com",
+        name: "Owner",
+        picture: null,
+      }),
+      resolveUserIdFromRequest: async () => "uid_current_client",
+    },
+    makeDeleteRequest(),
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(deleteCalls, 0);
+});
+
+test("handleDeleteItinerary allows bearer-authenticated owners to delete", async () => {
+  let deletedId: string | null = null;
+
+  const response = await handleDeleteItinerary(
+    "it_test",
+    {
+      getItinerary: async () => makeItinerary({ user_id: "uid_owner" }),
+      deleteItinerary: async (id) => {
+        deletedId = id;
+      },
+      getItineraryMapData: async () => makeMapData(),
+      resolveCurrentUser: async () => ({
+        uid: "uid_stale_cookie",
+        email: "stale@example.com",
+        name: "Stale",
+        picture: null,
+      }),
+      resolveUserIdFromRequest: async () => "uid_owner",
+    },
+    makeDeleteRequest(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(deletedId, "it_test");
+});
+
+test("handleDeleteItinerary does not delete guest itineraries", async () => {
+  let deleteCalls = 0;
+
+  const response = await handleDeleteItinerary("it_test", {
+    getItinerary: async () => makeItinerary({ user_id: null }),
     deleteItinerary: async () => {
       deleteCalls += 1;
     },

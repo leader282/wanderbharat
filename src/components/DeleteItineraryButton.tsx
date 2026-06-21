@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { useAuth } from "@/lib/auth/AuthProvider";
+
 export default function DeleteItineraryButton({
   itineraryId,
   tripLabel,
@@ -11,6 +13,7 @@ export default function DeleteItineraryButton({
   tripLabel: string;
 }) {
   const router = useRouter();
+  const { getIdToken } = useAuth();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
@@ -35,10 +38,15 @@ export default function DeleteItineraryButton({
     setError(null);
 
     try {
+      const headers: HeadersInit = {};
+      const idToken = await getIdToken();
+      if (idToken) headers.Authorization = `Bearer ${idToken}`;
+
       const res = await fetch(
         `/api/itinerary/${encodeURIComponent(itineraryId)}`,
         {
           method: "DELETE",
+          headers,
         },
       );
 

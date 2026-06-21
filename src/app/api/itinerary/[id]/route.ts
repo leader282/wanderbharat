@@ -194,6 +194,7 @@ export async function handleGetItinerary(
 export async function handleDeleteItinerary(
   id: string,
   deps: ItineraryRouteDependencies = defaultDependencies,
+  request?: Request,
 ) {
   if (!id) {
     return NextResponse.json(
@@ -203,9 +204,8 @@ export async function handleDeleteItinerary(
   }
 
   try {
-    const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
-    const user = await resolveCurrentUser();
-    if (!user) {
+    const requesterUserId = await resolveDeleteRequesterUserId(request, deps);
+    if (!requesterUserId) {
       return NextResponse.json(
         { error: "unauthorized", message: "Sign in to delete itineraries." },
         { status: 401 },
@@ -220,7 +220,13 @@ export async function handleDeleteItinerary(
       );
     }
 
-    if (itinerary.user_id !== user.uid) {
+    if (
+      itinerary.user_id == null ||
+      !canAccessItinerary({
+        itineraryUserId: itinerary.user_id,
+        requesterUserId,
+      })
+    ) {
       return NextResponse.json(
         {
           error: "forbidden",
@@ -525,11 +531,29 @@ export async function PATCH(
  * DELETE /api/itinerary/:id
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  return handleDeleteItinerary(id);
+  return handleDeleteItinerary(id, defaultDependencies, request);
+}
+
+async function resolveDeleteRequesterUserId(
+  request: Request | undefined,
+  deps: ItineraryRouteDependencies,
+): Promise<string | null> {
+  try {
+    if (request) {
+      const resolveUserIdFromRequest =
+        deps.resolveUserIdFromRequest ?? defaultResolveUserIdFromRequest;
+      return resolveUserIdFromRequest(request);
+    }
+
+    const resolveCurrentUser = deps.resolveCurrentUser ?? getCurrentUser;
+    return (await resolveCurrentUser())?.uid ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function checkItineraryBudgetUpdateRateLimit(
