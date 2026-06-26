@@ -287,7 +287,18 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  const existingItinerary = await deps.getItinerary(id);
+  let existingItinerary: Itinerary | null;
+  try {
+    existingItinerary = await deps.getItinerary(id);
+  } catch {
+    return NextResponse.json(
+      {
+        error: "internal_error",
+        message: "We couldn't load this itinerary. Please try again shortly.",
+      },
+      { status: 500 },
+    );
+  }
   if (!existingItinerary) {
     return NextResponse.json(
       { error: "not_found", message: `Itinerary ${id} not found.` },

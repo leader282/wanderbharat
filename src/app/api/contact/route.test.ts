@@ -215,3 +215,19 @@ test("handleContactRequest returns 502 on provider delivery failure", async () =
 
   assert.equal(response.status, 502);
 });
+
+test("handleContactRequest returns 502 when mail delivery throws", async () => {
+  const response = await handleContactRequest(
+    makeRequest(validPayload),
+    createDependencies({
+      sendContactEmail: async () => {
+        throw new Error("Resend transport stack leaked");
+      },
+    }),
+  );
+
+  assert.equal(response.status, 502);
+  const payload = (await response.json()) as { error: string; message: string };
+  assert.equal(payload.error, "delivery_failed");
+  assert.equal(JSON.stringify(payload).includes("Resend"), false);
+});

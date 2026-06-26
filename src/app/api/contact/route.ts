@@ -139,7 +139,12 @@ export async function handleContactRequest(
     );
   }
 
-  const sendResult = await deps.sendContactEmail(parsed.data);
+  let sendResult: SendContactEmailResult;
+  try {
+    sendResult = await deps.sendContactEmail(parsed.data);
+  } catch {
+    sendResult = { ok: false, reason: "provider_error" };
+  }
   if (!sendResult.ok) {
     if (sendResult.reason === "missing_config") {
       return NextResponse.json(
