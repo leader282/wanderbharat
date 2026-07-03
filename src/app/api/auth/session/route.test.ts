@@ -89,6 +89,23 @@ test("handleCreateSession sets a session cookie for same-origin JSON", async () 
   assert.equal(cookieValue, "session_cookie_value");
 });
 
+test("handleCreateSession redacts session cookie creation failures", async () => {
+  const response = await handleCreateSession(
+    makeRequest({ idToken: "token" }, { Origin: "https://wanderbharat.example" }),
+    {
+      ...deps,
+      createSessionCookie: async () => {
+        throw new Error("Firebase private key path /secrets/prod-admin.json leaked");
+      },
+    },
+  );
+
+  assert.equal(response.status, 500);
+  const payload = (await response.json()) as { error: string; message: string };
+  assert.equal(payload.error, "session_failed");
+  assert.doesNotMatch(payload.message, /Firebase|private key|secrets/);
+});
+
 test("handleDeleteSession rejects cross-origin clears", async () => {
   let setCalls = 0;
   const request = new Request("https://wanderbharat.example/api/auth/session", {

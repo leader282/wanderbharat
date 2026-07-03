@@ -99,9 +99,12 @@ export async function handleCreateSession(
     sessionCookie = await deps.createSessionCookie(idToken, {
       expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
-      { error: "session_failed", message: (err as Error).message },
+      {
+        error: "session_failed",
+        message: "We couldn't finish signing you in. Please try again.",
+      },
       { status: 500 },
     );
   }
