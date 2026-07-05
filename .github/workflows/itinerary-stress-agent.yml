@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout automation scripts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -113,7 +113,7 @@ jobs:
 
       - name: Checkout trusted PR head
         if: steps.stress_report.outputs.has_failure_report == 'true' && steps.pr_context.outputs.trusted == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr_context.outputs.head_sha }}
           token: ${{ secrets.BOT_GITHUB_TOKEN }}
