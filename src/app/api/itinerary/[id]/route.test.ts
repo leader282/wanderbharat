@@ -459,6 +459,33 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   assert.equal(saveCalls, 0);
 });
 
+test("handleUpdateItineraryBudget hides itinerary read failures from clients", async () => {
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 30000 }),
+    {
+      getItinerary: async () => {
+        throw new Error("Firestore project secret path leaked");
+      },
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+    },
+  );
+
+  assert.equal(response.status, 500);
+  const payload = (await response.json()) as {
+    error: string;
+    message: string;
+  };
+  assert.equal(payload.error, "internal_error");
+  assert.equal(
+    payload.message,
+    "We couldn't load this itinerary. Please try again shortly.",
+  );
+  assert.equal(JSON.stringify(payload).includes("Firestore"), false);
+});
+
 test("handleUpdateItineraryBudget rejects hidden regions before regeneration", async () => {
   const previous = process.env.WB_ALLOWED_REGIONS;
   process.env.WB_ALLOWED_REGIONS = "rajasthan";
