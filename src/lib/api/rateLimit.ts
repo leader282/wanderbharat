@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 export type RateLimitDecision =
   | { allowed: true }
   | { allowed: false; retryAfterSeconds: number };
@@ -39,16 +41,35 @@ export function createSlidingWindowRateLimiter(
 }
 
 export function getClientIpAddress(request: Request): string {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(",")[0]?.trim();
-    if (firstIp) return firstIp;
+  const directProxyIp =
+    readIpHeader(request, "x-real-ip") ??
+    readIpHeader(request, "cf-connecting-ip") ??
+    readIpHeader(request, "true-client-ip");
+  if (directProxyIp) return directProxyIp;
+
+  const forwardedFor = request.headers.get("x-forwarded-for") ?? "";
+  const forwardedChain = forwardedFor
+    .split(",")
+    .map((entry) => normaliseIpAddress(entry))
+    .filter((entry): entry is string => entry !== null);
+  if (forwardedChain.length > 0) {
+    // Trusted proxies append their observed client address to the right side of
+    // X-Forwarded-For, so the right-most valid IP is resistant to caller-supplied
+    // leading spoof values.
+    return forwardedChain[forwardedChain.length - 1];
   }
 
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp?.trim()) return realIp.trim();
-
   return "unknown";
+}
+
+function readIpHeader(request: Request, header: string): string | null {
+  return normaliseIpAddress(request.headers.get(header));
+}
+
+function normaliseIpAddress(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.toLowerCase() === "unknown") return null;
+  return isIP(trimmed) ? trimmed : null;
 }
 
 function trimExpiredEntries(
