@@ -4,8 +4,9 @@ rules_version = '2';
 //
 // - `nodes`, `edges`, `accommodations`, and `regions` are world-readable
 //   reference data.
-// - `itineraries` are readable by their owner (anonymous itineraries are
-//   readable by anyone with the id).
+// - `itineraries` are directly readable by their owner (anonymous
+//   itineraries are readable by anyone with the id), but client-side list
+//   queries are denied to prevent guest itinerary enumeration.
 // - `users` are self-readable but server-write only. This is critical:
 //   the user doc carries the `role` field consumed by requireAdminUser(),
 //   so allowing client writes would let any signed-in account self-promote
@@ -36,9 +37,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    function isItineraryOwner() {
+      return request.auth != null && request.auth.uid == resource.data.user_id;
+    }
+
+    function isGuestItinerary() {
+      return resource.data.user_id == null;
+    }
+
     match /itineraries/{itineraryId} {
-      allow read: if resource.data.user_id == null
-        || (request.auth != null && request.auth.uid == resource.data.user_id);
+      allow get: if isGuestItinerary() || isItineraryOwner();
+      allow list: if false;
       allow write: if false;
     }
 
