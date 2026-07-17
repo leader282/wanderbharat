@@ -12,6 +12,17 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeOversizedRequest(): Request {
+  return new Request("http://localhost/api/itinerary/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": "25001",
+    },
+    body: JSON.stringify(validBody),
+  });
+}
+
 function makeContext() {
   return {
     nodes: [],
@@ -21,7 +32,7 @@ function makeContext() {
   };
 }
 
-function makeItinerary(): Itinerary {
+function makeItinerary(overrides: Partial<Itinerary> = {}): Itinerary {
   return {
     id: "it_test",
     user_id: null,
@@ -83,6 +94,7 @@ function makeItinerary(): Itinerary {
     },
     score: 0.77,
     created_at: 1700000000000,
+    ...overrides,
   };
 }
 
@@ -146,6 +158,34 @@ test("handleGenerateItinerary returns structured validation issues for invalid i
   assert.equal(generateCalls, 0);
 });
 
+test("handleGenerateItinerary rejects oversized bodies before downstream work", async () => {
+  let loadCalls = 0;
+  let generateCalls = 0;
+
+  const response = await handleGenerateItinerary(makeOversizedRequest(), {
+    loadEngineContextForPlan: async () => {
+      loadCalls += 1;
+      return makeContext();
+    },
+    generateItinerary: async () => {
+      generateCalls += 1;
+      return {
+        ok: true as const,
+        itinerary: makeItinerary(),
+      };
+    },
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+  });
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(loadCalls, 0);
+  assert.equal(generateCalls, 0);
+});
+
 test("handleGenerateItinerary returns 201 and persists successful plans", async () => {
   let savedId: string | null = null;
 
@@ -166,6 +206,38 @@ test("handleGenerateItinerary returns 201 and persists successful plans", async 
   const payload = (await response.json()) as { itinerary: Itinerary };
   assert.equal(payload.itinerary.id, "it_test");
   assert.equal(savedId, "it_test");
+});
+
+test("handleGenerateItinerary persists planning criteria for later regeneration", async () => {
+  let savedItinerary: Itinerary | undefined;
+
+  const response = await handleGenerateItinerary(
+    makeRequest({
+      ...validBody,
+      regions: ["test-region", "nearby-region", "test-region"],
+      requested_city_ids: ["node_optional", "node_optional"],
+    }),
+    {
+      loadEngineContextForPlan: async () => makeContext(),
+      generateItinerary: async () => ({
+        ok: true as const,
+        itinerary: makeItinerary(),
+      }),
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      saveItinerary: async (itinerary) => {
+        savedItinerary = itinerary;
+      },
+      resolveUserId: async () => null,
+      checkRateLimit: () => ({ allowed: true }),
+    },
+  );
+
+  assert.equal(response.status, 201);
+  const payload = (await response.json()) as { itinerary: Itinerary };
+  assert.deepEqual(payload.itinerary.regions, ["test-region", "nearby-region"]);
+  assert.deepEqual(payload.itinerary.requested_city_ids, ["node_optional"]);
+  assert.deepEqual(savedItinerary?.regions, ["test-region", "nearby-region"]);
+  assert.deepEqual(savedItinerary?.requested_city_ids, ["node_optional"]);
 });
 
 test("handleGenerateItinerary rejects regions outside the public allowlist", async () => {

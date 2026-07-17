@@ -344,6 +344,39 @@ test("generateItinerarySchema rejects more than 10 regions", () => {
   assert.equal(result.success, false);
 });
 
+test("generateItinerarySchema rejects oversized region and node identifiers", () => {
+  const oversized = "x".repeat(121);
+  const result = generateItinerarySchema.safeParse({
+    ...baseBody,
+    start_node: oversized,
+    regions: ["r".repeat(81)],
+  });
+  assert.equal(result.success, false);
+});
+
+test("generateItinerarySchema caps interests and trims accepted tags", () => {
+  const valid = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      interests: [" heritage ", "food"],
+    },
+  });
+  assert.equal(valid.success, true);
+  if (valid.success) {
+    assert.deepEqual(valid.data.preferences.interests, ["heritage", "food"]);
+  }
+
+  const tooMany = generateItinerarySchema.safeParse({
+    ...baseBody,
+    preferences: {
+      ...baseBody.preferences,
+      interests: Array.from({ length: 21 }, (_, index) => `tag-${index}`),
+    },
+  });
+  assert.equal(tooMany.success, false);
+});
+
 test("generateItinerarySchema accepts a valid HH:MM preferred_start_time", () => {
   const result = generateItinerarySchema.safeParse({
     ...baseBody,

@@ -817,9 +817,16 @@ export interface StayAssignment {
 export interface Itinerary {
   id: string;
   user_id: string | null;
+  /**
+   * Full set of region slugs used for this planning run. `region` remains the
+   * primary display/filter region for legacy callers.
+   */
+  regions?: string[];
   region: string;
   start_node: string;
   end_node: string;
+  /** Optional extra cities the user explicitly requested the route cover. */
+  requested_city_ids?: string[];
   days: number;
   preferences: ItineraryPreferences;
   /** Ordered list of city/node ids the itinerary visits. */

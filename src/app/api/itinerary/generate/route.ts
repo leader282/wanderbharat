@@ -5,7 +5,10 @@ import {
   getClientIpAddress,
   type RateLimitDecision,
 } from "@/lib/api/rateLimit";
-import { generateItinerarySchema } from "@/lib/api/validation";
+import {
+  generateItinerarySchema,
+  type GenerateItineraryBody,
+} from "@/lib/api/validation";
 import { resolveRequestUserId } from "@/lib/auth/requestUser";
 import { planAccommodations as runAccommodationPlanner } from "@/lib/itinerary/accommodation";
 import { integrateAccommodationPlanIntoItinerary } from "@/lib/itinerary/accommodationBudget";
@@ -30,13 +33,14 @@ import { getDisallowedPublicRegions } from "@/lib/repositories/regionRepository"
 import { saveItinerary } from "@/lib/repositories/itineraryRepository";
 import { precacheItineraryRouteGeometry } from "@/lib/services/itineraryMapService";
 import { resolveTravelMatrix } from "@/lib/services/travelMatrixResolver";
-import type { Coordinates, TransportMode } from "@/types/domain";
+import type { Coordinates, Itinerary, TransportMode } from "@/types/domain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const GENERATE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const GENERATE_RATE_LIMIT_MAX_REQUESTS = 8;
+const MAX_GENERATE_CONTENT_LENGTH_BYTES = 25_000;
 
 const checkGenerateQuota = createSlidingWindowRateLimiter({
   windowMs: GENERATE_RATE_LIMIT_WINDOW_MS,
@@ -105,6 +109,12 @@ export async function handleGenerateItinerary(
   request: Request,
   deps: GenerateRouteDependencies = defaultDependencies,
 ) {
+  const payloadSizeError = rejectOversizedRequest(
+    request,
+    MAX_GENERATE_CONTENT_LENGTH_BYTES,
+  );
+  if (payloadSizeError) return payloadSizeError;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -200,7 +210,7 @@ export async function handleGenerateItinerary(
     return NextResponse.json(result.error, { status: 422 });
   }
 
-  let itinerary = result.itinerary;
+  let itinerary = attachPlanningCriteria(result.itinerary, input);
   try {
     const accommodationPlan = await deps.planAccommodations({
       days: itinerary.day_plan,
@@ -289,6 +299,39 @@ function buildCityLocationsByNodeId(
   return locationsByNodeId;
 }
 
+function rejectOversizedRequest(request: Request, maxBytes: number) {
+  const contentLengthHeader = request.headers.get("content-length");
+  if (!contentLengthHeader) return null;
+
+  const contentLength = Number.parseInt(contentLengthHeader, 10);
+  if (!Number.isFinite(contentLength) || contentLength <= maxBytes) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error: "payload_too_large",
+      message: "Request payload is too large.",
+    },
+    { status: 413 },
+  );
+}
+
+function attachPlanningCriteria(
+  itinerary: Itinerary,
+  input: Pick<GenerateItineraryBody, "regions" | "requested_city_ids">,
+): Itinerary {
+  const regions = dedupeStrings(input.regions);
+  const requestedCityIds = dedupeStrings(input.requested_city_ids ?? []);
+  return {
+    ...itinerary,
+    region: regions[0] ?? itinerary.region,
+    regions,
+    requested_city_ids:
+      requestedCityIds.length > 0 ? requestedCityIds : undefined,
+  };
+}
+
 function contextLoadErrorResponse(err: unknown) {
   const message =
     err instanceof Error ? err.message : "Failed to load planning data.";
@@ -331,4 +374,16 @@ function isContextInputError(message: string): boolean {
     /^Requested city ".+" not found\.$/.test(message) ||
     /^Requested city ".+" is not in an allowed region\.$/.test(message)
   );
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }

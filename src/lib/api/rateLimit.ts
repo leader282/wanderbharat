@@ -53,10 +53,9 @@ export function getClientIpAddress(request: Request): string {
     .map((entry) => normaliseIpAddress(entry))
     .filter((entry): entry is string => entry !== null);
   if (forwardedChain.length > 0) {
-    // Trusted proxies append their observed client address to the right side of
-    // X-Forwarded-For, so the right-most valid IP is resistant to caller-supplied
-    // leading spoof values.
-    return forwardedChain[forwardedChain.length - 1];
+    // X-Forwarded-For is ordered client, proxy1, proxy2. The first valid entry
+    // is the client address when the header was set by the platform proxy.
+    return forwardedChain[0];
   }
 
   return "unknown";

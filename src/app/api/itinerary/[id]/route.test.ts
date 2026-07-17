@@ -16,6 +16,17 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeOversizedPatchRequest(): Request {
+  return new Request("http://localhost/api/itinerary/it_test", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": "2001",
+    },
+    body: JSON.stringify({ total_budget: 30000 }),
+  });
+}
+
 function makeDeleteRequest(): Request {
   return new Request("http://localhost/api/itinerary/it_test", {
     method: "DELETE",
@@ -459,6 +470,29 @@ test("handleUpdateItineraryBudget previews changes without saving", async () => 
   assert.equal(saveCalls, 0);
 });
 
+test("handleUpdateItineraryBudget rejects oversized bodies before itinerary reads", async () => {
+  let readCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeOversizedPatchRequest(),
+    {
+      getItinerary: async () => {
+        readCalls += 1;
+        return makeItinerary({ user_id: null });
+      },
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+    },
+  );
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(readCalls, 0);
+});
+
 test("handleUpdateItineraryBudget hides itinerary read failures from clients", async () => {
   const response = await handleUpdateItineraryBudget(
     "it_test",
@@ -567,6 +601,76 @@ test("handleUpdateItineraryBudget injects the travel matrix resolver into regene
 
   assert.equal(response.status, 200);
   assert.equal(observedResolver, fakeResolver);
+});
+
+test("handleUpdateItineraryBudget preserves saved planning criteria during regeneration", async () => {
+  let observedContextRequest: {
+    regions?: string[];
+    requested_city_ids?: string[];
+  } = {};
+  let observedEngineInput: {
+    regions?: string[];
+    requested_city_ids?: string[];
+  } = {};
+  let savedItinerary: Itinerary | undefined;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 65000, apply: true }),
+    {
+      getItinerary: async () =>
+        makeItinerary({
+          user_id: "uid_owner",
+          regions: ["test-region", "nearby-region", "test-region"],
+          requested_city_ids: ["node_optional", "node_optional"],
+        }),
+      deleteItinerary: async () => {},
+      saveItinerary: async (itinerary) => {
+        savedItinerary = itinerary;
+      },
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async (request) => {
+        observedContextRequest = {
+          regions: request.regions,
+          requested_city_ids: request.requested_city_ids,
+        };
+        return makeContext();
+      },
+      generateItinerary: async (input) => {
+        observedEngineInput = {
+          regions: input.regions,
+          requested_city_ids: input.requested_city_ids,
+        };
+        return {
+          ok: true as const,
+          itinerary: makeItinerary({
+            id: "it_generated_elsewhere",
+            preferences: input.preferences,
+            estimated_cost: 20000,
+          }),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      precacheItineraryRouteGeometry: async () => [],
+      resolveUserIdFromRequest: async () => "uid_owner",
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(observedContextRequest.regions, [
+    "test-region",
+    "nearby-region",
+  ]);
+  assert.deepEqual(observedContextRequest.requested_city_ids, [
+    "node_optional",
+  ]);
+  assert.deepEqual(observedEngineInput.regions, [
+    "test-region",
+    "nearby-region",
+  ]);
+  assert.deepEqual(observedEngineInput.requested_city_ids, ["node_optional"]);
+  assert.deepEqual(savedItinerary?.regions, ["test-region", "nearby-region"]);
+  assert.deepEqual(savedItinerary?.requested_city_ids, ["node_optional"]);
 });
 
 test("handleUpdateItineraryBudget rate limits guest previews before regeneration", async () => {
