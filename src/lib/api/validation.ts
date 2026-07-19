@@ -12,6 +12,13 @@ import {
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const CURRENCY_PATTERN = /^[A-Za-z]{3}$/;
 const NATIONALITY_PATTERN = /^[A-Za-z]{2}$/;
+const MAX_SLUG_LENGTH = 80;
+const MAX_ID_LENGTH = 120;
+const MAX_INTERESTS = 20;
+const MAX_INTEREST_LENGTH = 80;
+
+const slugSchema = z.string().trim().min(1).max(MAX_SLUG_LENGTH);
+const nodeIdSchema = z.string().trim().min(1).max(MAX_ID_LENGTH);
 
 const localDateSchema = z
   .string()
@@ -79,8 +86,15 @@ const generateItineraryPreferencesSchema = z
     trip_end_date: localDateSchema.optional(),
     budget: budgetRangeSchema,
     travellers: travellersSchema,
-    interests: z.array(z.string()).optional(),
-    transport_modes: z.array(z.enum(TRANSPORT_MODES)).min(1).optional(),
+    interests: z
+      .array(z.string().trim().min(1).max(MAX_INTEREST_LENGTH))
+      .max(MAX_INTERESTS)
+      .optional(),
+    transport_modes: z
+      .array(z.enum(TRANSPORT_MODES))
+      .min(1)
+      .max(TRANSPORT_MODES.length)
+      .optional(),
     prioritize_city_coverage: z.boolean().optional(),
     accommodation_preference: z
       .enum(ACCOMMODATION_PREFERENCES)
@@ -138,12 +152,12 @@ export const generateItinerarySchema = z.object({
    * candidate pool for cross-region trips. Must contain at least one
    * slug; capped at 10 to prevent runaway graph loads.
    */
-  regions: z.array(z.string().min(1)).min(1).max(10),
-  start_node: z.string().min(1),
-  end_node: z.string().optional(),
-  requested_city_ids: z.array(z.string().min(1)).max(10).optional(),
+  regions: z.array(slugSchema).min(1).max(10),
+  start_node: nodeIdSchema,
+  end_node: nodeIdSchema.optional(),
+  requested_city_ids: z.array(nodeIdSchema).max(10).optional(),
   days: z.number().int().min(1).max(MAX_TRIP_DAYS),
-  user_id: z.string().optional(),
+  user_id: z.string().trim().max(MAX_ID_LENGTH).optional(),
   preferences: generateItineraryPreferencesSchema,
 })
   .superRefine((input, ctx) => {

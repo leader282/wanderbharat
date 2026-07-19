@@ -84,6 +84,12 @@ export function normaliseStoredItinerary(itinerary: StoredItinerary): Itinerary 
   const day_plan = Array.isArray(itinerary.day_plan) ? itinerary.day_plan : [];
   const stays = Array.isArray(itinerary.stays) ? itinerary.stays : [];
   const estimated_cost = normaliseCostAmount(itinerary.estimated_cost, 0);
+  const region =
+    typeof itinerary.region === "string" && itinerary.region.trim()
+      ? itinerary.region.trim()
+      : "";
+  const regions = normaliseRegionList(itinerary.regions, region);
+  const requestedCityIds = normaliseStringList(itinerary.requested_city_ids);
   const rawPreferences = (itinerary.preferences ?? {}) as NonNullable<
     StoredItinerary["preferences"]
   >;
@@ -103,6 +109,10 @@ export function normaliseStoredItinerary(itinerary: StoredItinerary): Itinerary 
   return {
     ...itinerary,
     user_id: typeof itinerary.user_id === "string" ? itinerary.user_id : null,
+    region,
+    regions,
+    requested_city_ids:
+      requestedCityIds.length > 0 ? requestedCityIds : undefined,
     nodes: normaliseNodes(itinerary.nodes, day_plan),
     day_plan,
     stays,
@@ -276,6 +286,14 @@ function normaliseBudgetRange(
       : (fallbackCurrency ?? DEFAULT_CURRENCY);
 
   return { min, max, currency };
+}
+
+function normaliseRegionList(value: unknown, fallbackRegion: string): string[] {
+  const regions = normaliseStringList(value);
+  if (fallbackRegion && !regions.includes(fallbackRegion)) {
+    return [fallbackRegion, ...regions];
+  }
+  return regions;
 }
 
 function computeNightlyAverage(stays: StayAssignment[]): number {

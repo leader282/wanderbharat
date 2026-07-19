@@ -373,8 +373,13 @@ export async function generateItinerary(
     id,
     user_id: input.user_id ?? null,
     region: input.regions[0],
+    regions: Array.from(allowedRegions),
     start_node: start.id,
     end_node: end.id,
+    requested_city_ids:
+      input.requested_city_ids && input.requested_city_ids.length > 0
+        ? dedupeStrings(input.requested_city_ids)
+        : undefined,
     days: input.days,
     preferences: {
       ...input.preferences,

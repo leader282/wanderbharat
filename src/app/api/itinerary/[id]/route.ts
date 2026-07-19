@@ -52,6 +52,7 @@ export const dynamic = "force-dynamic";
 
 const BUDGET_UPDATE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const BUDGET_UPDATE_RATE_LIMIT_MAX_REQUESTS = 8;
+const MAX_BUDGET_UPDATE_CONTENT_LENGTH_BYTES = 2_000;
 
 const checkBudgetUpdateQuota = createSlidingWindowRateLimiter({
   windowMs: BUDGET_UPDATE_RATE_LIMIT_WINDOW_MS,
@@ -261,6 +262,12 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
+  const payloadSizeError = rejectOversizedRequest(
+    request,
+    MAX_BUDGET_UPDATE_CONTENT_LENGTH_BYTES,
+  );
+  if (payloadSizeError) return payloadSizeError;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -381,9 +388,11 @@ export async function handleUpdateItineraryBudget(
     min: Math.min(existingItinerary.preferences.budget.min, requestedBudgetMax),
     max: requestedBudgetMax,
   };
-  const disallowedRegions = getDisallowedPublicRegions([
-    existingItinerary.region,
-  ]);
+  const planningRegions = normalisePlanningRegions(existingItinerary);
+  const requestedCityIds = normaliseStringList(
+    existingItinerary.requested_city_ids,
+  );
+  const disallowedRegions = getDisallowedPublicRegions(planningRegions);
   if (disallowedRegions.length > 0) {
     return NextResponse.json(
       {
@@ -400,9 +409,11 @@ export async function handleUpdateItineraryBudget(
       ? existingItinerary.preferences.transport_modes
       : ["road"];
   const input = {
-    regions: [existingItinerary.region],
+    regions: planningRegions,
     start_node: existingItinerary.start_node,
     end_node: existingItinerary.end_node,
+    requested_city_ids:
+      requestedCityIds.length > 0 ? requestedCityIds : undefined,
     days: existingItinerary.days,
     user_id: itineraryUserId ?? undefined,
     preferences: {
@@ -419,6 +430,7 @@ export async function handleUpdateItineraryBudget(
       regions: input.regions,
       start_node_id: input.start_node,
       end_node_id: input.end_node,
+      requested_city_ids: input.requested_city_ids,
       days: input.days,
       modes: requestedModes,
       travel_style: input.preferences.travel_style,
@@ -437,7 +449,7 @@ export async function handleUpdateItineraryBudget(
 
   const planAccommodations =
     deps.planAccommodations ?? defaultPlanAccommodations;
-  let hydratedItinerary = result.itinerary;
+  let hydratedItinerary = attachPlanningCriteria(result.itinerary, input);
   try {
     const accommodationPlan = await planAccommodations({
       days: hydratedItinerary.day_plan,
@@ -589,6 +601,58 @@ function buildCityLocationsByNodeId(
     locationsByNodeId[node.id] = node.location;
   }
   return locationsByNodeId;
+}
+
+function rejectOversizedRequest(request: Request, maxBytes: number) {
+  const contentLengthHeader = request.headers.get("content-length");
+  if (!contentLengthHeader) return null;
+
+  const contentLength = Number.parseInt(contentLengthHeader, 10);
+  if (!Number.isFinite(contentLength) || contentLength <= maxBytes) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error: "payload_too_large",
+      message: "Request payload is too large.",
+    },
+    { status: 413 },
+  );
+}
+
+function attachPlanningCriteria(
+  itinerary: Itinerary,
+  input: Pick<Itinerary, "regions" | "requested_city_ids">,
+): Itinerary {
+  const regions = normaliseStringList(input.regions);
+  const requestedCityIds = normaliseStringList(input.requested_city_ids);
+  return {
+    ...itinerary,
+    region: regions[0] ?? itinerary.region,
+    regions,
+    requested_city_ids:
+      requestedCityIds.length > 0 ? requestedCityIds : undefined,
+  };
+}
+
+function normalisePlanningRegions(itinerary: Itinerary): string[] {
+  const regions = normaliseStringList(itinerary.regions);
+  const primary = itinerary.region.trim();
+  if (primary && !regions.includes(primary)) return [primary, ...regions];
+  return regions.length > 0 ? regions : [itinerary.region];
+}
+
+function normaliseStringList(values: readonly string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values ?? []) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 function contextLoadErrorResponse(err: unknown) {

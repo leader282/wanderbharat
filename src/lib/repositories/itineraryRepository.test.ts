@@ -111,6 +111,8 @@ test("normaliseStoredItinerary backfills older saved itineraries for the UI", ()
   const normalised = normaliseStoredItinerary(raw);
 
   assert.deepEqual(normalised.nodes, ["node_ajmer", "node_udaipur"]);
+  assert.deepEqual(normalised.regions, ["rajasthan"]);
+  assert.equal(normalised.requested_city_ids, undefined);
   assert.deepEqual(normalised.stays, []);
   assert.equal(normalised.preferences.travellers.adults, 1);
   assert.equal(normalised.preferences.travellers.children, 0);
@@ -200,4 +202,45 @@ test("normaliseStoredItinerary dedupes warnings and repairs partial budget metad
     "Budget detail pending",
   ]);
   assert.deepEqual(normalised.warnings, ["Budget detail pending"]);
+});
+
+test("normaliseStoredItinerary dedupes persisted planning criteria", () => {
+  const raw = {
+    id: "it_criteria",
+    user_id: "uid_test",
+    region: "rajasthan",
+    regions: ["rajasthan", "gujarat", "rajasthan", "  "],
+    requested_city_ids: ["node_pushkar", "node_pushkar", " node_bundi "],
+    start_node: "node_ajmer",
+    end_node: "node_ajmer",
+    days: 2,
+    preferences: {
+      travel_style: "balanced",
+      budget: { min: 0, max: 25000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
+    },
+    nodes: ["node_ajmer"],
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "node_ajmer",
+        base_node_name: "Ajmer",
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 0,
+      },
+    ],
+    stays: [],
+    estimated_cost: 12000,
+    score: 0.81,
+    created_at: 1700000000000,
+  } as unknown as Itinerary;
+
+  const normalised = normaliseStoredItinerary(raw);
+
+  assert.deepEqual(normalised.regions, ["rajasthan", "gujarat"]);
+  assert.deepEqual(normalised.requested_city_ids, [
+    "node_pushkar",
+    "node_bundi",
+  ]);
 });

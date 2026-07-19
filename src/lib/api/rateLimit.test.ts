@@ -3,14 +3,14 @@ import test from "node:test";
 
 import { getClientIpAddress } from "@/lib/api/rateLimit";
 
-test("getClientIpAddress uses the proxy-appended address from forwarded chains", () => {
+test("getClientIpAddress uses the client address from forwarded chains", () => {
   const request = new Request("https://wanderbharat.example/api/contact", {
     headers: {
       "x-forwarded-for": "198.51.100.10, 203.0.113.42",
     },
   });
 
-  assert.equal(getClientIpAddress(request), "203.0.113.42");
+  assert.equal(getClientIpAddress(request), "198.51.100.10");
 });
 
 test("getClientIpAddress prefers trusted direct proxy IP headers", () => {
