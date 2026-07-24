@@ -28,6 +28,14 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+function makeHeaderlessOversizedRequest(): Request {
+  return new Request("http://localhost/api/contact", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ padding: "x".repeat(26_000) }),
+  });
+}
+
 function createDependencies(overrides?: {
   checkRateLimit?: () => { allowed: true } | { allowed: false; retryAfterSeconds: number };
   verifyTurnstileToken?: () => Promise<TurnstileVerificationResult>;
@@ -92,6 +100,37 @@ test("handleContactRequest returns 400 with field errors for invalid payloads", 
   };
   assert.equal(payload.error, "invalid_input");
   assert.ok(payload.fieldErrors.message?.length > 0);
+});
+
+test("handleContactRequest rejects oversized bodies without content-length", async () => {
+  let rateLimitCalls = 0;
+  let turnstileCalls = 0;
+  let sendCalls = 0;
+
+  const response = await handleContactRequest(
+    makeHeaderlessOversizedRequest(),
+    createDependencies({
+      checkRateLimit: () => {
+        rateLimitCalls += 1;
+        return { allowed: true };
+      },
+      verifyTurnstileToken: async () => {
+        turnstileCalls += 1;
+        return { ok: true, bypassed: false };
+      },
+      sendContactEmail: async () => {
+        sendCalls += 1;
+        return { ok: true, id: "email_123" };
+      },
+    }),
+  );
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(rateLimitCalls, 0);
+  assert.equal(turnstileCalls, 0);
+  assert.equal(sendCalls, 0);
 });
 
 test("handleContactRequest swallows honeypot submissions", async () => {

@@ -6,6 +6,10 @@ import {
   type RateLimitDecision,
 } from "@/lib/api/rateLimit";
 import {
+  readJsonBodyWithLimit,
+  type JsonBodyReadResult,
+} from "@/lib/api/jsonBody";
+import {
   generateItinerarySchema,
   type GenerateItineraryBody,
 } from "@/lib/api/validation";
@@ -109,22 +113,18 @@ export async function handleGenerateItinerary(
   request: Request,
   deps: GenerateRouteDependencies = defaultDependencies,
 ) {
-  const payloadSizeError = rejectOversizedRequest(
+  const bodyResult = await readJsonBodyWithLimit(
     request,
     MAX_GENERATE_CONTENT_LENGTH_BYTES,
   );
-  if (payloadSizeError) return payloadSizeError;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  if (!bodyResult.ok) {
     return NextResponse.json(
-      { error: "invalid_input", message: "Request body must be JSON." },
-      { status: 400 },
+      jsonBodyErrorPayload(bodyResult, "Request body must be JSON."),
+      { status: bodyResult.status },
     );
   }
 
+  const body = bodyResult.body;
   const parsed = generateItinerarySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -299,24 +299,6 @@ function buildCityLocationsByNodeId(
   return locationsByNodeId;
 }
 
-function rejectOversizedRequest(request: Request, maxBytes: number) {
-  const contentLengthHeader = request.headers.get("content-length");
-  if (!contentLengthHeader) return null;
-
-  const contentLength = Number.parseInt(contentLengthHeader, 10);
-  if (!Number.isFinite(contentLength) || contentLength <= maxBytes) {
-    return null;
-  }
-
-  return NextResponse.json(
-    {
-      error: "payload_too_large",
-      message: "Request payload is too large.",
-    },
-    { status: 413 },
-  );
-}
-
 function attachPlanningCriteria(
   itinerary: Itinerary,
   input: Pick<GenerateItineraryBody, "regions" | "requested_city_ids">,
@@ -361,6 +343,23 @@ function itineraryInternalErrorPayload(message: string): {
   return {
     error: "internal_error",
     message,
+  };
+}
+
+function jsonBodyErrorPayload(
+  result: Extract<JsonBodyReadResult, { ok: false }>,
+  invalidJsonMessage: string,
+) {
+  if (result.error === "payload_too_large") {
+    return {
+      error: result.error,
+      message: result.message,
+    };
+  }
+
+  return {
+    error: "invalid_input",
+    message: invalidJsonMessage,
   };
 }
 

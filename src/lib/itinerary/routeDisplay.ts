@@ -42,18 +42,36 @@ function resolveRouteStopsFromNodeSequence(
   if (!Array.isArray(itinerary.nodes) || itinerary.nodes.length === 0) return [];
 
   const nameById = new Map<string, string>();
+  const travelNodeIds = new Set<string>();
   for (const day of itinerary.day_plan) {
-    if (!day.base_node_id || !day.base_node_name) continue;
-    nameById.set(day.base_node_id, day.base_node_name);
+    if (day.base_node_id && day.base_node_name) {
+      nameById.set(day.base_node_id, day.base_node_name);
+    }
+    if (!day.travel) continue;
+    travelNodeIds.add(day.travel.from_node_id);
+    travelNodeIds.add(day.travel.to_node_id);
+    if (day.base_node_name && day.travel.to_node_id === day.base_node_id) {
+      nameById.set(day.travel.to_node_id, day.base_node_name);
+    }
   }
 
   const stops = itinerary.nodes.map((id) => ({
     id,
-    name: nameById.get(id) ?? "",
+    name: nameById.get(id) ?? (travelNodeIds.has(id) ? titleFromNodeId(id) : ""),
   }));
 
   if (stops.some((stop) => stop.name.length === 0)) return [];
   return dedupeConsecutiveStops(stops);
+}
+
+function titleFromNodeId(id: string): string {
+  const cleaned = id
+    .replace(/^node[_-]/, "")
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .join(" ");
+  if (!cleaned) return id;
+  return cleaned.replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function dedupeConsecutiveStops<T extends DisplayRouteStop>(stops: T[]): T[] {

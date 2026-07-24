@@ -20,6 +20,17 @@ function makeRequest(
   });
 }
 
+function makeHeaderlessOversizedRequest(): Request {
+  return new Request("https://wanderbharat.example/api/auth/session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://wanderbharat.example",
+    },
+    body: JSON.stringify({ padding: "x".repeat(11_000) }),
+  });
+}
+
 const deps = {
   verifyIdToken: async () => ({
     uid: "uid_test",
@@ -87,6 +98,23 @@ test("handleCreateSession sets a session cookie for same-origin JSON", async () 
 
   assert.equal(response.status, 200);
   assert.equal(cookieValue, "session_cookie_value");
+});
+
+test("handleCreateSession rejects oversized bodies without content-length", async () => {
+  let verifyCalls = 0;
+
+  const response = await handleCreateSession(makeHeaderlessOversizedRequest(), {
+    ...deps,
+    verifyIdToken: async () => {
+      verifyCalls += 1;
+      return deps.verifyIdToken();
+    },
+  });
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(verifyCalls, 0);
 });
 
 test("handleCreateSession redacts session cookie creation failures", async () => {

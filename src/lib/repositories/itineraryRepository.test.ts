@@ -116,12 +116,56 @@ test("normaliseStoredItinerary backfills older saved itineraries for the UI", ()
   assert.deepEqual(normalised.stays, []);
   assert.equal(normalised.preferences.travellers.adults, 1);
   assert.equal(normalised.preferences.travellers.children, 0);
+  assert.equal(normalised.preferences.travel_style, "balanced");
+  assert.deepEqual(normalised.preferences.transport_modes, ["road"]);
   assert.equal(normalised.preferences.budget.min, 0);
   assert.equal(normalised.preferences.budget.max, 42000);
   assert.equal(normalised.preferences.accommodation_preference, "midrange");
   assert.equal(normalised.budget_breakdown?.requestedBudget?.max, 42000);
   assert.equal(normalised.budget_breakdown?.totalTripCost, 18000);
   assert.equal(normalised.budget_breakdown?.line_items.length, 0);
+});
+
+test("normaliseStoredItinerary repairs missing legacy planning preferences", () => {
+  const raw = {
+    id: "it_missing_preferences",
+    user_id: "uid_test",
+    region: "rajasthan",
+    start_node: "node_ajmer",
+    end_node: "node_udaipur",
+    days: 2,
+    preferences: {
+      budget: { max: 42000, currency: "INR" },
+      transport_modes: ["road", "invalid-mode", "road"],
+    },
+    nodes: ["node_ajmer", "node_udaipur"],
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "node_udaipur",
+        base_node_name: "Udaipur",
+        travel: {
+          from_node_id: "node_ajmer",
+          to_node_id: "node_udaipur",
+          transport_mode: "road",
+          distance_km: 300,
+          travel_time_hours: 5,
+        },
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 5,
+      },
+    ],
+    stays: [],
+    estimated_cost: 18000,
+    score: 0.75,
+    created_at: 1700000000000,
+  } as unknown as Itinerary;
+
+  const normalised = normaliseStoredItinerary(raw);
+
+  assert.equal(normalised.preferences.travel_style, "balanced");
+  assert.deepEqual(normalised.preferences.transport_modes, ["road"]);
 });
 
 test("normaliseStoredItinerary backfills missing legacy guest user ids to null", () => {
@@ -155,6 +199,57 @@ test("normaliseStoredItinerary backfills missing legacy guest user ids to null",
   const normalised = normaliseStoredItinerary(raw);
 
   assert.equal(normalised.user_id, null);
+});
+
+test("normaliseStoredItinerary repairs legacy zero-cost unassigned lodging as unknown", () => {
+  const raw = {
+    id: "it_legacy_lodging",
+    user_id: null,
+    region: "rajasthan",
+    start_node: "node_ajmer",
+    end_node: "node_ajmer",
+    days: 2,
+    preferences: {
+      travel_style: "balanced",
+      budget: { min: 0, max: 25000, currency: "INR" },
+      travellers: { adults: 2, children: 0 },
+    },
+    nodes: ["node_ajmer"],
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "node_ajmer",
+        base_node_name: "Ajmer",
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 0,
+      },
+    ],
+    stays: [
+      {
+        nodeId: "node_ajmer",
+        startDay: 0,
+        endDay: 0,
+        nights: 1,
+        accommodationId: null,
+        nightlyCost: 0,
+        totalCost: 0,
+      },
+    ],
+    estimated_cost: 12000,
+    score: 0.81,
+    created_at: 1700000000000,
+  } as unknown as Itinerary;
+
+  const normalised = normaliseStoredItinerary(raw);
+  const stay = normalised.stays[0];
+
+  assert.equal(stay?.nightlyCost, null);
+  assert.equal(stay?.totalCost, null);
+  assert.equal(stay?.hotelRateStatus, "unknown");
+  assert.equal(stay?.hotelRateUnavailableReason, "no_rates");
+  assert.equal(normalised.budget_breakdown?.unknownLodgingStaysCount, 1);
+  assert.equal(normalised.budget_breakdown?.lodgingRateState, "lodging_unknown");
 });
 
 test("normaliseStoredItinerary dedupes warnings and repairs partial budget metadata", () => {

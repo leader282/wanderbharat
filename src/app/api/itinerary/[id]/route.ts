@@ -5,6 +5,10 @@ import {
   getClientIpAddress,
   type RateLimitDecision,
 } from "@/lib/api/rateLimit";
+import {
+  readJsonBodyWithLimit,
+  type JsonBodyReadResult,
+} from "@/lib/api/jsonBody";
 import { adjustItineraryBudgetSchema } from "@/lib/api/validation";
 import { buildBudgetAdjustmentPreview } from "@/lib/itinerary/budgetAdjustmentPreview";
 import { resolveRequestUserId } from "@/lib/auth/requestUser";
@@ -262,22 +266,18 @@ export async function handleUpdateItineraryBudget(
     );
   }
 
-  const payloadSizeError = rejectOversizedRequest(
+  const bodyResult = await readJsonBodyWithLimit(
     request,
     MAX_BUDGET_UPDATE_CONTENT_LENGTH_BYTES,
   );
-  if (payloadSizeError) return payloadSizeError;
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  if (!bodyResult.ok) {
     return NextResponse.json(
-      { error: "invalid_input", message: "Request body must be JSON." },
-      { status: 400 },
+      jsonBodyErrorPayload(bodyResult, "Request body must be JSON."),
+      { status: bodyResult.status },
     );
   }
 
+  const body = bodyResult.body;
   const parsed = adjustItineraryBudgetSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -291,6 +291,24 @@ export async function handleUpdateItineraryBudget(
         })),
       },
       { status: 400 },
+    );
+  }
+
+  const checkBudgetUpdateRateLimit =
+    deps.checkBudgetUpdateRateLimit ?? checkItineraryBudgetUpdateRateLimit;
+  const rateLimitDecision = checkBudgetUpdateRateLimit(request, null);
+  if (!rateLimitDecision.allowed) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many itinerary budget updates. Please try again shortly.",
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitDecision.retryAfterSeconds),
+        },
+      },
     );
   }
 
@@ -359,27 +377,6 @@ export async function handleUpdateItineraryBudget(
         { status: 403 },
       );
     }
-  }
-
-  const checkBudgetUpdateRateLimit =
-    deps.checkBudgetUpdateRateLimit ?? checkItineraryBudgetUpdateRateLimit;
-  const rateLimitDecision = checkBudgetUpdateRateLimit(
-    request,
-    requesterUserId,
-  );
-  if (!rateLimitDecision.allowed) {
-    return NextResponse.json(
-      {
-        error: "rate_limited",
-        message: "Too many itinerary budget updates. Please try again shortly.",
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": String(rateLimitDecision.retryAfterSeconds),
-        },
-      },
-    );
   }
 
   const requestedBudgetMax = Math.round(parsed.data.total_budget);
@@ -603,24 +600,6 @@ function buildCityLocationsByNodeId(
   return locationsByNodeId;
 }
 
-function rejectOversizedRequest(request: Request, maxBytes: number) {
-  const contentLengthHeader = request.headers.get("content-length");
-  if (!contentLengthHeader) return null;
-
-  const contentLength = Number.parseInt(contentLengthHeader, 10);
-  if (!Number.isFinite(contentLength) || contentLength <= maxBytes) {
-    return null;
-  }
-
-  return NextResponse.json(
-    {
-      error: "payload_too_large",
-      message: "Request payload is too large.",
-    },
-    { status: 413 },
-  );
-}
-
 function attachPlanningCriteria(
   itinerary: Itinerary,
   input: Pick<Itinerary, "regions" | "requested_city_ids">,
@@ -676,6 +655,23 @@ function contextLoadErrorResponse(err: unknown) {
     },
     { status: 500 },
   );
+}
+
+function jsonBodyErrorPayload(
+  result: Extract<JsonBodyReadResult, { ok: false }>,
+  invalidJsonMessage: string,
+) {
+  if (result.error === "payload_too_large") {
+    return {
+      error: result.error,
+      message: result.message,
+    };
+  }
+
+  return {
+    error: "invalid_input",
+    message: invalidJsonMessage,
+  };
 }
 
 function isContextInputError(message: string): boolean {

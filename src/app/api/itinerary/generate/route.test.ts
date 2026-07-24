@@ -23,6 +23,16 @@ function makeOversizedRequest(): Request {
   });
 }
 
+function makeHeaderlessOversizedRequest(): Request {
+  return new Request("http://localhost/api/itinerary/generate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ padding: "x".repeat(26_000) }),
+  });
+}
+
 function makeContext() {
   return {
     nodes: [],
@@ -178,6 +188,37 @@ test("handleGenerateItinerary rejects oversized bodies before downstream work", 
     saveItinerary: async () => {},
     resolveUserId: async () => null,
   });
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(loadCalls, 0);
+  assert.equal(generateCalls, 0);
+});
+
+test("handleGenerateItinerary rejects oversized bodies without content-length", async () => {
+  let loadCalls = 0;
+  let generateCalls = 0;
+
+  const response = await handleGenerateItinerary(
+    makeHeaderlessOversizedRequest(),
+    {
+      loadEngineContextForPlan: async () => {
+        loadCalls += 1;
+        return makeContext();
+      },
+      generateItinerary: async () => {
+        generateCalls += 1;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary(),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      saveItinerary: async () => {},
+      resolveUserId: async () => null,
+    },
+  );
 
   assert.equal(response.status, 413);
   const payload = (await response.json()) as { error: string };
