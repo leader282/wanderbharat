@@ -365,6 +365,36 @@ test("getItineraryMapData survives a slow Google Routes call without blocking", 
   assert.equal(result.legs[0]?.distance_km, 395);
 });
 
+test("getItineraryMapData falls back when cached edge loading fails", async () => {
+  let fetchCalls = 0;
+
+  const result = await getItineraryMapData(makeItinerary(), {
+    getNodes: async () => nodes,
+    getAccommodations: async () => [accommodation],
+    findEdges: async () => {
+      throw new Error("edge cache unavailable");
+    },
+    upsertEdges: async () => {
+      throw new Error("should not persist when cache loading fails");
+    },
+    getTravelTime: async () => {
+      fetchCalls += 1;
+      return {
+        distance_km: 392.8,
+        travel_time_hours: 6.75,
+        encoded_polyline: "should-not-fetch",
+      };
+    },
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(result.legs.length, 1);
+  assert.equal(result.legs[0]?.from_node_id, "city_start");
+  assert.equal(result.legs[0]?.to_node_id, "city_end");
+  assert.equal(result.legs[0]?.has_geometry, false);
+  assert.equal(result.missing_geometry_count, 1);
+});
+
 test("getItineraryMapData reuses cached geometry without another Google call", async () => {
   let fetchCalls = 0;
   const cachedEdge: GraphEdge = {

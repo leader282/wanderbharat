@@ -4,11 +4,22 @@ import test from "node:test";
 import { handleLiteApiTestRequest } from "@/app/api/admin/liteapi-test/route";
 import type { LiteApiProbeResult } from "@/lib/admin/liteApiProbe";
 
-function makeRequest(body: unknown): Request {
+function makeRequest(
+  body: unknown,
+  headers: Record<string, string> = {},
+): Request {
   return new Request("http://localhost/api/admin/liteapi-test", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
+  });
+}
+
+function makeRawRequest(body: string, headers: Record<string, string>): Request {
+  return new Request("http://localhost/api/admin/liteapi-test", {
+    method: "POST",
+    headers,
+    body,
   });
 }
 
@@ -129,6 +140,79 @@ test("handleLiteApiTestRequest returns 403 for non-admin users", async () => {
   });
 
   assert.equal(response.status, 403);
+  assert.equal(probeCalls, 0);
+});
+
+test("handleLiteApiTestRequest rejects cross-origin requests before auth", async () => {
+  let authCalls = 0;
+  let probeCalls = 0;
+  const response = await handleLiteApiTestRequest(
+    makeRequest(validBody, { Origin: "https://evil.example" }),
+    {
+      requireAdminUser: async () => {
+        authCalls += 1;
+        return adminAuthResult;
+      },
+      runLiteApiProbe: async () => {
+        probeCalls += 1;
+        return makeProbeResult();
+      },
+    },
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(authCalls, 0);
+  assert.equal(probeCalls, 0);
+});
+
+test("handleLiteApiTestRequest rejects non-JSON requests before auth", async () => {
+  let authCalls = 0;
+  let probeCalls = 0;
+  const response = await handleLiteApiTestRequest(
+    makeRawRequest(JSON.stringify(validBody), {
+      "Content-Type": "text/plain",
+      Origin: "http://localhost",
+    }),
+    {
+      requireAdminUser: async () => {
+        authCalls += 1;
+        return adminAuthResult;
+      },
+      runLiteApiProbe: async () => {
+        probeCalls += 1;
+        return makeProbeResult();
+      },
+    },
+  );
+
+  assert.equal(response.status, 415);
+  assert.equal(authCalls, 0);
+  assert.equal(probeCalls, 0);
+});
+
+test("handleLiteApiTestRequest rejects oversized bodies before auth", async () => {
+  let authCalls = 0;
+  let probeCalls = 0;
+  const response = await handleLiteApiTestRequest(
+    makeRawRequest(JSON.stringify(validBody), {
+      "Content-Type": "application/json",
+      "Content-Length": "10001",
+      Origin: "http://localhost",
+    }),
+    {
+      requireAdminUser: async () => {
+        authCalls += 1;
+        return adminAuthResult;
+      },
+      runLiteApiProbe: async () => {
+        probeCalls += 1;
+        return makeProbeResult();
+      },
+    },
+  );
+
+  assert.equal(response.status, 413);
+  assert.equal(authCalls, 0);
   assert.equal(probeCalls, 0);
 });
 

@@ -24,6 +24,7 @@ const defaultDependencies: LiteApiTestRouteDependencies = {
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_STAY_NIGHTS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MAX_LITEAPI_TEST_CONTENT_LENGTH_BYTES = 10_000;
 
 const localDateSchema = z
   .string()
@@ -169,6 +170,12 @@ export async function handleLiteApiTestRequest(
   request: Request,
   deps: LiteApiTestRouteDependencies = defaultDependencies,
 ) {
+  const requestGuard = validateStateChangingRequest(
+    request,
+    MAX_LITEAPI_TEST_CONTENT_LENGTH_BYTES,
+  );
+  if (requestGuard) return requestGuard;
+
   const auth = await deps.requireAdminUser();
   if (!auth.ok) {
     if (auth.reason === "unauthenticated") {
@@ -263,4 +270,70 @@ function parseLocalDate(dateString: string): number | null {
 function currentUtcMidnightMs(): number {
   const now = new Date();
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+}
+
+function validateStateChangingRequest(request: Request, maxBytes: number) {
+  const sameOriginError = validateSameOriginRequest(request);
+  if (sameOriginError) return sameOriginError;
+
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader) {
+    const contentLength = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      return NextResponse.json(
+        {
+          error: "payload_too_large",
+          message: "Request payload is too large.",
+        },
+        { status: 413 },
+      );
+    }
+  }
+
+  const contentType = request.headers.get("content-type") ?? "";
+  const mediaType = contentType.split(";")[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    return NextResponse.json(
+      {
+        error: "unsupported_media_type",
+        message: "Content-Type must be application/json.",
+      },
+      { status: 415 },
+    );
+  }
+
+  return null;
+}
+
+function validateSameOriginRequest(request: Request) {
+  if (isSameOriginRequest(request)) return null;
+
+  return NextResponse.json(
+    {
+      error: "csrf_rejected",
+      message: "Cross-origin admin requests are not allowed.",
+    },
+    { status: 403 },
+  );
+}
+
+function isSameOriginRequest(request: Request): boolean {
+  const requestOrigin = originFromUrl(request.url);
+  if (!requestOrigin) return false;
+
+  const origin = request.headers.get("origin");
+  if (origin) return originFromUrl(origin) === requestOrigin;
+
+  const referer = request.headers.get("referer");
+  if (referer) return originFromUrl(referer) === requestOrigin;
+
+  return true;
+}
+
+function originFromUrl(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
 }
