@@ -82,6 +82,41 @@ test("getDisplayRouteStops reconstructs round trips from the stored node sequenc
   assert.equal(getDistinctDestinationCount(itinerary), 2);
 });
 
+test("getDisplayRouteStops preserves one-way origins from the stored node sequence", () => {
+  const itinerary = makeItinerary({
+    start_node: "city_jaipur",
+    end_node: "city_udaipur",
+    nodes: ["city_jaipur", "city_udaipur"],
+    day_plan: [
+      {
+        day_index: 0,
+        base_node_id: "city_udaipur",
+        base_node_name: "Udaipur",
+        travel: {
+          from_node_id: "city_jaipur",
+          to_node_id: "city_udaipur",
+          transport_mode: "road",
+          distance_km: 395,
+          travel_time_hours: 6.8,
+        },
+        activities: [],
+        total_activity_hours: 4,
+        total_travel_hours: 6.8,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    getDisplayRouteStops(itinerary).map((stop) => stop.name),
+    ["Jaipur", "Udaipur"],
+  );
+  assert.deepEqual(getRouteEndpoints(itinerary), {
+    startName: "Jaipur",
+    endName: "Udaipur",
+  });
+  assert.equal(getDistinctDestinationCount(itinerary), 2);
+});
+
 test("getDisplayRouteStops falls back to compressed day-plan bases when node names are missing", () => {
   const itinerary = makeItinerary({
     nodes: ["node_unknown"],

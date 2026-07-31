@@ -345,6 +345,34 @@ test("handleGenerateItinerary returns 422 for missing planning start nodes", asy
     planAccommodations: async () => ({ stays: [], warnings: [] }),
     saveItinerary: async () => {},
     resolveUserId: async () => null,
+    checkRateLimit: () => ({ allowed: true }),
+  });
+
+  assert.equal(response.status, 422);
+  const payload = (await response.json()) as { error: string; reason: string };
+  assert.equal(payload.error, "invalid_input");
+  assert.equal(payload.reason, "invalid_input");
+  assert.equal(generateCalls, 0);
+});
+
+test("handleGenerateItinerary returns 422 for non-city planning endpoints", async () => {
+  let generateCalls = 0;
+
+  const response = await handleGenerateItinerary(makeRequest(validBody), {
+    loadEngineContextForPlan: async () => {
+      throw new Error('Start node "attr_start" is not a plannable city.');
+    },
+    generateItinerary: async () => {
+      generateCalls += 1;
+      return {
+        ok: true as const,
+        itinerary: makeItinerary(),
+      };
+    },
+    planAccommodations: async () => ({ stays: [], warnings: [] }),
+    saveItinerary: async () => {},
+    resolveUserId: async () => null,
+    checkRateLimit: () => ({ allowed: true }),
   });
 
   assert.equal(response.status, 422);

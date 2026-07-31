@@ -61,12 +61,18 @@ export async function loadEngineContextForPlan(
       `Start node "${req.start_node_id}" is not in an allowed region.`,
     );
   }
+  if (start.type !== "city") {
+    throw new Error(`Start node "${req.start_node_id}" is not a plannable city.`);
+  }
   const end = pinnedById.get(endId);
   if (!end) {
     throw new Error(`End node "${endId}" not found.`);
   }
   if (!regionSet.has(end.region)) {
     throw new Error(`End node "${endId}" is not in an allowed region.`);
+  }
+  if (end.type !== "city") {
+    throw new Error(`End node "${endId}" is not a plannable city.`);
   }
   for (const requestedCityId of req.requested_city_ids ?? []) {
     const requestedCity = pinnedById.get(requestedCityId);

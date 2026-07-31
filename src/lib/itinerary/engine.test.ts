@@ -147,6 +147,67 @@ const strictResolver = async ({
   modes: GenerateItineraryInput["preferences"]["transport_modes"];
 }) => buildTravelMatrix(nodes, edges, modes ?? ["road"]);
 
+function makeInput(
+  overrides: Partial<GenerateItineraryInput> = {},
+): GenerateItineraryInput {
+  return {
+    regions: ["test-region"],
+    start_node: "node_start",
+    end_node: "node_end",
+    days: 2,
+    preferences: {
+      travel_style: "balanced",
+      budget: { min: 0, max: 50000 },
+      travellers: { adults: 2, children: 0 },
+      interests: ["heritage"],
+      transport_modes: ["road"],
+    },
+    ...overrides,
+  };
+}
+
+test("generateItinerary rejects attraction start nodes", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End" });
+  const attractionStart = makeAttraction({
+    id: "attr_start",
+    name: "Attraction Start",
+    cityId: start.id,
+  });
+
+  const result = await generateItinerary(
+    makeInput({ start_node: attractionStart.id }),
+    makeContext([start, end, attractionStart], []),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.reason, "invalid_input");
+  assert.match(result.error.message, /not a plannable city/);
+});
+
+test("generateItinerary rejects attraction end nodes", async () => {
+  const start = makeCity({ id: "node_start", name: "Start" });
+  const end = makeCity({ id: "node_end", name: "End" });
+  const attractionEnd = makeAttraction({
+    id: "attr_end",
+    name: "Attraction End",
+    cityId: end.id,
+  });
+
+  const result = await generateItinerary(
+    makeInput({ end_node: attractionEnd.id }),
+    makeContext([start, end, attractionEnd], []),
+    { resolveTravelMatrix: strictResolver },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.reason, "invalid_input");
+  assert.match(result.error.message, /not a plannable city/);
+});
+
 test("generateItinerary chooses the lower-travel route and preserves exact day count", async () => {
   const start = makeCity({
     id: "node_start",

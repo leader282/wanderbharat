@@ -369,8 +369,10 @@ function isContextInputError(message: string): boolean {
     message === "At least one region is required." ||
     /^Start node ".+" not found\.$/.test(message) ||
     /^Start node ".+" is not in an allowed region\.$/.test(message) ||
+    /^Start node ".+" is not a plannable city\.$/.test(message) ||
     /^End node ".+" not found\.$/.test(message) ||
     /^End node ".+" is not in an allowed region\.$/.test(message) ||
+    /^End node ".+" is not a plannable city\.$/.test(message) ||
     /^Requested city ".+" not found\.$/.test(message) ||
     /^Requested city ".+" is not in an allowed region\.$/.test(message)
   );

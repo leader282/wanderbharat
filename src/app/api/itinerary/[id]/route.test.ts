@@ -738,6 +738,39 @@ test("handleUpdateItineraryBudget returns 422 for missing planning start nodes",
   assert.equal(generateCalls, 0);
 });
 
+test("handleUpdateItineraryBudget returns 422 for non-city planning endpoints", async () => {
+  let generateCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeRequest({ total_budget: 30000 }),
+    {
+      getItinerary: async () => makeItinerary({ user_id: null }),
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+      loadEngineContextForPlan: async () => {
+        throw new Error('End node "attr_end" is not a plannable city.');
+      },
+      generateItinerary: async () => {
+        generateCalls += 1;
+        return {
+          ok: true as const,
+          itinerary: makeItinerary({ user_id: null }),
+        };
+      },
+      planAccommodations: async () => ({ stays: [], warnings: [] }),
+      resolveUserIdFromRequest: async () => null,
+    },
+  );
+
+  assert.equal(response.status, 422);
+  const payload = (await response.json()) as { error: string; reason: string };
+  assert.equal(payload.error, "invalid_input");
+  assert.equal(payload.reason, "invalid_input");
+  assert.equal(generateCalls, 0);
+});
+
 test("handleUpdateItineraryBudget rejects applying guest itineraries", async () => {
   let saveCalls = 0;
   let generateCalls = 0;

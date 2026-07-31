@@ -46,13 +46,14 @@ function resolveRouteStopsFromNodeSequence(
     if (!day.base_node_id || !day.base_node_name) continue;
     nameById.set(day.base_node_id, day.base_node_name);
   }
+  const relevantNodeIds = collectRouteRelevantNodeIds(itinerary);
+  if (!itinerary.nodes.some((id) => relevantNodeIds.has(id))) return [];
 
   const stops = itinerary.nodes.map((id) => ({
     id,
-    name: nameById.get(id) ?? "",
+    name: nameById.get(id) ?? formatFallbackStopName(id),
   }));
 
-  if (stops.some((stop) => stop.name.length === 0)) return [];
   return dedupeConsecutiveStops(stops);
 }
 
@@ -63,4 +64,29 @@ function dedupeConsecutiveStops<T extends DisplayRouteStop>(stops: T[]): T[] {
     out.push(stop);
   }
   return out;
+}
+
+function collectRouteRelevantNodeIds(itinerary: Itinerary): Set<string> {
+  const ids = new Set<string>([itinerary.start_node]);
+  if (itinerary.end_node) ids.add(itinerary.end_node);
+
+  for (const day of itinerary.day_plan) {
+    if (day.base_node_id) ids.add(day.base_node_id);
+    if (day.travel) {
+      ids.add(day.travel.from_node_id);
+      ids.add(day.travel.to_node_id);
+    }
+  }
+
+  return ids;
+}
+
+function formatFallbackStopName(nodeId: string): string {
+  const cleaned = nodeId
+    .replace(/^(node|city)_/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  if (!cleaned) return nodeId;
+
+  return cleaned.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }

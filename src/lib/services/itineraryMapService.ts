@@ -84,12 +84,15 @@ export async function getItineraryMapData(
 
   const nodesById = indexNodes(nodes);
   const travelSpecs = collectTravelSpecs(itinerary, nodesById);
-  const cachedEdges = await loadCachedEdges(travelSpecs, deps);
-  const resolvedEdges = await ensureRouteGeometry(
-    travelSpecs,
-    cachedEdges,
-    deps,
-  );
+  let resolvedEdges: GraphEdge[] = [];
+  try {
+    const cachedEdges = await loadCachedEdges(travelSpecs, deps);
+    resolvedEdges = await ensureRouteGeometry(travelSpecs, cachedEdges, deps);
+  } catch {
+    // Cached edges enrich the map, but the itinerary detail page should still
+    // render direct fallback legs when the edge cache is temporarily unavailable.
+    resolvedEdges = [];
+  }
 
   return buildMapData({
     itinerary,

@@ -161,6 +161,12 @@ export async function generateItinerary(
       error: invalidInput(`Start node "${input.start_node}" not found.`),
     };
   }
+  if (start.type !== "city") {
+    return {
+      ok: false,
+      error: invalidInput(`Start node "${input.start_node}" is not a plannable city.`),
+    };
+  }
 
   const requestedEndId = input.end_node ?? input.start_node;
   const end = graph.getNode(requestedEndId);
@@ -168,6 +174,12 @@ export async function generateItinerary(
     return {
       ok: false,
       error: invalidInput(`End node "${requestedEndId}" not found.`),
+    };
+  }
+  if (end.type !== "city") {
+    return {
+      ok: false,
+      error: invalidInput(`End node "${requestedEndId}" is not a plannable city.`),
     };
   }
 
