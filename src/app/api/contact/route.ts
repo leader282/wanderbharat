@@ -4,6 +4,7 @@ import {
   contactSubmissionSchema,
   flattenContactFieldErrors,
 } from "@/lib/api/contactValidation";
+import { readJsonBodyWithLimit } from "@/lib/api/jsonBody";
 import { getClientIpAddress } from "@/lib/api/rateLimit";
 import {
   type TurnstileVerificationResult,
@@ -55,22 +56,14 @@ export async function handleContactRequest(
   request: Request,
   deps: ContactRouteDependencies = defaultDependencies,
 ) {
-  const contentLengthHeader = request.headers.get("content-length");
-  const contentLength = contentLengthHeader
-    ? Number.parseInt(contentLengthHeader, 10)
-    : null;
-
-  if (
-    contentLength !== null &&
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_CONTENT_LENGTH_BYTES
-  ) {
+  const bodyResult = await readJsonBodyWithLimit(request, MAX_CONTENT_LENGTH_BYTES);
+  if (!bodyResult.ok) {
     return NextResponse.json(
       {
-        error: "payload_too_large",
-        message: "Request payload is too large.",
+        error: bodyResult.error,
+        message: bodyResult.message,
       },
-      { status: 413 },
+      { status: bodyResult.status },
     );
   }
 
@@ -90,20 +83,7 @@ export async function handleContactRequest(
     );
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      {
-        error: "invalid_json",
-        message: "Request body must be valid JSON.",
-      },
-      { status: 400 },
-    );
-  }
-
-  const parsed = contactSubmissionSchema.safeParse(body);
+  const parsed = contactSubmissionSchema.safeParse(bodyResult.body);
   if (!parsed.success) {
     return NextResponse.json(
       {

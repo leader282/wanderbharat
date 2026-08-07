@@ -27,6 +27,14 @@ function makeOversizedPatchRequest(): Request {
   });
 }
 
+function makeHeaderlessOversizedPatchRequest(): Request {
+  return new Request("http://localhost/api/itinerary/it_test", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ padding: "x".repeat(3_000) }),
+  });
+}
+
 function makeDeleteRequest(): Request {
   return new Request("http://localhost/api/itinerary/it_test", {
     method: "DELETE",
@@ -493,6 +501,29 @@ test("handleUpdateItineraryBudget rejects oversized bodies before itinerary read
   assert.equal(readCalls, 0);
 });
 
+test("handleUpdateItineraryBudget rejects oversized bodies without content-length", async () => {
+  let readCalls = 0;
+
+  const response = await handleUpdateItineraryBudget(
+    "it_test",
+    makeHeaderlessOversizedPatchRequest(),
+    {
+      getItinerary: async () => {
+        readCalls += 1;
+        return makeItinerary({ user_id: null });
+      },
+      deleteItinerary: async () => {},
+      saveItinerary: async () => {},
+      getItineraryMapData: async () => makeMapData(),
+    },
+  );
+
+  assert.equal(response.status, 413);
+  const payload = (await response.json()) as { error: string };
+  assert.equal(payload.error, "payload_too_large");
+  assert.equal(readCalls, 0);
+});
+
 test("handleUpdateItineraryBudget hides itinerary read failures from clients", async () => {
   const response = await handleUpdateItineraryBudget(
     "it_test",
@@ -674,13 +705,17 @@ test("handleUpdateItineraryBudget preserves saved planning criteria during regen
 });
 
 test("handleUpdateItineraryBudget rate limits guest previews before regeneration", async () => {
+  let readCalls = 0;
   let generateCalls = 0;
 
   const response = await handleUpdateItineraryBudget(
     "it_test",
     makeRequest({ total_budget: 30000 }),
     {
-      getItinerary: async () => makeItinerary({ user_id: null }),
+      getItinerary: async () => {
+        readCalls += 1;
+        return makeItinerary({ user_id: null });
+      },
       deleteItinerary: async () => {},
       saveItinerary: async () => {},
       getItineraryMapData: async () => makeMapData(),
@@ -702,6 +737,7 @@ test("handleUpdateItineraryBudget rate limits guest previews before regeneration
 
   assert.equal(response.status, 429);
   assert.equal(response.headers.get("Retry-After"), "30");
+  assert.equal(readCalls, 0);
   assert.equal(generateCalls, 0);
 });
 
@@ -840,6 +876,7 @@ test("handleUpdateItineraryBudget applies the regenerated itinerary in place", a
       }),
       precacheItineraryRouteGeometry: async () => [],
       resolveUserIdFromRequest: async () => "uid_owner",
+      checkBudgetUpdateRateLimit: () => ({ allowed: true }),
     },
   );
 
@@ -878,6 +915,7 @@ test("handleUpdateItineraryBudget hides persistence details from clients", async
       planAccommodations: async () => ({ stays: [], warnings: [] }),
       precacheItineraryRouteGeometry: async () => [],
       resolveUserIdFromRequest: async () => "uid_owner",
+      checkBudgetUpdateRateLimit: () => ({ allowed: true }),
     },
   );
 
@@ -906,6 +944,7 @@ test("handleUpdateItineraryBudget rejects applying account-owned itineraries as 
       },
       getItineraryMapData: async () => makeMapData(),
       resolveUserIdFromRequest: async () => "uid_other",
+      checkBudgetUpdateRateLimit: () => ({ allowed: true }),
     },
   );
 

@@ -51,12 +51,12 @@ export default async function TripsPage() {
 
 async function SignedInState({ userId }: { userId: string }) {
   let itineraries: Itinerary[] = [];
-  let loadError: string | null = null;
+  let loadError = false;
 
   try {
     itineraries = await listItinerariesForUser(userId, 50);
-  } catch (err) {
-    loadError = (err as Error).message;
+  } catch {
+    loadError = true;
   }
 
   if (loadError) {
@@ -65,7 +65,9 @@ async function SignedInState({ userId }: { userId: string }) {
         <p className="font-bold text-red-900">
           We couldn&apos;t load your trips.
         </p>
-        <p className="mt-1 text-sm text-red-800">{loadError}</p>
+        <p className="mt-1 text-sm text-red-800">
+          Please try again shortly.
+        </p>
       </div>
     );
   }

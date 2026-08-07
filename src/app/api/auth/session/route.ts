@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { readJsonBodyWithLimit } from "@/lib/api/jsonBody";
 import { getAdminAuth } from "@/lib/firebase/admin";
 import {
   SESSION_COOKIE_NAME,
@@ -10,6 +11,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const MAX_SESSION_CONTENT_LENGTH_BYTES = 10_000;
 
 interface VerifiedIdToken {
   uid: string;
@@ -55,16 +58,27 @@ export async function handleCreateSession(
   const requestGuard = validateStateChangingRequest(request);
   if (requestGuard) return requestGuard;
 
-  let body: { idToken?: unknown };
-  try {
-    body = (await request.json()) as { idToken?: unknown };
-  } catch {
+  const bodyResult = await readJsonBodyWithLimit(
+    request,
+    MAX_SESSION_CONTENT_LENGTH_BYTES,
+  );
+  if (!bodyResult.ok) {
     return NextResponse.json(
-      { error: "invalid_input", message: "Body must be JSON." },
-      { status: 400 },
+      {
+        error:
+          bodyResult.error === "payload_too_large"
+            ? "payload_too_large"
+            : "invalid_input",
+        message:
+          bodyResult.error === "payload_too_large"
+            ? bodyResult.message
+            : "Body must be JSON.",
+      },
+      { status: bodyResult.status },
     );
   }
 
+  const body = bodyResult.body as { idToken?: unknown };
   const idToken = typeof body.idToken === "string" ? body.idToken : "";
   if (!idToken) {
     return NextResponse.json(

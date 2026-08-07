@@ -5,8 +5,14 @@ import type {
   ItineraryBudgetBreakdown,
   ItineraryPreferences,
   StayAssignment,
+  TransportMode,
+  TravelStyle,
 } from "@/types/domain";
-import { DEFAULT_CURRENCY } from "@/types/domain";
+import {
+  DEFAULT_CURRENCY,
+  TRANSPORT_MODES,
+  TRAVEL_STYLES,
+} from "@/types/domain";
 import { getAdminDb, withFirestoreDiagnostics } from "@/lib/firebase/admin";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 import { deriveOptimalBudget } from "@/lib/itinerary/budget";
@@ -82,7 +88,7 @@ export function stripUndefinedDeep<T>(value: T): T {
 
 export function normaliseStoredItinerary(itinerary: StoredItinerary): Itinerary {
   const day_plan = Array.isArray(itinerary.day_plan) ? itinerary.day_plan : [];
-  const stays = Array.isArray(itinerary.stays) ? itinerary.stays : [];
+  const stays = normaliseStoredStays(itinerary.stays);
   const estimated_cost = normaliseCostAmount(itinerary.estimated_cost, 0);
   const region =
     typeof itinerary.region === "string" && itinerary.region.trim()
@@ -119,10 +125,12 @@ export function normaliseStoredItinerary(itinerary: StoredItinerary): Itinerary 
     estimated_cost,
     preferences: {
       ...preferences,
+      travel_style: normaliseTravelStyle(rawPreferences.travel_style),
       budget,
       travellers: normaliseTravellers(
         rawPreferences.travellers ?? DEFAULT_TRAVELLERS,
       ),
+      transport_modes: normaliseTransportModes(rawPreferences.transport_modes),
       accommodation_preference:
         rawPreferences.accommodation_preference ??
         legacyAccommodationPreference,
@@ -143,6 +151,52 @@ function normaliseNodes(
     deduped.add(day.base_node_id);
   }
   return Array.from(deduped);
+}
+
+function normaliseStoredStays(value: unknown): StayAssignment[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((stay) => normaliseStoredStay(stay as StayAssignment));
+}
+
+function normaliseStoredStay(stay: StayAssignment): StayAssignment {
+  const hasSelectedRate =
+    stay.selectedHotelRateOptionIndex !== null &&
+    stay.selectedHotelRateOptionIndex !== undefined &&
+    Array.isArray(stay.hotelRateOptions) &&
+    stay.hotelRateOptions[stay.selectedHotelRateOptionIndex] !== undefined;
+
+  if (
+    stay.accommodationId === null &&
+    !hasSelectedRate &&
+    stay.nightlyCost === 0 &&
+    stay.totalCost === 0
+  ) {
+    return {
+      ...stay,
+      nightlyCost: null,
+      totalCost: null,
+      hotelRateStatus: stay.hotelRateStatus ?? "unknown",
+      hotelRateUnavailableReason: stay.hotelRateUnavailableReason ?? "no_rates",
+    };
+  }
+
+  return stay;
+}
+
+function normaliseTravelStyle(value: unknown): TravelStyle {
+  return typeof value === "string" &&
+    (TRAVEL_STYLES as readonly string[]).includes(value)
+    ? (value as TravelStyle)
+    : "balanced";
+}
+
+function normaliseTransportModes(value: unknown): TransportMode[] {
+  if (!Array.isArray(value)) return ["road"];
+  const modes = value.filter((mode): mode is TransportMode =>
+    typeof mode === "string" &&
+    (TRANSPORT_MODES as readonly string[]).includes(mode),
+  );
+  return modes.length > 0 ? Array.from(new Set(modes)) : ["road"];
 }
 
 function normaliseBudgetBreakdown(
